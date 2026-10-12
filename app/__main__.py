@@ -19,13 +19,13 @@ from aiogram.types import (
 from aiogram.utils.token import TokenValidationError, validate_token
 
 from app import __version__
+from app.admin.autobackup import shutdown_autobackup, sync_autobackup_job
 from app.bot import build_bot, build_dispatcher
 from app.cache.redis import close_redis, init_redis
 from app.config import Settings, get_settings
 from app.core.health import heartbeat
 from app.core.logging import get_logger, setup_logging
 from app.core.settings_store import init_settings_store
-from app.admin.autobackup import shutdown_autobackup, sync_autobackup_job
 from app.db.seed import apply_seed
 from app.db.session import dispose_engine, get_sessionmaker, init_engine, session_scope
 from app.media.ffmpeg import configure_ffmpeg_limiter
