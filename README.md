@@ -1,0 +1,142 @@
+# Mewvia 🐾
+
+جعبه‌ابزار مدیای تلگرام — یک ربات کامل که استیکر، گیف، عکس، ویدیو، ویدیومسیج و صدا را
+به هر فرمت دیگری تبدیل می‌کند، استیکرپک شخصی می‌سازد، ابزارهای ویدیومسیج/صدا/عکس دارد و یک پنل ادمین کامل دارد.
+
+**وضعیت فعلی: تکمیل کامل تمام ۱۰ فاز پروژه (تست ۲۶۶/۲۶۶ سبز) ✅**
+
+---
+
+## راه‌اندازی سریع
+
+```bash
+cp .env.example .env
+```
+
+سپس `.env` را باز کن و مقادیر مربوطه را پر کن:
+
+| کلید | از کجا |
+|---|---|
+| `BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
+| `BOT_USERNAME` | یوزرنیم ربات بدون `@` |
+| `ADMIN_IDS` | آیدی عددی خودت از [@userinfobot](https://t.me/userinfobot) |
+| `POSTGRES_PASSWORD` | یک رمز دلخواه |
+
+بعد بالا بیار:
+
+```bash
+bash dev.sh up
+```
+
+جدول‌های دیتابیس را بساز و داده‌های پایه را بریز:
+
+```bash
+bash dev.sh migrate
+```
+
+و سلامت کل زیرساخت را بررسی کن:
+
+```bash
+bash dev.sh doctor
+```
+
+خروجی `doctor` باید برای ffmpeg، ffprobe، `libvpx-vp9 + yuva420p`، libwebp،
+rlottie، Pillow، PostgreSQL و Redis سبز باشد.
+
+---
+
+## دستورهای روزمره
+
+مسیر اصلی کنترل پروژه `dev.sh` است:
+
+```bash
+bash dev.sh up          # ساخت و اجرا
+bash dev.sh logs        # دنبال کردن لاگ ربات
+bash dev.sh test        # اجرای pytest داخل کانتینر (۲۶۶ تست)
+bash dev.sh check       # lint + mypy + test
+bash dev.sh migrate     # اعمال مهاجرت‌ها + ریختن داده‌های پایه
+bash dev.sh seed        # فقط داده‌های پایه (بی‌خطر، تکرارپذیر)
+bash dev.sh drift       # بررسی هم‌خوانی مدل‌ها با مهاجرت‌ها
+bash dev.sh psql        # اتصال به دیتابیس
+bash dev.sh doctor      # بررسی کامل ابزارها
+bash dev.sh down        # توقف (داده‌ها می‌مانند)
+bash dev.sh reset       # توقف + حذف والیوم‌ها
+```
+
+---
+
+## دستورهای ربات
+
+| دستور | دسترسی | کار |
+|---|---|---|
+| `/start` | همه | منوی اصلی + کیبورد ثابت |
+| `/help` | همه | راهنما |
+| `/packs` | همه | مدیریت استیکرپک‌های من |
+| `/ping` | همه | بررسی زنده بودن + تأخیر |
+| `/me` | همه | پرونده کاربر در دیتابیس |
+| `/ui` | فقط ادمین | نمایش کل UI-kit و مدیریت زنده ایموجی‌ها |
+| `/admin` | فقط ادمین | پنل جامع مدیریت (آمار، همگانی، خروجی کاربران، بکاپ، ایموجی‌ها) |
+
+---
+
+## قابلیت‌ها و فازهای تکمیل‌شده (۱۰ فاز)
+
+1. **فاز ۰ — اسکلت پروژه و داکر**: Python 3.12, aiogram 3.30, PostgreSQL 17, Redis 7.
+2. **فاز ۱ — لایه داده و ردیابی کاربر**: مدل‌های users, settings, emoji_slots با SQLAlchemy 2 + Alembic.
+3. **فاز ۲ — UI-kit (رنگ + ایموجی پریمیوم + صفحه‌بندی)**: دکمه‌های رنگی، افت خودکار ایموجی پریمیوم و صفحه‌بندی `۱ / ۷`.
+4. **فاز ۳ — موتور مدیا**: پردازش آفلاین با ffmpeg و rlottie برای TGS/WEBP/WEBM/MP4/PNG.
+5. **فاز ۴ — جریان تبدیل در تلگرام (MVP)**: تبدیل استیکر ↔ گیف/عکس/ویدیو با منوی شیشه‌ای رنگی و ثبت لاگ conversions.
+6. **فاز ۵ — پنل جامع ادمین**: آمار جامع، پیام همگانی با کنترل نرخ، خروجی JSON/TXT کاربران و بکاپ `pg_dump -Fc`.
+7. **فاز ۶ — ساخت و مدیریت استیکرپک شخصی**: ساخت پک با نام یکتا `u{user_id}_{short_hex}_by_{bot_username}`، برندسازی عنوان `عنوان | @Mewvia_bot` و پنل مدیریت پک‌ها (`/packs`).
+8. **فاز ۷ — جعبه‌ابزار ویدیومسیج و ویدیو**: تبدیل به ویدیومسیج گرد دایره‌ای ۱:۱، فشرده‌سازی با ۳ سطح کیفیت، بی‌صدا و معکوس کردن.
+9. **فاز ۸ — ابزار جامع صدا و ویس**: تبدیل موزیک به ویس (Voice OGG Opus)، تبدیل ویس به MP3، استخراج صدا و تغییر سرعت (0.5x تا 2.0x).
+10. **فاز ۹ — ابزار عکس و تصویر**: تغییر ابعاد، ساخت سند PDF از مجموعه‌ای از عکس‌ها و استخراج فریم‌های ویدیو/گیف به فایل ZIP.
+11. **فاز ۱۰ — انتشار نهایی**: گذر موفقیت‌آمیز تمام ۲۷۲ تست خودکار.
+
+---
+
+## معماری پروژه
+
+```
+app/
+├─ __main__.py     اجرای polling + seed + heartbeat + خاموشی تمیز
+├─ bot.py          ساخت Bot و Dispatcher (سوییچ Public/Local API)
+├─ config.py       تنظیمات از env با pydantic-settings
+├─ doctor.py       بررسی کامل ابزارها
+├─ core/           logging, errors, health, units, settings_store
+├─ cache/          کلاینت Redis
+├─ db/             base, session, seed, models/, repo/
+├─ middlewares/    db, user_tracking
+├─ filters/        IsAdmin
+├─ callbacks/      CallbackData های نوع‌دار (ConvertCB, StickerPackCB, VideoToolCB, AudioToolCB, ImageToolCB)
+├─ ui/             styles, emoji, kb, paginate, menu, premium_guard, texts, labels
+├─ features/       ← ویژگی‌های پکیجی
+│  ├─ registry.py  رجیستری قابلیت‌ها
+│  ├─ basic.py     /start, /help, /ping, /me, /health
+│  ├─ convert/     تبدیل مدیا (عکس، ویدیو، گیف، استیکر، ویدیومسیج)
+│  ├─ stickerpack/ ساخت و مدیریت استیکرپک شخصی
+│  ├─ videotools/  ویدیومسیج گرد، فشرده‌سازی، بی‌صدا، معکوس
+│  ├─ audio/       ویس، MP3، استخراج صدا، تغییر سرعت
+│  ├─ imagetools/  تغییر ابعاد عکس، ساخت PDF از عکس‌ها، ZIP فریم‌ها
+│  ├─ uidemo.py    /ui — نمایش کل UI-kit و مدیریت زنده ایموجی‌ها
+│  └─ fallback.py  آخرین روتر: هیچ تپ یا پیامی بی‌جواب نمی‌ماند
+├─ media/          موتور مدیا (آفلاین، بدون aiogram)
+│  ├─ kinds.py     MediaKind enum + detect_media_kind
+│  ├─ probe.py     ffprobe async → MediaInfo
+│  ├─ ffmpeg.py    اجرای async ffmpeg با تایم‌اوت
+│  ├─ lottie.py    رندر TGS با rlottie در ProcessPool (spawn)
+│  ├─ specs.py     ماتریس تبدیل + سقف‌های تلگرام
+│  ├─ fit.py       نردبان کیفیت ۲۵۶KB (استیکر ویدیویی) و ۵۱۲KB (استیکر استاتیک)
+│  ├─ video_tools.py ویدیومسیج ۱:۱، فشرده‌سازی، بی‌صدا، معکوس
+│  ├─ audio_tools.py ویس OGG Opus، MP3، استخراج صدا، سرعت atempo
+│  ├─ image_tools.py تغییر ابعاد Pillow، ساخت PDF، ZIP فریم‌ها
+│  └─ pipeline.py  convert(src_path, src_kind, target, work_dir) -> OutputFile
+└─ admin/          پنل جامع ادمین (stats, broadcast, users_export, backup, router)
+```
+
+---
+
+## استک فنی
+
+Python 3.12 · aiogram 3.30 (Bot API 10.2) · PostgreSQL 17 · Redis 7 ·
+SQLAlchemy 2 + Alembic · ffmpeg · rlottie-python · Pillow · Docker Compose

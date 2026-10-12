@@ -1,0 +1,92 @@
+name: mewvia
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mewvia-bot:latest
+    restart: unless-stopped
+    init: true          # PID-1 zombie reaping for ffmpeg subprocesses
+    env_file: .env
+    environment:
+      # Service wiring (overrides .env so compose stays the source of truth for hosts)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      TMP_DIR: /data/tmp
+      BACKUP_DIR: /data/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - mewvia_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,sys,time; p=pathlib.Path('/data/health'); sys.exit(0 if p.exists() and time.time()-p.stat().st_mtime < 90 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mewvia}
+      POSTGRES_USER: ${POSTGRES_USER:-mewvia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - mewvia_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mewvia} -d ${POSTGRES_DB:-mewvia}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - mewvia_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # OPTIONAL — Local Bot API Server.
+  # The public Bot API caps downloads at 20MB and uploads at 50MB. Running this
+  # service lifts both to ~2GB. To enable:
+  #   1. Get api_id / api_hash from https://my.telegram.org
+  #   2. Put TELEGRAM_API_ID / TELEGRAM_API_HASH in .env
+  #   3. Uncomment this block
+  #   4. Set TELEGRAM_API_URL=http://telegram-bot-api:8081 in .env
+  #   5. docker compose up -d
+  # No application code changes are needed — app/config.py already reads
+  # TELEGRAM_API_URL and switches the aiogram session accordingly.
+  # ---------------------------------------------------------------------------
+  # telegram-bot-api:
+  #   image: aiogram/telegram-bot-api:latest
+  #   restart: unless-stopped
+  #   environment:
+  #     TELEGRAM_API_ID: ${TELEGRAM_API_ID:?required when the local server is enabled}
+  #     TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:?required when the local server is enabled}
+  #     TELEGRAM_LOCAL: "1"
+  #   volumes:
+  #     - mewvia_botapi:/var/lib/telegram-bot-api
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "nc -z localhost 8081 || exit 1"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  mewvia_data:
+  mewvia_pgdata:
+  mewvia_redisdata:
+  # mewvia_botapi:

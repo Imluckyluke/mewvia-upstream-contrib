@@ -1,0 +1,60 @@
+[project]
+name = "mewvia"
+version = "0.1.0"
+description = "Mewvia — Telegram media toolkit bot"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "ASYNC",    # async gotchas
+    "RUF",
+]
+ignore = [
+    "RUF001",  # ambiguous unicode in strings — Persian/emoji text is intentional
+    "RUF002",
+    "RUF003",
+    "B008",    # aiogram/DI patterns rely on calls in defaults
+    # PEP 695 (`class Page[T]`) is valid for our 3.12 runtime, but the host used
+    # for the fast edit loop has 3.11, and mypy refuses to parse it there. The
+    # TypeVar form works under both.
+    "UP046",
+    "UP047",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/*" = ["E501", "I001", "F401"]
+"tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+exclude = "^migrations/"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# One event loop for the whole session: the database engine is a session-scoped
+# async fixture, and a per-test loop would leave its connections bound to a
+# closed loop.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "media: requires ffmpeg/ffprobe in PATH (run inside the container)",
+    "db: requires a reachable PostgreSQL instance",
+]

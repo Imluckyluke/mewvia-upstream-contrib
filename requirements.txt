@@ -1,0 +1,31 @@
+# ==== Mewvia — pinned runtime dependencies ====
+# Exact pins on purpose: reproducible Docker builds.
+
+# Telegram
+aiogram==3.30.0            # Bot API 10.2 (button `style`, `icon_custom_emoji_id`)
+
+# Config & logging
+pydantic==2.13.0
+pydantic-settings==2.14.2
+structlog==26.1.0
+
+# Database
+SQLAlchemy==2.0.51
+alembic==1.18.5
+asyncpg==0.31.0
+
+# Cache / FSM storage
+redis==8.1.0
+
+# Media
+rlottie-python==1.3.8      # rlottie binary ships inside the wheel
+pillow==12.3.0
+mutagen==1.48.1            # audio tag (ID3/MP4/Vorbis) read+write for the tag editor
+arabic-reshaper==3.0.1
+python-bidi==0.6.11
+
+# Scheduling (auto-backup, temp sweep)
+APScheduler==3.11.3
+
+# Misc
+orjson==3.11.9

@@ -1,0 +1,29 @@
+# Dev overlay — loaded automatically by `docker compose`.
+# Bind-mounts the source so edits apply on restart without a rebuild,
+# and exposes DB/Redis on localhost for inspection.
+#
+# For production, run with:  docker compose -f docker-compose.yml up -d
+
+services:
+  bot:
+    build:
+      target: runtime
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./migrations:/app/migrations
+      - ./alembic.ini:/app/alembic.ini
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./deploy_remote.py:/app/deploy_remote.py
+      - mewvia_data:/data
+    environment:
+      LOG_LEVEL: INFO
+      LOG_JSON: "false"
+
+  postgres:
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6380:6379"
