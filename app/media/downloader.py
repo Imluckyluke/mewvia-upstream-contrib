@@ -186,11 +186,6 @@ def _build_ytdlp_opts(
         "socket_timeout": timeout,
         "extract_flat": False,
         "nocheckcertificate": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["mweb", "web", "android"],
-            }
-        },
     }
 
     cookie = find_cookie_file(platform_key)
@@ -206,14 +201,6 @@ def _build_ytdlp_opts(
     if max_filesize:
         opts["max_filesize"] = max_filesize
 
-    # Use curl_cffi impersonation if installed to evade Cloudflare / bot walls
-    try:
-        import curl_cffi  # noqa: F401
-
-        opts["impersonate"] = "chrome-131:android-14"
-    except Exception:
-        pass
-
     return opts
 
 
@@ -222,13 +209,15 @@ def _probe_info_sync(url: str) -> DownloadInfo:
     platform_key, platform_name, platform_icon = detect_platform(url)
 
     # 1. Try yt-dlp first
-    opts = _build_ytdlp_opts(download=False, timeout=15)
+    opts = _build_ytdlp_opts(download=False, timeout=15, platform_key=platform_key)
     info: dict[str, Any] | None = None
+    probe_error: str | None = None
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
-        log.debug("ytdlp_probe_failed", url=url, error=str(exc))
+        probe_error = str(exc)
+        log.warning("ytdlp_probe_failed", url=url, error=probe_error[:300])
 
     # 2. Check gallery-dl compatibility if yt-dlp failed or gave no media
     is_gallery = False
@@ -242,6 +231,16 @@ def _probe_info_sync(url: str) -> DownloadInfo:
             pass
 
     if not info and not is_gallery:
+        if probe_error:
+            err_lower = probe_error.lower()
+            if "sign in to confirm" in err_lower or "bot" in err_lower:
+                raise ConversionError(
+                    "⚠️ یوتیوب برای مشاهده این ویدیو درخواست تأیید هویت (Bot Verification) داده است."
+                )
+            if "private" in err_lower:
+                raise ConversionError("🔒 این ویدیو خصوصی (Private) است.")
+            if "unavailable" in err_lower:
+                raise ConversionError("❌ این ویدیو در دسترس نیست یا حذف شده است.")
         raise ConversionError("امکان استخراج اطلاعات از این لینک وجود ندارد.")
 
     info = info or {}
