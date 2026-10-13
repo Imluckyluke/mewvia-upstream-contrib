@@ -584,8 +584,8 @@ async def execute_download(
                 clean_title = re.sub(r'[\\/*?:"<>|]', "", title)[:30].strip() or "album"
                 zip_path = work_dir / f"{clean_title}.zip"
 
-                # Concurrent worker semaphore (3 workers in parallel for speed & safety)
-                sem = asyncio.Semaphore(3)
+                # Concurrent worker semaphore (6 workers in parallel for speed)
+                sem = asyncio.Semaphore(6)
 
                 async def _worker(
                     idx: int, it: dict[str, Any]

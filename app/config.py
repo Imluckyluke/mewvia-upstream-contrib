@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     backup_dir: Path = Path("/data/backups")
     health_file: Path = Path("/data/health")
 
-    max_concurrent_jobs: int = 4
+    max_concurrent_jobs: int = 6
     job_timeout: int = 120
     throttle_seconds: int = 2
 
