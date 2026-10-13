@@ -187,6 +187,7 @@ def _build_ytdlp_opts(
         "extract_flat": False,
         "nocheckcertificate": True,
         "remote_components": ["ejs:github"],
+        "proxy": "socks5h://warp:1080",
         "extractor_args": {
             "youtubepot-bgutilhttp": {
                 "base_url": ["http://bgutil-provider:4416"],
@@ -401,6 +402,8 @@ def _download_gallery_sync(url: str, work_dir: Path) -> list[Path]:
         "python",
         "-m",
         "gallery_dl",
+        "--proxy",
+        "socks5h://warp:1080",
         "--dest",
         str(dest_dir),
         "--no-mtime",
