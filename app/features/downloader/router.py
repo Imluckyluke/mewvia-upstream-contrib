@@ -226,12 +226,19 @@ async def cmd_cookie_info(message: Message, settings: Settings) -> None:
     )
 
 
-def _save_cookie_sync(content: bytes) -> int:
+def _save_cookie_sync(content: bytes, file_name: str) -> tuple[Path, int]:
     cookie_dir = Path("/data/cookies")
     cookie_dir.mkdir(parents=True, exist_ok=True)
-    target = Path("/data/cookies.txt")
+    if "insta" in file_name:
+        target = cookie_dir / "instagram.txt"
+    elif "youtube" in file_name or "yt" in file_name:
+        target = cookie_dir / "youtube.txt"
+    else:
+        target = Path("/data/cookies.txt")
     target.write_bytes(content)
-    return target.stat().st_size
+    # Also save as fallback global cookies.txt
+    Path("/data/cookies.txt").write_bytes(content)
+    return target, target.stat().st_size
 
 
 @router.message(
@@ -246,7 +253,8 @@ async def upload_cookie_file(message: Message, bot: Bot, settings: Settings) -> 
     if not doc or not doc.file_name:
         return
     file_name = doc.file_name.lower()
-    if not (file_name.endswith(".txt") and "cookie" in file_name):
+    valid_keywords = ("cookie", "insta", "instagram", "youtube", "yt")
+    if not (file_name.endswith(".txt") and any(k in file_name for k in valid_keywords)):
         return
 
     file_info = await bot.get_file(doc.file_id)
@@ -256,13 +264,14 @@ async def upload_cookie_file(message: Message, bot: Bot, settings: Settings) -> 
 
     buf = io.BytesIO()
     await bot.download_file(file_info.file_path, destination=buf)
-    file_size = await asyncio.to_thread(_save_cookie_sync, buf.getvalue())
+    target_path, file_size = await asyncio.to_thread(_save_cookie_sync, buf.getvalue(), file_name)
     size_str = human_bytes(file_size)
     await message.reply(
-        f"🍪 <b>فایل کوکی با موفقیت ثبت شد!</b>\n\n"
-        f"📁 فایل: <code>/data/cookies.txt</code>\n"
+        f"🍪 <b>فایل کوکی با موفقیت ثبت و فعال شد!</b>\n\n"
+        f"📁 ذخیره در: <code>{target_path}</code>\n"
         f"📦 حجم: <code>{size_str}</code>\n\n"
-        "از این پس تمام درخواست‌های دانلود اینستاگرام و یوتیوب با این کوکی ارسال می‌شوند."
+        "✅ از این لحظه تمام دانلودهای اینستاگرام و یوتیوب برای <b>همه کاربران ربات</b>\n"
+        "به صورت خودکار با این کوکی انجام می‌شوند و هیچ کاربری نیاز به لاگین نخواهد داشت."
     )
 
 
