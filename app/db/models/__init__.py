@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.db.models.conversion import Conversion
 from app.db.models.emoji_slot import EmojiSlot
+from app.db.models.instagram_cookie import InstagramCookie
 from app.db.models.setting import Setting
 from app.db.models.sponsor_channel import SponsorChannel
 from app.db.models.sponsor_seen import SponsorSeenMember
@@ -17,6 +18,7 @@ from app.db.models.user import User
 __all__ = [
     "Conversion",
     "EmojiSlot",
+    "InstagramCookie",
     "Setting",
     "SponsorChannel",
     "SponsorSeenMember",

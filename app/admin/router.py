@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.admin.autobackup import describe_schedule, sync_autobackup_job
 from app.admin.backup import create_db_backup
 from app.admin.broadcast import send_broadcast
+from app.admin.cookies_router import router as cookies_router
 from app.admin.sponsor_router import router as sponsor_router
 from app.admin.stats import (
     format_stats_media,
@@ -53,6 +54,7 @@ log = get_logger(__name__)
 
 router = Router(name="admin")
 router.include_router(sponsor_router)
+router.include_router(cookies_router)
 
 
 class BroadcastSG(StatesGroup):
@@ -122,6 +124,13 @@ async def build_admin_panel_kb(registry: EmojiRegistry) -> KB:
         ),
     )
     kb.row(
+        inline_button(
+            "کوکی‌های اینستاگرام",
+            callback_data="admin_act:cookies",
+            style=Style.PRIMARY,
+            emoji_slot="tool",
+            registry=registry,
+        ),
         inline_button(
             "⚙️ تنظیمات ربات",
             callback_data="admin_act:settings",

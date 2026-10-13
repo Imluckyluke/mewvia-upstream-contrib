@@ -178,6 +178,7 @@ def _build_ytdlp_opts(
     timeout: int = 25,
     max_filesize: int | None = None,
     platform_key: str | None = None,
+    cookie_file: str | None = None,
 ) -> dict[str, Any]:
     opts: dict[str, Any] = {
         "quiet": True,
@@ -195,9 +196,12 @@ def _build_ytdlp_opts(
         },
     }
 
-    cookie = find_cookie_file(platform_key)
-    if cookie:
-        opts["cookiefile"] = str(cookie)
+    if cookie_file:
+        opts["cookiefile"] = str(cookie_file)
+    else:
+        cookie = find_cookie_file(platform_key)
+        if cookie:
+            opts["cookiefile"] = str(cookie)
 
     if outtmpl:
         opts["outtmpl"] = outtmpl
@@ -211,12 +215,17 @@ def _build_ytdlp_opts(
     return opts
 
 
-def _probe_info_sync(url: str) -> DownloadInfo:
+def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
     """Extract metadata using yt-dlp, falling back to gallery-dl if needed."""
     platform_key, platform_name, platform_icon = detect_platform(url)
 
     # 1. Try yt-dlp first
-    opts = _build_ytdlp_opts(download=False, timeout=15, platform_key=platform_key)
+    opts = _build_ytdlp_opts(
+        download=False,
+        timeout=15,
+        platform_key=platform_key,
+        cookie_file=cookie_file,
+    )
     info: dict[str, Any] | None = None
     probe_error: str | None = None
     try:
@@ -283,9 +292,9 @@ def _probe_info_sync(url: str) -> DownloadInfo:
     )
 
 
-async def probe_media_url(url: str) -> DownloadInfo:
+async def probe_media_url(url: str, cookie_file: str | None = None) -> DownloadInfo:
     """Async wrapper for metadata probe."""
-    return await asyncio.to_thread(_probe_info_sync, url)
+    return await asyncio.to_thread(_probe_info_sync, url, cookie_file)
 
 
 def _download_video_sync(
@@ -293,6 +302,7 @@ def _download_video_sync(
     work_dir: Path,
     max_height: int | None = None,
     max_bytes: int | None = None,
+    cookie_file: str | None = None,
 ) -> Path:
     outtmpl = str(work_dir / "media.%(ext)s")
 
@@ -311,6 +321,7 @@ def _download_video_sync(
         format_str=format_str,
         timeout=45,
         max_filesize=max_bytes,
+        cookie_file=cookie_file,
     )
     opts["merge_output_format"] = "mp4"
 
@@ -348,6 +359,7 @@ def _download_audio_sync(
     url: str,
     work_dir: Path,
     max_bytes: int | None = None,
+    cookie_file: str | None = None,
 ) -> Path:
     outtmpl = str(work_dir / "audio.%(ext)s")
     postprocessors = [
@@ -365,6 +377,7 @@ def _download_audio_sync(
         postprocessors=postprocessors,
         timeout=45,
         max_filesize=max_bytes,
+        cookie_file=cookie_file,
     )
 
     try:
@@ -393,7 +406,11 @@ def _download_audio_sync(
     return candidates[0]
 
 
-def _download_gallery_sync(url: str, work_dir: Path) -> list[Path]:
+def _download_gallery_sync(
+    url: str,
+    work_dir: Path,
+    cookie_file: str | None = None,
+) -> list[Path]:
     """Download images/galleries using gallery-dl CLI."""
     dest_dir = work_dir / "gallery"
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -410,8 +427,8 @@ def _download_gallery_sync(url: str, work_dir: Path) -> list[Path]:
     ]
 
     platform_key, _, _ = detect_platform(url)
-    cookie = find_cookie_file(platform_key)
-    if cookie:
+    cookie = Path(cookie_file) if cookie_file else find_cookie_file(platform_key)
+    if cookie and cookie.is_file() and cookie.stat().st_size > 0:
         cmd.extend(["--cookies", str(cookie)])
 
     if platform_key == "instagram":
@@ -464,23 +481,28 @@ async def download_video(
     work_dir: Path,
     max_height: int | None = None,
     max_bytes: int | None = None,
+    cookie_file: str | None = None,
 ) -> Path:
     """Async wrapper for video downloading."""
-    return await asyncio.to_thread(_download_video_sync, url, work_dir, max_height, max_bytes)
+    return await asyncio.to_thread(
+        _download_video_sync, url, work_dir, max_height, max_bytes, cookie_file
+    )
 
 
 async def download_audio(
     url: str,
     work_dir: Path,
     max_bytes: int | None = None,
+    cookie_file: str | None = None,
 ) -> Path:
     """Async wrapper for audio downloading."""
-    return await asyncio.to_thread(_download_audio_sync, url, work_dir, max_bytes)
+    return await asyncio.to_thread(_download_audio_sync, url, work_dir, max_bytes, cookie_file)
 
 
 async def download_gallery(
     url: str,
     work_dir: Path,
+    cookie_file: str | None = None,
 ) -> list[Path]:
     """Async wrapper for gallery downloading."""
-    return await asyncio.to_thread(_download_gallery_sync, url, work_dir)
+    return await asyncio.to_thread(_download_gallery_sync, url, work_dir, cookie_file)

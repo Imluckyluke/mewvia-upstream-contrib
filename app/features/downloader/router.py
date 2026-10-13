@@ -34,8 +34,9 @@ from app.core.errors import ConversionError, MewviaError
 from app.core.logging import get_logger
 from app.core.quota import check_daily_quota
 from app.core.units import fa_digits, human_bytes
-from app.db.repo import ConversionRepo
+from app.db.repo import ConversionRepo, InstagramCookieRepo
 from app.features.registry import Feature, register
+from app.filters import IsAdmin
 from app.media.downloader import (
     create_token,
     detect_platform,
@@ -43,7 +44,6 @@ from app.media.downloader import (
     download_gallery,
     download_video,
     extract_first_url,
-    find_cookie_file,
     get_download_context,
     probe_media_url,
     store_download_context,
@@ -206,49 +206,23 @@ async def cmd_download_url(message: Message, command: CommandObject) -> None:
     await _handle_url_input(message, url)
 
 
-@router.message(Command("cookie", "cookies"))
-async def cmd_cookie_info(message: Message, settings: Settings) -> None:
-    """Show cookie status or instructions for admins."""
-    if message.from_user and message.from_user.id not in settings.admin_ids:
-        return
-    active_cookie = find_cookie_file()
-    status = (
-        f"✅ <b>فعال است</b> (حجم: <code>{human_bytes(active_cookie.stat().st_size)}</code>)"
-        if active_cookie
-        else "❌ <b>تنظیم نشده است</b>"
-    )
-    await message.reply(
-        "🍪 <b>وضعیت کوکی‌های دانلودر:</b>\n\n"
-        f"وضعیت فعلی: {status}\n\n"
-        "💡 <b>نحوه ثبت یا به‌روزرسانی کوکی:</b>\n"
-        "برای دور زدن محدودیت‌های لاگین اینستاگرام و یوتیوب، فایل <code>cookies.txt</code>\n"
-        "(خروجی افزونه Get cookies.txt مرورگر) را به عنوان Document همین‌جا بفرست."
-    )
+@router.message(Command("cookie", "cookies"), IsAdmin())
+async def cmd_cookie_info(message: Message, session: AsyncSession) -> None:
+    """Show Instagram cookies management dashboard for admins."""
+    from app.admin.cookies_router import ready_registry, render_cookies_dashboard
 
-
-def _save_cookie_sync(content: bytes, file_name: str) -> tuple[Path, int]:
-    cookie_dir = Path("/data/cookies")
-    cookie_dir.mkdir(parents=True, exist_ok=True)
-    if "insta" in file_name:
-        target = cookie_dir / "instagram.txt"
-    elif "youtube" in file_name or "yt" in file_name:
-        target = cookie_dir / "youtube.txt"
-    else:
-        target = Path("/data/cookies.txt")
-    target.write_bytes(content)
-    # Also save as fallback global cookies.txt
-    Path("/data/cookies.txt").write_bytes(content)
-    return target, target.stat().st_size
+    registry = await ready_registry()
+    text, kb = await render_cookies_dashboard(session, registry)
+    await message.reply(text, reply_markup=kb.as_markup())
 
 
 @router.message(
     F.chat.type == "private",
+    IsAdmin(),
     F.document,
 )
-async def upload_cookie_file(message: Message, bot: Bot, settings: Settings) -> None:
-    """Allow admins to upload cookies.txt directly to bypass Instagram/YouTube login walls."""
-    if message.from_user and message.from_user.id not in settings.admin_ids:
-        return
+async def upload_cookie_file(message: Message, bot: Bot, session: AsyncSession) -> None:
+    """Allow admins to upload cookies.txt directly to add to the account pool."""
     doc = message.document
     if not doc or not doc.file_name:
         return
@@ -264,14 +238,47 @@ async def upload_cookie_file(message: Message, bot: Bot, settings: Settings) -> 
 
     buf = io.BytesIO()
     await bot.download_file(file_info.file_path, destination=buf)
-    target_path, file_size = await asyncio.to_thread(_save_cookie_sync, buf.getvalue(), file_name)
-    size_str = human_bytes(file_size)
+    raw_text = buf.getvalue().decode("utf-8", errors="ignore")
+
+    from app.admin.cookies_router import (
+        ready_registry,
+        render_cookies_dashboard,
+        sync_active_cookie_to_disk,
+    )
+    from app.media.cookie_checker import (
+        check_instagram_cookie_health_sync,
+        parse_and_normalize_cookies,
+    )
+
+    netscape_text, cookie_dict = parse_and_normalize_cookies(raw_text)
+    account_id = cookie_dict.get("ds_user_id")
+    repo = InstagramCookieRepo(session)
+    count = await repo.count()
+    label = f"اکانت {count + 1}" if not account_id else f"اکانت {account_id[:8]}"
+
+    is_valid, _, err = await asyncio.to_thread(check_instagram_cookie_health_sync, cookie_dict)
+    status_str = "valid" if is_valid else "invalid"
+
+    cookie = await repo.add(
+        label=label,
+        cookie_text=netscape_text,
+        account_id=account_id,
+        status=status_str,
+    )
+    if not is_valid:
+        cookie.error_message = err
+
+    await sync_active_cookie_to_disk(session)
+    await session.flush()
+
+    registry = await ready_registry()
+    _, kb = await render_cookies_dashboard(session, registry)
+    status_badge = "🟢 سالم و فعال در چرخه" if is_valid else f"⚠️ نیاز به بررسی ({err})"
     await message.reply(
-        f"🍪 <b>فایل کوکی با موفقیت ثبت و فعال شد!</b>\n\n"
-        f"📁 ذخیره در: <code>{target_path}</code>\n"
-        f"📦 حجم: <code>{size_str}</code>\n\n"
-        "✅ از این لحظه تمام دانلودهای اینستاگرام و یوتیوب برای <b>همه کاربران ربات</b>\n"
-        "به صورت خودکار با این کوکی انجام می‌شوند و هیچ کاربری نیاز به لاگین نخواهد داشت."
+        f"🍪 <b>اکانت «{html.quote(label)}» با موفقیت اضافه شد!</b>\n\n"
+        f"وضعیت اولیه: {status_badge}\n"
+        "این کوکی در دیتابیس ثبت شد و به صورت خودکار برای دانلودهای اینستاگرام استفاده می‌شود.",
+        reply_markup=kb.as_markup(),
     )
 
 
@@ -352,6 +359,16 @@ async def execute_download(
     with tempfile.TemporaryDirectory(dir=settings.tmp_dir) as tmp_dir:
         work_dir = Path(tmp_dir)
 
+        cookie_file_str: str | None = None
+        cookie_record = None
+        repo_cookie = InstagramCookieRepo(session)
+        if platform_key == "instagram":
+            cookie_record = await repo_cookie.get_next_cookie()
+            if cookie_record and cookie_record.cookie_text:
+                ig_cookie_path = work_dir / "ig_session.txt"
+                ig_cookie_path.write_text(cookie_record.cookie_text, encoding="utf-8")
+                cookie_file_str = str(ig_cookie_path)
+
         try:
             if action in ("video", "video_720"):
                 max_h = 720 if action == "video_720" else None
@@ -362,6 +379,7 @@ async def execute_download(
                         work_dir,
                         max_height=max_h,
                         max_bytes=settings.upload_limit,
+                        cookie_file=cookie_file_str,
                     )
 
                 downloaded_file = await run_media_job(settings, _do_video, stage="download_video")
@@ -392,6 +410,7 @@ async def execute_download(
                         url,
                         work_dir,
                         max_bytes=settings.upload_limit,
+                        cookie_file=cookie_file_str,
                     )
 
                 downloaded_file = await run_media_job(settings, _do_audio, stage="download_audio")
@@ -421,7 +440,11 @@ async def execute_download(
             elif action == "gallery":
 
                 async def _do_gallery() -> list[Path]:
-                    return await download_gallery(url, work_dir)
+                    return await download_gallery(
+                        url,
+                        work_dir,
+                        cookie_file=cookie_file_str,
+                    )
 
                 gallery_files = await run_media_job(settings, _do_gallery, stage="download_gallery")
                 if not gallery_files:
@@ -445,6 +468,9 @@ async def execute_download(
             else:
                 return
 
+            if cookie_record:
+                await repo_cookie.record_usage(cookie_record.id, success=True)
+
             # Clean up status message
             try:
                 if isinstance(status_msg, Message):
@@ -465,12 +491,16 @@ async def execute_download(
             log.info("downloader_success", platform=platform_key, user_id=user_id, size=file_size)
 
         except MewviaError as exc:
+            if cookie_record:
+                await repo_cookie.record_usage(cookie_record.id, success=False, error=str(exc))
             err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
             if isinstance(status_msg, Message):
                 await status_msg.edit_text(err)
             else:
                 await msg.answer(err)
         except Exception as exc:
+            if cookie_record:
+                await repo_cookie.record_usage(cookie_record.id, success=False, error=str(exc))
             log.error("downloader_error", url=url, error=str(exc))
             err = "❌ خطا در دانلود رسانه. ممکن است لینک منقضی یا نامعتبر باشد."
             if isinstance(status_msg, Message):
