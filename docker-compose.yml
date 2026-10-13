@@ -21,9 +21,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      bgutil-provider:
+        condition: service_started
     volumes:
       - mewvia_data:/data
       - mewvia_botapi:/var/lib/telegram-bot-api
+      - /usr/local/bin/deno:/usr/local/bin/deno:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import pathlib,sys,time; p=pathlib.Path('/data/health'); sys.exit(0 if p.exists() and time.time()-p.stat().st_mtime < 90 else 1)"]
       interval: 30s
@@ -79,6 +82,16 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+  # ---------------------------------------------------------------------------
+  # YouTube PO Token Provider (Proof of Origin)
+  # Provides fresh GVS PO-tokens for yt-dlp to bypass YouTube bot verification.
+  # ---------------------------------------------------------------------------
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    restart: unless-stopped
+    expose:
+      - "4416"
 
 volumes:
   mewvia_data:

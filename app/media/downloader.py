@@ -186,6 +186,12 @@ def _build_ytdlp_opts(
         "socket_timeout": timeout,
         "extract_flat": False,
         "nocheckcertificate": True,
+        "remote_components": ["ejs:github"],
+        "extractor_args": {
+            "youtubepot-bgutilhttp": {
+                "base_url": ["http://bgutil-provider:4416"],
+            },
+        },
     }
 
     cookie = find_cookie_file(platform_key)
