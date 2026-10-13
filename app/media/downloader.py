@@ -59,23 +59,15 @@ PLATFORM_INFO: dict[str, tuple[str, str]] = {
 
 
 def find_cookie_file(platform_key: str | None = None) -> Path | None:
-    """Check for platform-specific or global cookie file."""
-    candidates = []
-    if platform_key:
-        candidates.append(Path(f"/data/cookies/{platform_key}.txt"))
-    candidates.extend(
-        [
-            Path("/data/cookies.txt"),
-            Path("/data/cookie.txt"),
-            Path("/data/cookies/cookies.txt"),
-        ]
-    )
-    for p in candidates:
-        try:
-            if p.is_file() and p.stat().st_size > 0:
-                return p
-        except OSError:
-            continue
+    """Check for platform-specific cookie file."""
+    if not platform_key or platform_key in ("spotify", "other"):
+        return None
+    p = Path(f"/data/cookies/{platform_key}.txt")
+    try:
+        if p.is_file() and p.stat().st_size > 0:
+            return p
+    except OSError:
+        pass
     return None
 
 
@@ -324,19 +316,12 @@ def _download_spotify_track_sync(
     work_dir: Path,
     max_bytes: int | None = None,
 ) -> Path:
-    """Download matching audio for a Spotify track and embed ID3 cover & tags."""
+    """Download matching audio for a Spotify track in a single pass and embed ID3 cover & tags."""
     query_parts = [artist, title, "audio"] if artist else [title, "audio"]
     query = f"ytsearch1:{' '.join(p for p in query_parts if p)}"
 
-    opts = _build_ytdlp_opts(download=False, timeout=15)
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        res = ydl.extract_info(query, download=False)
-        entries = res.get("entries") or []
-        if not entries:
-            raise ConversionError(f"ترک «{title}» در دیتابیس یافت نشد.")
-        target_url = entries[0].get("webpage_url") or entries[0].get("url")
-
-    mp3_file = _download_audio_sync(target_url, work_dir, max_bytes=max_bytes)
+    # Direct 1-pass search and download (cuts latency in half)
+    mp3_file = _download_audio_sync(query, work_dir, max_bytes=max_bytes)
 
     # Embed original Spotify cover and ID3 tags using Mutagen
     try:
@@ -592,7 +577,7 @@ def _download_audio_sync(
     opts = _build_ytdlp_opts(
         download=True,
         outtmpl=outtmpl,
-        format_str="bestaudio/best",
+        format_str="140/bestaudio[ext=m4a]/bestaudio/best",
         postprocessors=postprocessors,
         timeout=45,
         max_filesize=max_bytes,

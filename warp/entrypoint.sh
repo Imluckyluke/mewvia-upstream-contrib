@@ -64,4 +64,9 @@ fi
 echo "[+] Starting microsocks on 0.0.0.0:1080"
 microsocks -i 0.0.0.0 -p 1080 &
 
+# Ensure 'warp' resolves to localhost inside this network namespace
+if ! grep -q "warp" /etc/hosts 2>/dev/null; then
+  echo "127.0.0.1 warp" >> /etc/hosts 2>/dev/null || true
+fi
+
 tail -f /dev/null

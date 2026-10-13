@@ -188,19 +188,10 @@ async def test_download_spotify_track_mocked():
         dummy_mp3 = work_dir / "audio.mp3"
         dummy_mp3.write_bytes(b"FAKE_MP3_DATA" * 50)
 
-        with (
-            patch(
-                "app.media.downloader._download_audio_sync",
-                return_value=dummy_mp3,
-            ),
-            patch("yt_dlp.YoutubeDL") as mock_ydl,
+        with patch(
+            "app.media.downloader._download_audio_sync",
+            return_value=dummy_mp3,
         ):
-            mock_inst = MagicMock()
-            mock_inst.extract_info.return_value = {
-                "entries": [{"webpage_url": "https://youtube.com/watch?v=123"}]
-            }
-            mock_ydl.return_value.__enter__.return_value = mock_inst
-
             res_file = await download_spotify_track(
                 title="Test Song",
                 artist="Test Singer",
