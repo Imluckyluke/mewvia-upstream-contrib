@@ -27,6 +27,7 @@ SOURCE_KIND_LABELS: dict[str, str] = {
     "audio": "صوت / موزیک",
     "document_image": "سند عکس",
     "document_video": "سند ویدیو",
+    "url": "لینک وب / فضای مجازی",
 }
 
 TARGET_ID_LABELS: dict[str, str] = {
@@ -52,6 +53,16 @@ TARGET_ID_LABELS: dict[str, str] = {
     "filter_sepia": "فیلتر سپیا",
     "filter_bright": "فیلتر درخشان",
     "filter_blur": "فیلتر بلور",
+    "dl_youtube": "دانلود از یوتیوب",
+    "dl_instagram": "دانلود از اینستاگرام",
+    "dl_tiktok": "دانلود از تیک‌تاک",
+    "dl_twitter": "دانلود از توییتر (X)",
+    "dl_pinterest": "دانلود از پینترست",
+    "dl_soundcloud": "دانلود از ساندکلاد",
+    "dl_reddit": "دانلود از ردیت",
+    "dl_aparat": "دانلود از آپارات",
+    "dl_facebook": "دانلود از فیسبوک",
+    "dl_other": "دانلود از سایر وب‌سایت‌ها",
 }
 
 #: Conversion target_ids that belong to the Music & Voice toolkit.

@@ -27,5 +27,11 @@ python-bidi==0.6.11
 # Scheduling (auto-backup, temp sweep)
 APScheduler==3.11.3
 
+# Media Downloader
+yt-dlp>=2025.1.0
+gallery-dl>=1.28.0
+curl-cffi>=0.6.0
+requests>=2.31.0
+
 # Misc
 orjson==3.11.9

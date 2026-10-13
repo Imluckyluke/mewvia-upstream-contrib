@@ -10,6 +10,7 @@ from __future__ import annotations
 from app.callbacks.audio import AudioToolCB
 from app.callbacks.batch import BatchCB
 from app.callbacks.convert import ConvertCB
+from app.callbacks.downloader import DownloaderCB
 from app.callbacks.filter import FilterCB
 from app.callbacks.image import ImageToolCB
 from app.callbacks.nav import DemoCB, MenuCB, NoopCB, PageCB
@@ -22,6 +23,7 @@ __all__ = [
     "BatchCB",
     "ConvertCB",
     "DemoCB",
+    "DownloaderCB",
     "FilterCB",
     "ImageToolCB",
     "MenuCB",

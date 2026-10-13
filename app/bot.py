@@ -54,7 +54,10 @@ def build_bot(settings: Settings) -> Bot:
 def build_storage(settings: Settings) -> BaseStorage:
     """Redis-backed FSM so state survives restarts; memory as a fallback."""
     if settings.redis_url:
-        return RedisStorage.from_url(settings.redis_url)
+        return RedisStorage.from_url(
+            settings.redis_url,
+            connection_kwargs={"max_connections": 50},
+        )
     log.warning("redis_url_missing_using_memory_storage")
     return MemoryStorage()
 

@@ -16,6 +16,7 @@ services:
       - ./pyproject.toml:/app/pyproject.toml
       - ./deploy_remote.py:/app/deploy_remote.py
       - mewvia_data:/data
+      - mewvia_botapi:/var/lib/telegram-bot-api
     environment:
       LOG_LEVEL: INFO
       LOG_JSON: "false"

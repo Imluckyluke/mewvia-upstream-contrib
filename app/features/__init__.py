@@ -25,6 +25,7 @@ def load_features() -> list[Feature]:
             basic,
             batch,
             convert,
+            downloader,
             fallback,
             filters,
             group_media,

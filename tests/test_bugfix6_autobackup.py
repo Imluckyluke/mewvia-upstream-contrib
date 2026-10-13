@@ -55,7 +55,9 @@ async def test_quota_unlimited_by_default(
     app_dispatcher: Dispatcher, session: AsyncSession
 ) -> None:
     from app.core.quota import remaining_quota
+    from app.core.settings_store import get_settings_store
 
+    await get_settings_store().set("daily_quota", "0")
     assert await remaining_quota(session, 12345) is None
 
 
