@@ -57,6 +57,27 @@ PLATFORM_INFO: dict[str, tuple[str, str]] = {
 }
 
 
+def find_cookie_file(platform_key: str | None = None) -> Path | None:
+    """Check for platform-specific or global cookie file."""
+    candidates = []
+    if platform_key:
+        candidates.append(Path(f"/data/cookies/{platform_key}.txt"))
+    candidates.extend(
+        [
+            Path("/data/cookies.txt"),
+            Path("/data/cookie.txt"),
+            Path("/data/cookies/cookies.txt"),
+        ]
+    )
+    for p in candidates:
+        try:
+            if p.is_file() and p.stat().st_size > 0:
+                return p
+        except OSError:
+            continue
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class DownloadInfo:
     """Normalized metadata for a media URL."""
@@ -156,6 +177,7 @@ def _build_ytdlp_opts(
     postprocessors: list[dict[str, Any]] | None = None,
     timeout: int = 25,
     max_filesize: int | None = None,
+    platform_key: str | None = None,
 ) -> dict[str, Any]:
     opts: dict[str, Any] = {
         "quiet": True,
@@ -170,6 +192,10 @@ def _build_ytdlp_opts(
             }
         },
     }
+
+    cookie = find_cookie_file(platform_key)
+    if cookie:
+        opts["cookiefile"] = str(cookie)
 
     if outtmpl:
         opts["outtmpl"] = outtmpl
@@ -282,8 +308,21 @@ def _download_video_sync(
     )
     opts["merge_output_format"] = "mp4"
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    except Exception as exc:
+        err_str = str(exc).lower()
+        if "login" in err_str or "empty media" in err_str or "redirect to login" in err_str:
+            raise ConversionError(
+                "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین یا کوکی دارد.\n\n"
+                "علت: این پست ممکن است خصوصی باشد، یا اینستاگرام برای آی‌پی سرور محدودیت گذاشته است."
+            ) from None
+        if "sign in to confirm" in err_str:
+            raise ConversionError(
+                "⚠️ یوتیوب برای این ویدیو درخواست تأیید هویت (Bot Verification) داده است."
+            ) from None
+        raise
 
     # Find the output file
     candidates = list(work_dir.glob("media.*"))
@@ -322,8 +361,21 @@ def _download_audio_sync(
         max_filesize=max_bytes,
     )
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([url])
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    except Exception as exc:
+        err_str = str(exc).lower()
+        if "login" in err_str or "empty media" in err_str or "redirect to login" in err_str:
+            raise ConversionError(
+                "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین یا کوکی دارد.\n\n"
+                "علت: این پست ممکن است خصوصی باشد، یا اینستاگرام برای آی‌پی سرور محدودیت گذاشته است."
+            ) from None
+        if "sign in to confirm" in err_str:
+            raise ConversionError(
+                "⚠️ یوتیوب برای این ویدیو درخواست تأیید هویت (Bot Verification) داده است."
+            ) from None
+        raise
 
     candidates = list(work_dir.glob("audio.mp3"))
     if not candidates:
@@ -347,8 +399,26 @@ def _download_gallery_sync(url: str, work_dir: Path) -> list[Path]:
         "--dest",
         str(dest_dir),
         "--no-mtime",
-        url,
     ]
+
+    platform_key, _, _ = detect_platform(url)
+    cookie = find_cookie_file(platform_key)
+    if cookie:
+        cmd.extend(["--cookies", str(cookie)])
+
+    if platform_key == "instagram":
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+        )
+        cmd.extend(
+            [
+                "-o",
+                f"extractor.headers.User-Agent={ua}",
+            ]
+        )
+
+    cmd.append(url)
 
     try:
         proc = subprocess.run(
@@ -370,6 +440,12 @@ def _download_gallery_sync(url: str, work_dir: Path) -> list[Path]:
     if not results:
         err = proc.stderr.decode(errors="replace").strip()
         log.warning("gallery_dl_failed", error=err[:300])
+        err_lower = err.lower()
+        if "login" in err_lower or "redirect to login" in err_lower:
+            raise ConversionError(
+                "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین یا کوکی دارد.\n\n"
+                "علت: این پست ممکن است خصوصی باشد، یا اینستاگرام برای سرور دسترسی را بسته است."
+            )
         raise ConversionError("فایلی در گالری یافت نشد یا دسترسی به آن محدود است.")
 
     return sorted(results)

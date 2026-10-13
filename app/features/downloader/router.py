@@ -10,6 +10,8 @@ Handles links sent by users:
 
 from __future__ import annotations
 
+import asyncio
+import io
 import tempfile
 import time
 from pathlib import Path
@@ -21,6 +23,7 @@ from aiogram.types import (
     CallbackQuery,
     FSInputFile,
     InputMediaPhoto,
+    InputMediaVideo,
     Message,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +43,7 @@ from app.media.downloader import (
     download_gallery,
     download_video,
     extract_first_url,
+    find_cookie_file,
     get_download_context,
     probe_media_url,
     store_download_context,
@@ -71,7 +75,7 @@ async def _handle_url_input(message: Message, url: str) -> None:
     try:
         info = await probe_media_url(url)
     except MewviaError as exc:
-        err = error_text(exc.code)
+        err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
         if status_msg:
             await status_msg.edit_text(err)
         else:
@@ -200,6 +204,66 @@ async def cmd_download_url(message: Message, command: CommandObject) -> None:
         )
         return
     await _handle_url_input(message, url)
+
+
+@router.message(Command("cookie", "cookies"))
+async def cmd_cookie_info(message: Message, settings: Settings) -> None:
+    """Show cookie status or instructions for admins."""
+    if message.from_user and message.from_user.id not in settings.admin_ids:
+        return
+    active_cookie = find_cookie_file()
+    status = (
+        f"✅ <b>فعال است</b> (حجم: <code>{human_bytes(active_cookie.stat().st_size)}</code>)"
+        if active_cookie
+        else "❌ <b>تنظیم نشده است</b>"
+    )
+    await message.reply(
+        "🍪 <b>وضعیت کوکی‌های دانلودر:</b>\n\n"
+        f"وضعیت فعلی: {status}\n\n"
+        "💡 <b>نحوه ثبت یا به‌روزرسانی کوکی:</b>\n"
+        "برای دور زدن محدودیت‌های لاگین اینستاگرام و یوتیوب، فایل <code>cookies.txt</code>\n"
+        "(خروجی افزونه Get cookies.txt مرورگر) را به عنوان Document همین‌جا بفرست."
+    )
+
+
+def _save_cookie_sync(content: bytes) -> int:
+    cookie_dir = Path("/data/cookies")
+    cookie_dir.mkdir(parents=True, exist_ok=True)
+    target = Path("/data/cookies.txt")
+    target.write_bytes(content)
+    return target.stat().st_size
+
+
+@router.message(
+    F.chat.type == "private",
+    F.document,
+)
+async def upload_cookie_file(message: Message, bot: Bot, settings: Settings) -> None:
+    """Allow admins to upload cookies.txt directly to bypass Instagram/YouTube login walls."""
+    if message.from_user and message.from_user.id not in settings.admin_ids:
+        return
+    doc = message.document
+    if not doc or not doc.file_name:
+        return
+    file_name = doc.file_name.lower()
+    if not (file_name.endswith(".txt") and "cookie" in file_name):
+        return
+
+    file_info = await bot.get_file(doc.file_id)
+    if not file_info.file_path:
+        await message.reply("❌ خطا در دریافت فایل از تلگرام.")
+        return
+
+    buf = io.BytesIO()
+    await bot.download_file(file_info.file_path, destination=buf)
+    file_size = await asyncio.to_thread(_save_cookie_sync, buf.getvalue())
+    size_str = human_bytes(file_size)
+    await message.reply(
+        f"🍪 <b>فایل کوکی با موفقیت ثبت شد!</b>\n\n"
+        f"📁 فایل: <code>/data/cookies.txt</code>\n"
+        f"📦 حجم: <code>{size_str}</code>\n\n"
+        "از این پس تمام درخواست‌های دانلود اینستاگرام و یوتیوب با این کوکی ارسال می‌شوند."
+    )
 
 
 class ContainsMediaUrlFilter(BaseFilter):
@@ -355,10 +419,14 @@ async def execute_download(
                     raise ConversionError("هیچ عکسی برای دانلود یافت نشد.")
 
                 file_size = sum(f.stat().st_size for f in gallery_files)
-                # Send up to 10 photos as media group
-                media_group: list[Any] = [
-                    InputMediaPhoto(media=FSInputFile(p)) for p in gallery_files[:10]
-                ]
+                # Send up to 10 items as media group (handling mixed photos/videos)
+                media_group: list[Any] = []
+                for p in gallery_files[:10]:
+                    if p.suffix.lower() == ".mp4":
+                        media_group.append(InputMediaVideo(media=FSInputFile(p)))
+                    else:
+                        media_group.append(InputMediaPhoto(media=FSInputFile(p)))
+
                 await bot.send_media_group(
                     chat_id=chat_id,
                     media=media_group,
@@ -388,7 +456,7 @@ async def execute_download(
             log.info("downloader_success", platform=platform_key, user_id=user_id, size=file_size)
 
         except MewviaError as exc:
-            err = error_text(exc.code)
+            err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
             if isinstance(status_msg, Message):
                 await status_msg.edit_text(err)
             else:
