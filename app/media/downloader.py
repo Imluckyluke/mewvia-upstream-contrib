@@ -50,6 +50,7 @@ PLATFORM_INFO: dict[str, tuple[str, str]] = {
     "twitter": ("توییتر (X)", "🐦"),
     "pinterest": ("پینترست", "📌"),
     "soundcloud": ("ساندکلاد", "🎧"),
+    "spotify": ("اسپاتیفای", "🟢"),
     "reddit": ("ردیت", "🤖"),
     "aparat": ("آپارات", "📺"),
     "facebook": ("فیسبوک", "🌐"),
@@ -94,6 +95,9 @@ class DownloadInfo:
     is_video: bool
     is_audio_only: bool
     is_gallery: bool
+    is_playlist: bool = False
+    playlist_count: int = 0
+    playlist_items: tuple[dict[str, Any], ...] = ()
 
 
 def detect_platform(url: str) -> tuple[str, str, str]:
@@ -115,6 +119,8 @@ def detect_platform(url: str) -> tuple[str, str, str]:
         key = "pinterest"
     elif "soundcloud.com" in host:
         key = "soundcloud"
+    elif "spotify.com" in host or "spotify.link" in host:
+        key = "spotify"
     elif "reddit.com" in host or "redd.it" in host:
         key = "reddit"
     elif "aparat.com" in host:
@@ -191,7 +197,7 @@ def _build_ytdlp_opts(
         "proxy": "socks5h://warp:1080",
         "extractor_args": {
             "youtubepot-bgutilhttp": {
-                "base_url": ["http://bgutil-provider:4416"],
+                "base_url": ["http://warp:4416"],
             },
         },
     }
@@ -215,17 +221,211 @@ def _build_ytdlp_opts(
     return opts
 
 
+def extract_spotify_metadata_sync(url: str) -> dict[str, Any]:
+    """Fetch track or playlist/album metadata from Spotify public embeds/oembed."""
+    clean_url = url.split("?")[0].rstrip("/")
+    parsed = urlparse(clean_url)
+    parts = [p for p in parsed.path.split("/") if p]
+    kind = parts[0] if parts else "track"
+    item_id = parts[1] if len(parts) > 1 else ""
+
+    oembed_url = f"https://open.spotify.com/oembed?url={clean_url}"
+    oembed_data: dict[str, Any] = {}
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            oembed_data = json.loads(r.read().decode("utf-8"))
+    except Exception as exc:
+        log.warning("spotify_oembed_failed", url=url, error=str(exc))
+
+    title = oembed_data.get("title") or "Spotify Media"
+    thumbnail = oembed_data.get("thumbnail_url")
+
+    tracks: list[dict[str, Any]] = []
+    artist: str | None = None
+    duration_sec: int | None = None
+
+    embed_url = f"https://open.spotify.com/embed/{kind}/{item_id}"
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(embed_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            html_text = r.read().decode("utf-8")
+            m = re.search(
+                r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+                html_text,
+                re.DOTALL,
+            )
+            if m:
+                d = json.loads(m.group(1))
+                entity = (
+                    d.get("props", {})
+                    .get("pageProps", {})
+                    .get("state", {})
+                    .get("data", {})
+                    .get("entity", {})
+                )
+                artists_list = entity.get("artists", [])
+                if artists_list:
+                    artist = ", ".join(a.get("name") for a in artists_list if a.get("name"))
+
+                if kind == "track":
+                    dur_ms = entity.get("duration")
+                    if dur_ms:
+                        duration_sec = int(dur_ms / 1000)
+                    track_name = entity.get("name") or title
+                    tracks.append(
+                        {
+                            "title": track_name,
+                            "artist": artist,
+                            "duration_seconds": duration_sec,
+                        }
+                    )
+                elif kind in ("playlist", "album"):
+                    track_list = entity.get("trackList", [])
+                    for t in track_list:
+                        t_dur = int(t.get("duration", 0) / 1000) if t.get("duration") else None
+                        tracks.append(
+                            {
+                                "title": t.get("title") or "Unknown",
+                                "artist": t.get("subtitle") or artist or "Various Artists",
+                                "duration_seconds": t_dur,
+                            }
+                        )
+    except Exception as exc:
+        log.warning("spotify_embed_parse_failed", url=url, error=str(exc))
+
+    if not tracks and kind == "track":
+        tracks.append(
+            {
+                "title": title,
+                "artist": artist,
+                "duration_seconds": None,
+            }
+        )
+
+    return {
+        "kind": kind,
+        "title": title,
+        "artist": artist,
+        "thumbnail": thumbnail,
+        "duration_seconds": duration_sec,
+        "tracks": tracks,
+    }
+
+
+def _download_spotify_track_sync(
+    title: str,
+    artist: str | None,
+    thumbnail_url: str | None,
+    work_dir: Path,
+    max_bytes: int | None = None,
+) -> Path:
+    """Download matching audio for a Spotify track and embed ID3 cover & tags."""
+    query_parts = [artist, title, "audio"] if artist else [title, "audio"]
+    query = f"ytsearch1:{' '.join(p for p in query_parts if p)}"
+
+    opts = _build_ytdlp_opts(download=False, timeout=15)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        res = ydl.extract_info(query, download=False)
+        entries = res.get("entries") or []
+        if not entries:
+            raise ConversionError(f"ترک «{title}» در دیتابیس یافت نشد.")
+        target_url = entries[0].get("webpage_url") or entries[0].get("url")
+
+    mp3_file = _download_audio_sync(target_url, work_dir, max_bytes=max_bytes)
+
+    # Embed original Spotify cover and ID3 tags using Mutagen
+    try:
+        from mutagen.id3 import APIC, ID3, TIT2, TPE1
+
+        tags = ID3(mp3_file)
+        tags.add(TIT2(encoding=3, text=title))
+        if artist:
+            tags.add(TPE1(encoding=3, text=artist))
+        if thumbnail_url:
+            try:
+                import urllib.request
+
+                req = urllib.request.Request(thumbnail_url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    thumb_bytes = resp.read()
+                tags.add(
+                    APIC(
+                        encoding=3,
+                        mime="image/jpeg",
+                        type=3,
+                        desc="Cover",
+                        data=thumb_bytes,
+                    )
+                )
+            except Exception:
+                pass
+        tags.save()
+    except Exception as exc:
+        log.warning("spotify_tagging_failed", error=str(exc))
+
+    return mp3_file
+
+
+async def download_spotify_track(
+    title: str,
+    artist: str | None,
+    thumbnail_url: str | None,
+    work_dir: Path,
+    max_bytes: int | None = None,
+) -> Path:
+    """Async wrapper for downloading and tagging a Spotify track."""
+    return await asyncio.to_thread(
+        _download_spotify_track_sync, title, artist, thumbnail_url, work_dir, max_bytes
+    )
+
+
 def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
     """Extract metadata using yt-dlp, falling back to gallery-dl if needed."""
     platform_key, platform_name, platform_icon = detect_platform(url)
 
-    # 1. Try yt-dlp first
+    # 1. Spotify special handler
+    if platform_key == "spotify":
+        sp = extract_spotify_metadata_sync(url)
+        kind = sp["kind"]
+        title = sp["title"]
+        artist = sp["artist"]
+        thumb = sp["thumbnail"]
+        tracks = sp["tracks"]
+        is_pl = kind in ("playlist", "album")
+        dur_sec = sp.get("duration_seconds")
+        dur_str = human_duration(float(dur_sec)) if dur_sec else "—"
+
+        return DownloadInfo(
+            url=url,
+            platform_key="spotify",
+            platform_name="اسپاتیفای",
+            platform_icon="🟢",
+            title=title,
+            duration_seconds=dur_sec,
+            duration_str=dur_str,
+            uploader=artist or "Spotify",
+            thumbnail_url=thumb,
+            is_video=False,
+            is_audio_only=True,
+            is_gallery=False,
+            is_playlist=is_pl,
+            playlist_count=len(tracks),
+            playlist_items=tuple(tracks),
+        )
+
+    # 2. General yt-dlp extraction
     opts = _build_ytdlp_opts(
         download=False,
         timeout=15,
         platform_key=platform_key,
         cookie_file=cookie_file,
     )
+    opts["extract_flat"] = "in_playlist"
     info: dict[str, Any] | None = None
     probe_error: str | None = None
     try:
@@ -235,7 +435,7 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
         probe_error = str(exc)
         log.warning("ytdlp_probe_failed", url=url, error=probe_error[:300])
 
-    # 2. Check gallery-dl compatibility if yt-dlp failed or gave no media
+    # 3. Check gallery-dl compatibility if yt-dlp failed or gave no media
     is_gallery = False
     if not info or (info.get("_type") == "playlist" and not info.get("entries")):
         try:
@@ -272,9 +472,25 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
     uploader = info.get("uploader") or info.get("channel") or info.get("creator")
     thumbnail = info.get("thumbnail")
 
+    # Detect playlist in yt-dlp response
+    is_pl = (info.get("_type") == "playlist") or bool(info.get("entries"))
+    entries = info.get("entries") or []
+    pl_items: list[dict[str, Any]] = []
+    if is_pl and entries:
+        for e in entries:
+            if isinstance(e, dict):
+                pl_items.append(
+                    {
+                        "title": (e.get("title") or "Unknown").strip(),
+                        "url": e.get("url") or e.get("webpage_url") or "",
+                        "duration_seconds": e.get("duration"),
+                        "uploader": e.get("uploader") or uploader,
+                    }
+                )
+
     formats = info.get("formats", [])
     has_video = any(f.get("vcodec") and f.get("vcodec") != "none" for f in formats)
-    is_audio_only = platform_key == "soundcloud" or (not has_video and bool(formats))
+    is_audio_only = platform_key in ("soundcloud", "spotify") or (not has_video and bool(formats))
 
     return DownloadInfo(
         url=url,
@@ -289,6 +505,9 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
         is_video=has_video and not is_audio_only,
         is_audio_only=is_audio_only,
         is_gallery=is_gallery,
+        is_playlist=is_pl,
+        playlist_count=len(pl_items) if is_pl else 0,
+        playlist_items=tuple(pl_items),
     )
 
 

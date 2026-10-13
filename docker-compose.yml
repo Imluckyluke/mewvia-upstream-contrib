@@ -86,16 +86,6 @@ services:
       retries: 5
 
   # ---------------------------------------------------------------------------
-  # YouTube PO Token Provider (Proof of Origin)
-  # Provides fresh GVS PO-tokens for yt-dlp to bypass YouTube bot verification.
-  # ---------------------------------------------------------------------------
-  bgutil-provider:
-    image: brainicism/bgutil-ytdlp-pot-provider:latest
-    restart: unless-stopped
-    expose:
-      - "4416"
-
-  # ---------------------------------------------------------------------------
   # Cloudflare WARP Outbound Proxy
   # Bypasses datacenter IP blocks and YouTube/Instagram login walls.
   # ---------------------------------------------------------------------------
@@ -107,6 +97,7 @@ services:
     privileged: true
     expose:
       - "1080"
+      - "4416"
     volumes:
       - mewvia_warpdata:/data
     healthcheck:
@@ -114,6 +105,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ---------------------------------------------------------------------------
+  # YouTube PO Token Provider (Proof of Origin)
+  # Runs inside WARP network namespace so PO-tokens match the outbound IP.
+  # ---------------------------------------------------------------------------
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    restart: unless-stopped
+    network_mode: "service:warp"
+    depends_on:
+      warp:
+        condition: service_healthy
 
 volumes:
   mewvia_data:

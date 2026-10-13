@@ -42,6 +42,7 @@ from app.media.downloader import (
     detect_platform,
     download_audio,
     download_gallery,
+    download_spotify_track,
     download_video,
     extract_first_url,
     get_download_context,
@@ -102,14 +103,59 @@ async def _handle_url_input(message: Message, url: str) -> None:
             "platform_name": info.platform_name,
             "title": info.title,
             "uploader": info.uploader,
+            "thumbnail_url": info.thumbnail_url,
             "duration_str": info.duration_str,
             "reply_to_id": message.message_id,
+            "is_playlist": info.is_playlist,
+            "playlist_count": info.playlist_count,
+            "playlist_items": list(info.playlist_items),
         },
     )
 
     kb = KB(registry)
 
-    if info.is_gallery:
+    if info.is_playlist:
+        count_fa = fa_digits(str(info.playlist_count))
+        kb.row(
+            inline_button(
+                f"🎵 دانلود تمام ترک‌ها ({count_fa} عدد)",
+                callback_data=DownloaderCB(action="pl_audio_all", token=token).pack(),
+                style=Style.CONFIRM,
+                emoji_slot="audio",
+                registry=registry,
+            )
+        )
+        if info.platform_key != "spotify":
+            kb.row(
+                inline_button(
+                    f"🎬 دانلود تمام ویدیوها ({count_fa} عدد)",
+                    callback_data=DownloaderCB(action="pl_video_all", token=token).pack(),
+                    style=Style.PRIMARY,
+                    emoji_slot="video",
+                    registry=registry,
+                )
+            )
+        if info.playlist_count > 5:
+            kb.row(
+                inline_button(
+                    "⚡️ دانلود ۵ مورد اول (تستی)",
+                    callback_data=DownloaderCB(action="pl_audio_first5", token=token).pack(),
+                    style=Style.NEUTRAL,
+                    emoji_slot="audio",
+                    registry=registry,
+                )
+            )
+    elif info.platform_key == "spotify":
+        kb.row(
+            inline_button(
+                "🎵 دانلود آهنگ (MP3 با کاور اورجینال)",
+                callback_data=DownloaderCB(action="spotify_track", token=token).pack(),
+                style=Style.CONFIRM,
+                emoji_slot="audio",
+                registry=registry,
+            )
+        )
+    elif info.is_gallery:
         kb.row(
             inline_button(
                 "📸 دانلود تمام تصاویر (آلبوم)",
@@ -178,13 +224,25 @@ async def _handle_url_input(message: Message, url: str) -> None:
         else ""
     )
 
-    card_text = (
-        f"{info.platform_icon} <b>دانلود از {info.platform_name}</b>\n\n"
-        f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
-        f"{uploader_line}"
-        f"{duration_line}\n"
-        "کیفیت یا فرمت مورد نظرت را انتخاب کن:"
-    )
+    if info.is_playlist:
+        type_str = "پلی‌لیست / آلبوم"
+        count_str = fa_digits(str(info.playlist_count))
+        count_line = f"🔢 <b>تعداد ترک‌ها:</b> <code>{count_str}</code> عدد\n"
+        card_text = (
+            f"{info.platform_icon} <b>دانلود {type_str} از {info.platform_name}</b>\n\n"
+            f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
+            f"{uploader_line}"
+            f"{count_line}\n"
+            "نحوه دانلود را انتخاب کن:"
+        )
+    else:
+        card_text = (
+            f"{info.platform_icon} <b>دانلود از {info.platform_name}</b>\n\n"
+            f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
+            f"{uploader_line}"
+            f"{duration_line}\n"
+            "کیفیت یا فرمت مورد نظرت را انتخاب کن:"
+        )
 
     if status_msg:
         await status_msg.edit_text(card_text, reply_markup=kb.as_markup())
@@ -464,6 +522,135 @@ async def execute_download(
                     media=media_group,
                     reply_to_message_id=reply_to_id,
                 )
+
+            elif action == "spotify_track":
+                uploader = ctx.get("uploader") or "Spotify"
+                thumb_url = ctx.get("thumbnail_url")
+
+                async def _do_spotify() -> Path:
+                    return await download_spotify_track(
+                        title=title,
+                        artist=str(uploader),
+                        thumbnail_url=thumb_url,
+                        work_dir=work_dir,
+                        max_bytes=settings.upload_limit,
+                    )
+
+                downloaded_file = await run_media_job(
+                    settings, _do_spotify, stage="download_spotify"
+                )
+                file_size = downloaded_file.stat().st_size
+                caption = (
+                    f"🟢 <b>{html.quote(title)}</b>\n\nدانلود شده با @{settings.bot_username} 🐾"
+                )
+                await bot.send_audio(
+                    chat_id=chat_id,
+                    audio=FSInputFile(downloaded_file),
+                    title=title[:64],
+                    performer=str(uploader)[:64],
+                    caption=caption[:1024],
+                    reply_to_message_id=reply_to_id,
+                )
+
+            elif action in ("pl_audio_all", "pl_audio_first5", "pl_video_all"):
+                items = list(ctx.get("playlist_items") or [])
+                if not items:
+                    raise ConversionError("ترکی در این پلی‌لیست برای دانلود یافت نشد.")
+
+                if action == "pl_audio_first5":
+                    items = items[:5]
+                else:
+                    items = items[:25]  # Cap at 25 tracks to avoid Telegram flood
+
+                total_items = len(items)
+                sent_count = 0
+                total_bytes = 0
+
+                for idx, it in enumerate(items, 1):
+                    it_title = str(it.get("title") or f"Track {idx}")
+                    it_artist = str(it.get("artist") or it.get("uploader") or "")
+                    it_url = str(it.get("url") or "")
+
+                    if status_msg is not None:
+                        cur_fa = fa_digits(str(idx))
+                        tot_fa = fa_digits(str(total_items))
+                        prog_text = (
+                            f"⏳ <b>در حال دانلود ({cur_fa} از {tot_fa})…</b>\n\n"
+                            f"🎵 <b>{html.quote(it_title)}</b>"
+                        )
+                        try:
+                            await status_msg.edit_text(prog_text)
+                        except Exception:
+                            pass
+
+                    try:
+                        if platform_key == "spotify":
+                            mp3 = await download_spotify_track(
+                                title=it_title,
+                                artist=it_artist,
+                                thumbnail_url=ctx.get("thumbnail_url"),
+                                work_dir=work_dir,
+                                max_bytes=settings.upload_limit,
+                            )
+                            f_size = mp3.stat().st_size
+                            total_bytes += f_size
+                            await bot.send_audio(
+                                chat_id=chat_id,
+                                audio=FSInputFile(mp3),
+                                title=it_title[:64],
+                                performer=it_artist[:64],
+                                reply_to_message_id=reply_to_id,
+                            )
+                            mp3.unlink(missing_ok=True)
+                            sent_count += 1
+                        elif action == "pl_video_all":
+                            if it_url:
+                                vid = await download_video(
+                                    it_url,
+                                    work_dir,
+                                    max_bytes=settings.upload_limit,
+                                )
+                                f_size = vid.stat().st_size
+                                total_bytes += f_size
+                                await bot.send_video(
+                                    chat_id=chat_id,
+                                    video=FSInputFile(vid),
+                                    caption=f"🎬 <b>{html.quote(it_title)}</b>",
+                                    reply_to_message_id=reply_to_id,
+                                )
+                                vid.unlink(missing_ok=True)
+                                sent_count += 1
+                        else:
+                            # Audio for YouTube/SoundCloud/other
+                            if it_url:
+                                aud = await download_audio(
+                                    it_url,
+                                    work_dir,
+                                    max_bytes=settings.upload_limit,
+                                )
+                                f_size = aud.stat().st_size
+                                total_bytes += f_size
+                                await bot.send_audio(
+                                    chat_id=chat_id,
+                                    audio=FSInputFile(aud),
+                                    title=it_title[:64],
+                                    performer=it_artist[:64],
+                                    reply_to_message_id=reply_to_id,
+                                )
+                                aud.unlink(missing_ok=True)
+                                sent_count += 1
+                        await asyncio.sleep(0.6)  # Avoid Telegram flood limits
+                    except Exception as it_exc:
+                        log.warning("playlist_item_failed", item=it_title, error=str(it_exc))
+
+                file_size = total_bytes
+                if status_msg is not None:
+                    done_text = (
+                        f"✅ <b>دانلود پلی‌لیست به پایان رسید!</b>\n\n"
+                        f"📦 <code>{fa_digits(str(sent_count))}</code> فایل با موفقیت ارسال شد."
+                    )
+                    await status_msg.edit_text(done_text)
+                    status_msg = None
 
             else:
                 return
