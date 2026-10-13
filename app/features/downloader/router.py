@@ -584,12 +584,14 @@ async def execute_download(
                 clean_title = re.sub(r'[\\/*?:"<>|]', "", title)[:30].strip() or "album"
                 zip_path = work_dir / f"{clean_title}.zip"
 
-                # Concurrent worker semaphore (6 workers in parallel for speed)
-                sem = asyncio.Semaphore(6)
+                # Concurrent worker semaphore (5 workers in parallel for speed)
+                sem = asyncio.Semaphore(5)
 
                 async def _worker(
                     idx: int, it: dict[str, Any]
                 ) -> tuple[int, dict[str, Any], Path | None]:
+                    # Stagger requests slightly to avoid triggering YouTube instant burst limits
+                    await asyncio.sleep(0.15 * ((idx - 1) % 5))
                     it_title = str(it.get("title") or f"Track {idx}")
                     it_artist = str(it.get("artist") or it.get("uploader") or "")
                     it_url = str(it.get("url") or "")

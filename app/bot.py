@@ -35,9 +35,12 @@ def build_bot(settings: Settings) -> Bot:
                 base=f"{base}/bot{{token}}/{{method}}",
                 file=f"{base}/file/bot{{token}}/{{path}}",
                 is_local=True,
-            )
+            ),
+            timeout=300,
         )
         log.info("using_local_bot_api", base=base)
+    else:
+        session = AiohttpSession(timeout=300)
 
     bot = Bot(
         token=settings.bot_token,

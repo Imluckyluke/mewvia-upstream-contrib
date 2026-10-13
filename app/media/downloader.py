@@ -20,6 +20,7 @@ import json
 import re
 import secrets
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,15 @@ from app.core.logging import get_logger
 from app.core.units import human_duration
 
 log = get_logger(__name__)
+
+_ytdlp_init_lock = threading.Lock()
+
+
+def _make_ydl(opts: dict[str, Any]) -> yt_dlp.YoutubeDL:
+    """Thread-safe YoutubeDL factory preventing concurrent plugin registration race."""
+    with _ytdlp_init_lock:
+        return yt_dlp.YoutubeDL(opts)
+
 
 # Fallback in-memory token cache (token -> payload dict, capped).
 _IN_MEMORY_TOKENS: dict[str, dict[str, Any]] = {}
@@ -414,7 +424,7 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
     info: dict[str, Any] | None = None
     probe_error: str | None = None
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with _make_ydl(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
         probe_error = str(exc)
@@ -530,7 +540,7 @@ def _download_video_sync(
     opts["merge_output_format"] = "mp4"
 
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with _make_ydl(opts) as ydl:
             ydl.download([url])
     except Exception as exc:
         err_str = str(exc).lower()
@@ -585,7 +595,7 @@ def _download_audio_sync(
     )
 
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        with _make_ydl(opts) as ydl:
             ydl.download([url])
     except Exception as exc:
         err_str = str(exc).lower()
