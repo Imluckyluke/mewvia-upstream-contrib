@@ -14,6 +14,7 @@ from app.features.downloader.router import (
     execute_download,
 )
 from app.media.downloader import (
+    create_token,
     detect_platform,
     download_spotify_track,
     extract_spotify_metadata_sync,
@@ -313,3 +314,63 @@ async def test_execute_download_playlist_batch(session: AsyncSession):
             )
 
             assert bot.send_audio.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_download_playlist_zip(session):
+    token = create_token()
+    await store_download_context(
+        token,
+        {
+            "url": "https://open.spotify.com/album/4cOdK2wGLETKBW3PvgPWqT",
+            "platform_key": "spotify",
+            "title": "Hit Album",
+            "uploader": "The Band",
+            "thumbnail_url": "https://example.com/cover.jpg",
+            "reply_to_id": 11,
+            "is_playlist": True,
+            "playlist_count": 2,
+            "playlist_items": [
+                {"title": "Song 1", "artist": "Artist 1", "duration_seconds": 180},
+                {"title": "Song 2", "artist": "Artist 2", "duration_seconds": 200},
+            ],
+        },
+    )
+
+    query = MagicMock(spec=CallbackQuery)
+    query.from_user = User(id=777, is_bot=False, first_name="Test")
+    query.message = MagicMock(spec=Message)
+    query.message.chat = Chat(id=777, type="private")
+    query.message.edit_text = AsyncMock()
+    query.answer = AsyncMock()
+
+    bot = MagicMock()
+    bot.send_document = AsyncMock()
+    bot.username = "Mewvia_bot"
+
+    with tempfile.TemporaryDirectory() as td:
+        cnt = 0
+
+        async def _mock_dl(*args, **kwargs):
+            nonlocal cnt
+            cnt += 1
+            f = Path(td) / f"audio_{cnt}.mp3"
+            f.write_bytes(b"MP3_DATA_123")
+            return f
+
+        with patch(
+            "app.features.downloader.router.download_spotify_track",
+            side_effect=_mock_dl,
+        ):
+            cb_data = DownloaderCB(action="pl_zip", token=token)
+            settings = get_settings()
+
+            await execute_download(
+                query=query,
+                callback_data=cb_data,
+                bot=bot,
+                session=session,
+                settings=settings,
+            )
+
+            assert bot.send_document.await_count == 1

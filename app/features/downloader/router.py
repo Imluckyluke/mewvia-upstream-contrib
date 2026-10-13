@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +60,11 @@ from app.ui.texts import error_text, t
 log = get_logger(__name__)
 
 router = Router(name="downloader")
+
+
+def _add_to_zip(zip_path: Path, file_path: Path, arcname: str) -> None:
+    with zipfile.ZipFile(zip_path, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write(file_path, arcname=arcname)
 
 
 async def ready_registry() -> EmojiRegistry:
@@ -118,9 +125,18 @@ async def _handle_url_input(message: Message, url: str) -> None:
         count_fa = fa_digits(str(info.playlist_count))
         kb.row(
             inline_button(
-                f"🎵 دانلود تمام ترک‌ها ({count_fa} عدد)",
-                callback_data=DownloaderCB(action="pl_audio_all", token=token).pack(),
+                f"📦 دانلود یکجا (فایل ZIP) [{count_fa} ترک]",
+                callback_data=DownloaderCB(action="pl_zip", token=token).pack(),
                 style=Style.CONFIRM,
+                emoji_slot="download",
+                registry=registry,
+            )
+        )
+        kb.row(
+            inline_button(
+                "🎵 ارسال دونه‌دونه ترک‌ها (MP3)",
+                callback_data=DownloaderCB(action="pl_audio_all", token=token).pack(),
+                style=Style.PRIMARY,
                 emoji_slot="audio",
                 registry=registry,
             )
@@ -130,7 +146,7 @@ async def _handle_url_input(message: Message, url: str) -> None:
                 inline_button(
                     f"🎬 دانلود تمام ویدیوها ({count_fa} عدد)",
                     callback_data=DownloaderCB(action="pl_video_all", token=token).pack(),
-                    style=Style.PRIMARY,
+                    style=Style.NEUTRAL,
                     emoji_slot="video",
                     registry=registry,
                 )
@@ -138,7 +154,7 @@ async def _handle_url_input(message: Message, url: str) -> None:
         if info.playlist_count > 5:
             kb.row(
                 inline_button(
-                    "⚡️ دانلود ۵ مورد اول (تستی)",
+                    "⚡️ دانلود ۵ مورد اول (سریع)",
                     callback_data=DownloaderCB(action="pl_audio_first5", token=token).pack(),
                     style=Style.NEUTRAL,
                     emoji_slot="audio",
@@ -552,30 +568,115 @@ async def execute_download(
                     reply_to_message_id=reply_to_id,
                 )
 
-            elif action in ("pl_audio_all", "pl_audio_first5", "pl_video_all"):
+            elif action in ("pl_zip", "pl_audio_all", "pl_audio_first5", "pl_video_all"):
                 items = list(ctx.get("playlist_items") or [])
                 if not items:
                     raise ConversionError("ترکی در این پلی‌لیست برای دانلود یافت نشد.")
 
-                if action == "pl_audio_first5":
-                    items = items[:5]
-                else:
-                    items = items[:25]  # Cap at 25 tracks to avoid Telegram flood
-
-                total_items = len(items)
+                is_zip = action == "pl_zip"
+                items_to_download = items[:5] if action == "pl_audio_first5" else items[:25]
+                total_items = len(items_to_download)
                 sent_count = 0
                 total_bytes = 0
 
-                for idx, it in enumerate(items, 1):
+                tracks_dir = work_dir / "tracks"
+                tracks_dir.mkdir(parents=True, exist_ok=True)
+                clean_title = re.sub(r'[\\/*?:"<>|]', "", title)[:30].strip() or "album"
+                zip_path = work_dir / f"{clean_title}.zip"
+
+                # Concurrent worker semaphore (2 workers in parallel for speed & safety)
+                sem = asyncio.Semaphore(2)
+
+                async def _worker(
+                    idx: int, it: dict[str, Any]
+                ) -> tuple[int, dict[str, Any], Path | None]:
                     it_title = str(it.get("title") or f"Track {idx}")
                     it_artist = str(it.get("artist") or it.get("uploader") or "")
                     it_url = str(it.get("url") or "")
+                    track_dir = tracks_dir / f"t_{idx}"
+                    track_dir.mkdir(parents=True, exist_ok=True)
+
+                    async with sem:
+                        try:
+                            if platform_key == "spotify":
+                                p = await download_spotify_track(
+                                    title=it_title,
+                                    artist=it_artist,
+                                    thumbnail_url=ctx.get("thumbnail_url"),
+                                    work_dir=track_dir,
+                                    max_bytes=settings.upload_limit,
+                                )
+                                return idx, it, p
+                            elif action == "pl_video_all":
+                                if it_url:
+                                    p = await download_video(
+                                        it_url,
+                                        track_dir,
+                                        max_bytes=settings.upload_limit,
+                                    )
+                                    return idx, it, p
+                            else:
+                                if it_url:
+                                    p = await download_audio(
+                                        it_url,
+                                        track_dir,
+                                        max_bytes=settings.upload_limit,
+                                    )
+                                    return idx, it, p
+                        except Exception as exc:
+                            log.warning(
+                                "parallel_track_dl_failed", idx=idx, title=it_title, error=str(exc)
+                            )
+                            return idx, it, None
+                    return idx, it, None
+
+                tasks = [
+                    asyncio.create_task(_worker(idx, it))
+                    for idx, it in enumerate(items_to_download, 1)
+                ]
+
+                # Stream results as workers finish
+                for fut in asyncio.as_completed(tasks):
+                    idx, it, file_path = await fut
+                    it_title = str(it.get("title") or f"Track {idx}")
+                    it_artist = str(it.get("artist") or it.get("uploader") or "")
+
+                    if file_path and file_path.is_file():
+                        f_size = file_path.stat().st_size
+                        total_bytes += f_size
+                        sent_count += 1
+
+                        if is_zip:
+                            arcname = f"{idx:02d} - {it_artist} - {it_title}{file_path.suffix}"
+                            await asyncio.to_thread(_add_to_zip, zip_path, file_path, arcname)
+                        else:
+                            try:
+                                if action == "pl_video_all":
+                                    await bot.send_video(
+                                        chat_id=chat_id,
+                                        video=FSInputFile(file_path),
+                                        caption=f"🎬 <b>{html.quote(it_title)}</b>",
+                                        reply_to_message_id=reply_to_id,
+                                    )
+                                else:
+                                    await bot.send_audio(
+                                        chat_id=chat_id,
+                                        audio=FSInputFile(file_path),
+                                        title=it_title[:64],
+                                        performer=it_artist[:64],
+                                        reply_to_message_id=reply_to_id,
+                                    )
+                                await asyncio.sleep(0.4)
+                            except Exception as send_exc:
+                                log.warning(
+                                    "track_send_failed", title=it_title, error=str(send_exc)
+                                )
 
                     if status_msg is not None:
-                        cur_fa = fa_digits(str(idx))
+                        cur_fa = fa_digits(str(sent_count))
                         tot_fa = fa_digits(str(total_items))
                         prog_text = (
-                            f"⏳ <b>در حال دانلود ({cur_fa} از {tot_fa})…</b>\n\n"
+                            f"⏳ <b>در حال پردازش آلبوم ({cur_fa} از {tot_fa})…</b>\n\n"
                             f"🎵 <b>{html.quote(it_title)}</b>"
                         )
                         try:
@@ -583,71 +684,27 @@ async def execute_download(
                         except Exception:
                             pass
 
-                    try:
-                        if platform_key == "spotify":
-                            mp3 = await download_spotify_track(
-                                title=it_title,
-                                artist=it_artist,
-                                thumbnail_url=ctx.get("thumbnail_url"),
-                                work_dir=work_dir,
-                                max_bytes=settings.upload_limit,
-                            )
-                            f_size = mp3.stat().st_size
-                            total_bytes += f_size
-                            await bot.send_audio(
-                                chat_id=chat_id,
-                                audio=FSInputFile(mp3),
-                                title=it_title[:64],
-                                performer=it_artist[:64],
-                                reply_to_message_id=reply_to_id,
-                            )
-                            mp3.unlink(missing_ok=True)
-                            sent_count += 1
-                        elif action == "pl_video_all":
-                            if it_url:
-                                vid = await download_video(
-                                    it_url,
-                                    work_dir,
-                                    max_bytes=settings.upload_limit,
-                                )
-                                f_size = vid.stat().st_size
-                                total_bytes += f_size
-                                await bot.send_video(
-                                    chat_id=chat_id,
-                                    video=FSInputFile(vid),
-                                    caption=f"🎬 <b>{html.quote(it_title)}</b>",
-                                    reply_to_message_id=reply_to_id,
-                                )
-                                vid.unlink(missing_ok=True)
-                                sent_count += 1
-                        else:
-                            # Audio for YouTube/SoundCloud/other
-                            if it_url:
-                                aud = await download_audio(
-                                    it_url,
-                                    work_dir,
-                                    max_bytes=settings.upload_limit,
-                                )
-                                f_size = aud.stat().st_size
-                                total_bytes += f_size
-                                await bot.send_audio(
-                                    chat_id=chat_id,
-                                    audio=FSInputFile(aud),
-                                    title=it_title[:64],
-                                    performer=it_artist[:64],
-                                    reply_to_message_id=reply_to_id,
-                                )
-                                aud.unlink(missing_ok=True)
-                                sent_count += 1
-                        await asyncio.sleep(0.6)  # Avoid Telegram flood limits
-                    except Exception as it_exc:
-                        log.warning("playlist_item_failed", item=it_title, error=str(it_exc))
+                if is_zip and zip_path.is_file() and zip_path.stat().st_size > 0:
+                    zip_size = zip_path.stat().st_size
+                    total_bytes = zip_size
+                    caption = (
+                        f"📦 <b>آلبوم کامل: {html.quote(title)}</b>\n\n"
+                        f"🔢 تعداد: <code>{fa_digits(str(sent_count))}</code> ترک\n"
+                        f"💾 حجم: <code>{human_bytes(zip_size)}</code>\n\n"
+                        f"دانلود شده با @{settings.bot_username} 🐾"
+                    )
+                    await bot.send_document(
+                        chat_id=chat_id,
+                        document=FSInputFile(zip_path, filename=f"{clean_title}.zip"),
+                        caption=caption[:1024],
+                        reply_to_message_id=reply_to_id,
+                    )
 
                 file_size = total_bytes
                 if status_msg is not None:
                     done_text = (
-                        f"✅ <b>دانلود پلی‌لیست به پایان رسید!</b>\n\n"
-                        f"📦 <code>{fa_digits(str(sent_count))}</code> فایل با موفقیت ارسال شد."
+                        f"✅ <b>دانلود آلبوم / پلی‌لیست به پایان رسید!</b>\n\n"
+                        f"📦 <code>{fa_digits(str(sent_count))}</code> ترک با موفقیت آماده شد."
                     )
                     await status_msg.edit_text(done_text)
                     status_msg = None
