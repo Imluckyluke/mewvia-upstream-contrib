@@ -574,7 +574,7 @@ async def execute_download(
                     raise ConversionError("ترکی در این پلی‌لیست برای دانلود یافت نشد.")
 
                 is_zip = action == "pl_zip"
-                items_to_download = items[:5] if action == "pl_audio_first5" else items[:25]
+                items_to_download = items[:5] if action == "pl_audio_first5" else items[:100]
                 total_items = len(items_to_download)
                 sent_count = 0
                 total_bytes = 0
@@ -584,8 +584,8 @@ async def execute_download(
                 clean_title = re.sub(r'[\\/*?:"<>|]', "", title)[:30].strip() or "album"
                 zip_path = work_dir / f"{clean_title}.zip"
 
-                # Concurrent worker semaphore (2 workers in parallel for speed & safety)
-                sem = asyncio.Semaphore(2)
+                # Concurrent worker semaphore (3 workers in parallel for speed & safety)
+                sem = asyncio.Semaphore(3)
 
                 async def _worker(
                     idx: int, it: dict[str, Any]
