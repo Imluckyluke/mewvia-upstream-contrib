@@ -74,14 +74,14 @@ def test_downloader_cb_pack_unpack() -> None:
 async def test_downloader_url_probe_and_card(
     app_dispatcher: Dispatcher, session: AsyncSession
 ) -> None:
-    """Sending a media URL prompts the user with interactive options."""
+    """Sending a YouTube media URL prompts the user with interactive quality options."""
     bot = RecordingBot()
     fake_info = DownloadInfo(
-        url="https://www.instagram.com/reel/C_test/",
-        platform_key="instagram",
-        platform_name="اینستاگرام",
-        platform_icon="📱",
-        title="تست ریلز جذاب",
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        platform_key="youtube",
+        platform_name="یوتیوب",
+        platform_icon="🔴",
+        title="تست ویدیوی یوتیوب",
         duration_seconds=30,
         duration_str="0:30",
         uploader="creator_account",
@@ -96,7 +96,7 @@ async def test_downloader_url_probe_and_card(
         date=datetime.datetime.now(datetime.UTC),
         chat=Chat(id=USER_ID, type="private"),
         from_user=TgUser(id=USER_ID, is_bot=False, first_name="User"),
-        text="https://www.instagram.com/reel/C_test/",
+        text="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     )
 
     try:
@@ -114,8 +114,8 @@ async def test_downloader_url_probe_and_card(
         edits = [c for c in bot.calls if type(c).__name__ == "SendMessage"]
     assert len(edits) >= 1
     text = str(edits[-1].text)
-    assert "دانلود از اینستاگرام" in text
-    assert "تست ریلز جذاب" in text
+    assert "دانلود از یوتیوب" in text
+    assert "تست ویدیوی یوتیوب" in text
     assert "creator_account" in text
 
     # Verify buttons
@@ -125,6 +125,57 @@ async def test_downloader_url_probe_and_card(
     assert any("dl:video:" in cb for cb in callbacks)
     assert any("dl:audio:" in cb for cb in callbacks)
     assert any("dl:cancel:" in cb for cb in callbacks)
+
+
+async def test_downloader_auto_download_instagram(
+    app_dispatcher: Dispatcher, session: AsyncSession, tmp_path: Path
+) -> None:
+    """Non-YouTube single media (Instagram) downloads automatically without asking."""
+    bot = RecordingBot()
+    fake_info = DownloadInfo(
+        url="https://www.instagram.com/reel/C_test/",
+        platform_key="instagram",
+        platform_name="اینستاگرام",
+        platform_icon="📱",
+        title="تست ریلز جذاب",
+        duration_seconds=30,
+        duration_str="0:30",
+        uploader="creator_account",
+        thumbnail_url=None,
+        is_video=True,
+        is_audio_only=False,
+        is_gallery=False,
+    )
+
+    dummy_video = tmp_path / "media.mp4"
+    dummy_video.write_bytes(b"\x00\x00\x00\x18ftypisom" * 100)
+
+    msg = Message(
+        message_id=11,
+        date=datetime.datetime.now(datetime.UTC),
+        chat=Chat(id=USER_ID, type="private"),
+        from_user=TgUser(id=USER_ID, is_bot=False, first_name="User"),
+        text="https://www.instagram.com/reel/C_test/",
+    )
+
+    try:
+        with (
+            patch(
+                "app.features.downloader.router.probe_media_url",
+                new=AsyncMock(return_value=fake_info),
+            ),
+            patch(
+                "app.features.downloader.router.download_video",
+                new=AsyncMock(return_value=dummy_video),
+            ),
+        ):
+            await app_dispatcher.feed_update(bot, Update(update_id=11, message=msg))
+    finally:
+        await bot.session.close()
+
+    videos = [c for c in bot.calls if type(c).__name__ == "SendVideo"]
+    assert len(videos) == 1
+    assert "تست ریلز جذاب" in str(videos[0].caption)
 
 
 async def test_downloader_cancel_flow(app_dispatcher: Dispatcher, session: AsyncSession) -> None:

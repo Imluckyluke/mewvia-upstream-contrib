@@ -3,9 +3,10 @@
 Handles links sent by users:
 1. Detects URL from message (YouTube, Instagram, TikTok, Twitter/X, Pinterest, SoundCloud, etc.)
 2. Probes metadata and format availability
-3. Displays interactive inline keyboard (Video Best, Video 720p, Audio MP3, Gallery Album)
-4. Downloads within temporary sandbox under process-wide concurrency & quota controls
-5. Sends media back to the user with custom captions and thumbnails
+3. For YouTube videos and all Playlists/Albums: presents interactive options (quality/format/ZIP)
+4. For all other platforms: auto-downloads immediately at top speed
+5. Downloads within temporary sandbox under process-wide concurrency & quota controls
+6. Sends media back to the user with custom captions and thumbnails
 """
 
 from __future__ import annotations
@@ -74,359 +75,23 @@ async def ready_registry() -> EmojiRegistry:
     return registry
 
 
-async def _handle_url_input(message: Message, url: str) -> None:
-    """Analyze the given URL and present format/quality options."""
-    registry = await ready_registry()
-    status = await message.reply("⏳ <b>در حال دریافت اطلاعات لینک…</b>")
-    status_msg: Message | None = status if isinstance(status, Message) else None
-
-    try:
-        info = await probe_media_url(url)
-    except MewviaError as exc:
-        err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
-        if status_msg:
-            await status_msg.edit_text(err)
-        else:
-            await message.answer(err)
-        return
-    except Exception as exc:
-        log.warning("downloader_probe_error", url=url, error=str(exc))
-        err = (
-            "❌ نتوانستم اطلاعات این لینک را دریافت کنم.\n"
-            "ممکن است لینک خصوصی باشد، یا این سایت پشتیبانی نشود."
-        )
-        if status_msg:
-            await status_msg.edit_text(err)
-        else:
-            await message.answer(err)
-        return
-
-    token = create_token()
-    await store_download_context(
-        token,
-        {
-            "url": url,
-            "platform_key": info.platform_key,
-            "platform_name": info.platform_name,
-            "title": info.title,
-            "uploader": info.uploader,
-            "thumbnail_url": info.thumbnail_url,
-            "duration_str": info.duration_str,
-            "reply_to_id": message.message_id,
-            "is_playlist": info.is_playlist,
-            "playlist_count": info.playlist_count,
-            "playlist_items": list(info.playlist_items),
-        },
-    )
-
-    kb = KB(registry)
-
-    if info.is_playlist:
-        count_fa = fa_digits(str(info.playlist_count))
-        kb.row(
-            inline_button(
-                f"📦 دانلود یکجا (فایل ZIP) [{count_fa} ترک]",
-                callback_data=DownloaderCB(action="pl_zip", token=token).pack(),
-                style=Style.CONFIRM,
-                emoji_slot="download",
-                registry=registry,
-            )
-        )
-        kb.row(
-            inline_button(
-                "🎵 ارسال دونه‌دونه ترک‌ها (MP3)",
-                callback_data=DownloaderCB(action="pl_audio_all", token=token).pack(),
-                style=Style.PRIMARY,
-                emoji_slot="audio",
-                registry=registry,
-            )
-        )
-        if info.platform_key != "spotify":
-            kb.row(
-                inline_button(
-                    f"🎬 دانلود تمام ویدیوها ({count_fa} عدد)",
-                    callback_data=DownloaderCB(action="pl_video_all", token=token).pack(),
-                    style=Style.NEUTRAL,
-                    emoji_slot="video",
-                    registry=registry,
-                )
-            )
-        if info.playlist_count > 5:
-            kb.row(
-                inline_button(
-                    "⚡️ دانلود ۵ مورد اول (سریع)",
-                    callback_data=DownloaderCB(action="pl_audio_first5", token=token).pack(),
-                    style=Style.NEUTRAL,
-                    emoji_slot="audio",
-                    registry=registry,
-                )
-            )
-    elif info.platform_key == "spotify":
-        kb.row(
-            inline_button(
-                "🎵 دانلود آهنگ (MP3 با کاور اورجینال)",
-                callback_data=DownloaderCB(action="spotify_track", token=token).pack(),
-                style=Style.CONFIRM,
-                emoji_slot="audio",
-                registry=registry,
-            )
-        )
-    elif info.is_gallery:
-        kb.row(
-            inline_button(
-                "📸 دانلود تمام تصاویر (آلبوم)",
-                callback_data=DownloaderCB(action="gallery", token=token).pack(),
-                style=Style.CONFIRM,
-                emoji_slot="photo",
-                registry=registry,
-            )
-        )
-    elif info.is_audio_only:
-        kb.row(
-            inline_button(
-                "🎵 دانلود آهنگ (MP3)",
-                callback_data=DownloaderCB(action="audio", token=token).pack(),
-                style=Style.CONFIRM,
-                emoji_slot="audio",
-                registry=registry,
-            )
-        )
-    else:
-        # Standard video post (Reels, YouTube, TikTok, etc.)
-        kb.row(
-            inline_button(
-                "🎬 دانلود ویدیو (بهترین کیفیت)",
-                callback_data=DownloaderCB(action="video", token=token).pack(),
-                style=Style.PRIMARY,
-                emoji_slot="video",
-                registry=registry,
-            )
-        )
-        if info.duration_seconds and info.duration_seconds > 60:
-            # Offer 720p for longer videos to save data/time
-            kb.row(
-                inline_button(
-                    "📱 کیفیت 720p (سریع‌تر)",
-                    callback_data=DownloaderCB(action="video_720", token=token).pack(),
-                    style=Style.NEUTRAL,
-                    emoji_slot="video",
-                    registry=registry,
-                )
-            )
-        kb.row(
-            inline_button(
-                "🎵 استخراج صدا (MP3)",
-                callback_data=DownloaderCB(action="audio", token=token).pack(),
-                style=Style.CONFIRM,
-                emoji_slot="audio",
-                registry=registry,
-            )
-        )
-
-    kb.row(
-        inline_button(
-            t("common.cancel"),
-            callback_data=DownloaderCB(action="cancel", token=token).pack(),
-            style=Style.DESTRUCTIVE,
-            emoji_slot="error",
-            registry=registry,
-        )
-    )
-
-    uploader_line = f"👤 <b>سازنده:</b> {html.quote(info.uploader)}\n" if info.uploader else ""
-    duration_line = (
-        f"⏱ <b>مدت زمان:</b> <code>{fa_digits(info.duration_str)}</code>\n"
-        if info.duration_seconds
-        else ""
-    )
-
-    if info.is_playlist:
-        type_str = "پلی‌لیست / آلبوم"
-        count_str = fa_digits(str(info.playlist_count))
-        count_line = f"🔢 <b>تعداد ترک‌ها:</b> <code>{count_str}</code> عدد\n"
-        card_text = (
-            f"{info.platform_icon} <b>دانلود {type_str} از {info.platform_name}</b>\n\n"
-            f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
-            f"{uploader_line}"
-            f"{count_line}\n"
-            "نحوه دانلود را انتخاب کن:"
-        )
-    else:
-        card_text = (
-            f"{info.platform_icon} <b>دانلود از {info.platform_name}</b>\n\n"
-            f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
-            f"{uploader_line}"
-            f"{duration_line}\n"
-            "کیفیت یا فرمت مورد نظرت را انتخاب کن:"
-        )
-
-    if status_msg:
-        await status_msg.edit_text(card_text, reply_markup=kb.as_markup())
-    else:
-        await message.answer(card_text, reply_markup=kb.as_markup())
-
-
-@router.message(Command("dl"))
-async def cmd_download_url(message: Message, command: CommandObject) -> None:
-    """Download media from command: `/dl <url>`."""
-    arg_url = (command.args or "").strip()
-    url = extract_first_url(arg_url)
-    if not url:
-        await message.reply(
-            "لطفاً لینک مورد نظرت را به این شکل بفرست:\n"
-            "<code>/dl https://instagram.com/reel/...</code>"
-        )
-        return
-    await _handle_url_input(message, url)
-
-
-@router.message(Command("cookie", "cookies"), IsAdmin())
-async def cmd_cookie_info(message: Message, session: AsyncSession) -> None:
-    """Show Instagram cookies management dashboard for admins."""
-    from app.admin.cookies_router import ready_registry, render_cookies_dashboard
-
-    registry = await ready_registry()
-    text, kb = await render_cookies_dashboard(session, registry)
-    await message.reply(text, reply_markup=kb.as_markup())
-
-
-@router.message(
-    F.chat.type == "private",
-    IsAdmin(),
-    F.document,
-)
-async def upload_cookie_file(message: Message, bot: Bot, session: AsyncSession) -> None:
-    """Allow admins to upload cookies.txt directly to add to the account pool."""
-    doc = message.document
-    if not doc or not doc.file_name:
-        return
-    file_name = doc.file_name.lower()
-    valid_keywords = ("cookie", "insta", "instagram", "youtube", "yt")
-    if not (file_name.endswith(".txt") and any(k in file_name for k in valid_keywords)):
-        return
-
-    file_info = await bot.get_file(doc.file_id)
-    if not file_info.file_path:
-        await message.reply("❌ خطا در دریافت فایل از تلگرام.")
-        return
-
-    buf = io.BytesIO()
-    await bot.download_file(file_info.file_path, destination=buf)
-    raw_text = buf.getvalue().decode("utf-8", errors="ignore")
-
-    from app.admin.cookies_router import (
-        ready_registry,
-        render_cookies_dashboard,
-        sync_active_cookie_to_disk,
-    )
-    from app.media.cookie_checker import (
-        check_instagram_cookie_health_sync,
-        parse_and_normalize_cookies,
-    )
-
-    netscape_text, cookie_dict = parse_and_normalize_cookies(raw_text)
-    account_id = cookie_dict.get("ds_user_id")
-    repo = InstagramCookieRepo(session)
-    count = await repo.count()
-    label = f"اکانت {count + 1}" if not account_id else f"اکانت {account_id[:8]}"
-
-    is_valid, _, err = await asyncio.to_thread(check_instagram_cookie_health_sync, cookie_dict)
-    status_str = "valid" if is_valid else "invalid"
-
-    cookie = await repo.add(
-        label=label,
-        cookie_text=netscape_text,
-        account_id=account_id,
-        status=status_str,
-    )
-    if not is_valid:
-        cookie.error_message = err
-
-    await sync_active_cookie_to_disk(session)
-    await session.flush()
-
-    registry = await ready_registry()
-    _, kb = await render_cookies_dashboard(session, registry)
-    status_badge = "🟢 سالم و فعال در چرخه" if is_valid else f"⚠️ نیاز به بررسی ({err})"
-    await message.reply(
-        f"🍪 <b>اکانت «{html.quote(label)}» با موفقیت اضافه شد!</b>\n\n"
-        f"وضعیت اولیه: {status_badge}\n"
-        "این کوکی در دیتابیس ثبت شد و به صورت خودکار برای دانلودهای اینستاگرام استفاده می‌شود.",
-        reply_markup=kb.as_markup(),
-    )
-
-
-class ContainsMediaUrlFilter(BaseFilter):
-    """Filter that matches only when the message contains a supported media URL."""
-
-    async def __call__(self, message: Message) -> bool | dict[str, Any]:
-        text = (message.text or "").strip()
-        if not text or text.startswith("/"):
-            return False
-        url = extract_first_url(text)
-        if not url:
-            return False
-        key, _name, _icon = detect_platform(url)
-        if key == "other" and not (url.startswith("http://") or url.startswith("https://")):
-            return False
-        return {"extracted_url": url}
-
-
-@router.message(
-    F.chat.type == "private",
-    StateFilter(None),
-    ContainsMediaUrlFilter(),
-)
-async def auto_detect_url_message(message: Message, extracted_url: str) -> None:
-    """Automatically catch URLs sent as private chat messages in idle state."""
-    await _handle_url_input(message, extracted_url)
-
-
-@router.callback_query(DownloaderCB.filter(F.action == "cancel"))
-async def cancel_download(query: CallbackQuery) -> None:
-    if isinstance(query.message, Message):
-        edited = await query.message.edit_text("دانلود لغو شد.")
-        if edited is None:
-            await query.message.answer("دانلود لغو شد.")
-    await query.answer()
-
-
-@router.callback_query(DownloaderCB.filter())
-async def execute_download(
-    query: CallbackQuery,
-    callback_data: DownloaderCB,
+async def _perform_download(
+    *,
+    chat_id: int,
+    user_id: int,
+    reply_to_id: int | None,
+    action: str,
+    ctx: dict[str, Any],
+    status_msg: Message | None,
     bot: Bot,
     session: AsyncSession,
     settings: Settings,
+    fallback_msg: Message | None = None,
 ) -> None:
-    action = callback_data.action
-    token = callback_data.token
-
-    if not isinstance(query.message, Message):
-        await query.answer(t("common.stale_button"), show_alert=True)
-        return
-
-    msg = query.message
-    ctx = await get_download_context(token)
-    if not ctx:
-        await query.answer(
-            "این درخواست منقضی شده است. لطفاً لینک را دوباره بفرستید.", show_alert=True
-        )
-        return
-
-    user_id = query.from_user.id if query.from_user else 0
-    if not await check_daily_quota(session, user_id, query):
-        return
-
-    await query.answer()
-    status = await msg.edit_text("⏳ <b>در حال دانلود رسانه از سرور…</b>", reply_markup=None)
-    status_msg: Message | None = status if isinstance(status, Message) else None
-
+    """Execute the media download and send the media back to the user."""
     url = str(ctx.get("url", ""))
     platform_key = str(ctx.get("platform_key", "other"))
     title = str(ctx.get("title", "media"))
-    reply_to_id = ctx.get("reply_to_id")
-    chat_id = msg.chat.id
     start_time = time.perf_counter()
 
     settings.tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -444,8 +109,14 @@ async def execute_download(
                 cookie_file_str = str(ig_cookie_path)
 
         try:
-            if action in ("video", "video_720"):
-                max_h = 720 if action == "video_720" else None
+            if action.startswith("video"):
+                max_h: int | None = None
+                if action == "video_720":
+                    max_h = 720
+                elif action == "video_480":
+                    max_h = 480
+                elif action == "video_360":
+                    max_h = 360
 
                 async def _do_video() -> Path:
                     return await download_video(
@@ -462,9 +133,13 @@ async def execute_download(
                 if file_size > settings.upload_limit:
                     limit_str = human_bytes(settings.upload_limit)
                     size_str = human_bytes(file_size)
-                    await msg.answer(
-                        f"❌ حجم ویدیو ({size_str}) بیشتر از سقف مجاز ({limit_str}) است."
-                    )
+                    err_msg = f"❌ حجم ویدیو ({size_str}) بیشتر از سقف مجاز ({limit_str}) است."
+                    if status_msg:
+                        await status_msg.edit_text(err_msg)
+                    elif fallback_msg:
+                        await fallback_msg.reply(err_msg)
+                    else:
+                        await bot.send_message(chat_id=chat_id, text=err_msg)
                     return
 
                 caption = (
@@ -493,9 +168,13 @@ async def execute_download(
                 if file_size > settings.upload_limit:
                     limit_str = human_bytes(settings.upload_limit)
                     size_str = human_bytes(file_size)
-                    await msg.answer(
-                        f"❌ حجم فایل صوتی ({size_str}) بیشتر از سقف مجاز ({limit_str}) است."
-                    )
+                    err_msg = f"❌ حجم فایل صوتی ({size_str}) بیشتر از سقف مجاز ({limit_str}) است."
+                    if status_msg:
+                        await status_msg.edit_text(err_msg)
+                    elif fallback_msg:
+                        await fallback_msg.reply(err_msg)
+                    else:
+                        await bot.send_message(chat_id=chat_id, text=err_msg)
                     return
 
                 uploader = ctx.get("uploader") or "Mewvia"
@@ -546,8 +225,6 @@ async def execute_download(
                             reply_to_message_id=reply_to_id,
                         )
                 else:
-                    # Telegram limits send_media_group to 2-10 items per message
-                    # Chunk files into batches of 10
                     for chunk_idx in range(0, len(gallery_files), 10):
                         chunk = gallery_files[chunk_idx : chunk_idx + 10]
                         media_group: list[Any] = []
@@ -800,8 +477,10 @@ async def execute_download(
             err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
             if isinstance(status_msg, Message):
                 await status_msg.edit_text(err)
+            elif fallback_msg:
+                await fallback_msg.reply(err)
             else:
-                await msg.answer(err)
+                await bot.send_message(chat_id=chat_id, text=err)
         except Exception as exc:
             if cookie_record:
                 await repo_cookie.record_usage(cookie_record.id, success=False, error=str(exc))
@@ -809,8 +488,416 @@ async def execute_download(
             err = "❌ خطا در دانلود رسانه. ممکن است لینک منقضی یا نامعتبر باشد."
             if isinstance(status_msg, Message):
                 await status_msg.edit_text(err)
+            elif fallback_msg:
+                await fallback_msg.reply(err)
             else:
-                await msg.answer(err)
+                await bot.send_message(chat_id=chat_id, text=err)
+
+
+async def _handle_url_input(
+    message: Message,
+    url: str,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    """Analyze the given URL and present options for YouTube/Playlists or auto-download directly."""
+    registry = await ready_registry()
+    status = await message.reply("⏳ <b>در حال دریافت اطلاعات لینک…</b>")
+    status_msg: Message | None = status if isinstance(status, Message) else None
+
+    try:
+        info = await probe_media_url(url)
+    except MewviaError as exc:
+        err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
+        if status_msg:
+            await status_msg.edit_text(err)
+        else:
+            await message.answer(err)
+        return
+    except Exception as exc:
+        log.warning("downloader_probe_error", url=url, error=str(exc))
+        err = (
+            "❌ نتوانستم اطلاعات این لینک را دریافت کنم.\n"
+            "ممکن است لینک خصوصی باشد، یا این سایت پشتیبانی نشود."
+        )
+        if status_msg:
+            await status_msg.edit_text(err)
+        else:
+            await message.answer(err)
+        return
+
+    # User preference: Only YouTube videos and all Playlists/Albums show selection cards.
+    # All other single media (Instagram, TikTok, Twitter, Spotify, etc.) auto-download at once!
+    is_interactive = info.is_playlist or (info.platform_key == "youtube")
+
+    if is_interactive:
+        token = create_token()
+        await store_download_context(
+            token,
+            {
+                "url": url,
+                "platform_key": info.platform_key,
+                "platform_name": info.platform_name,
+                "title": info.title,
+                "uploader": info.uploader,
+                "thumbnail_url": info.thumbnail_url,
+                "duration_str": info.duration_str,
+                "reply_to_id": message.message_id,
+                "is_playlist": info.is_playlist,
+                "playlist_count": info.playlist_count,
+                "playlist_items": list(info.playlist_items),
+            },
+        )
+
+        kb = KB(registry)
+
+        if info.is_playlist:
+            count_fa = fa_digits(str(info.playlist_count))
+            kb.row(
+                inline_button(
+                    f"📦 دانلود یکجا (فایل ZIP) [{count_fa} ترک]",
+                    callback_data=DownloaderCB(action="pl_zip", token=token).pack(),
+                    style=Style.CONFIRM,
+                    emoji_slot="download",
+                    registry=registry,
+                )
+            )
+            kb.row(
+                inline_button(
+                    "🎵 ارسال دونه‌دونه ترک‌ها (MP3)",
+                    callback_data=DownloaderCB(action="pl_audio_all", token=token).pack(),
+                    style=Style.PRIMARY,
+                    emoji_slot="audio",
+                    registry=registry,
+                )
+            )
+            if info.platform_key != "spotify":
+                kb.row(
+                    inline_button(
+                        f"🎬 دانلود تمام ویدیوها ({count_fa} عدد)",
+                        callback_data=DownloaderCB(action="pl_video_all", token=token).pack(),
+                        style=Style.NEUTRAL,
+                        emoji_slot="video",
+                        registry=registry,
+                    )
+                )
+            if info.playlist_count > 5:
+                kb.row(
+                    inline_button(
+                        "⚡️ دانلود ۵ مورد اول (سریع)",
+                        callback_data=DownloaderCB(action="pl_audio_first5", token=token).pack(),
+                        style=Style.NEUTRAL,
+                        emoji_slot="audio",
+                        registry=registry,
+                    )
+                )
+        else:
+            # YouTube single video
+            kb.row(
+                inline_button(
+                    "🎬 بهترین کیفیت",
+                    callback_data=DownloaderCB(action="video", token=token).pack(),
+                    style=Style.PRIMARY,
+                    emoji_slot="video",
+                    registry=registry,
+                ),
+                inline_button(
+                    "📱 کیفیت 720p HD",
+                    callback_data=DownloaderCB(action="video_720", token=token).pack(),
+                    style=Style.PRIMARY,
+                    emoji_slot="video",
+                    registry=registry,
+                ),
+            )
+            kb.row(
+                inline_button(
+                    "📉 کیفیت 480p (حجم کم)",
+                    callback_data=DownloaderCB(action="video_480", token=token).pack(),
+                    style=Style.NEUTRAL,
+                    emoji_slot="video",
+                    registry=registry,
+                ),
+                inline_button(
+                    "🎵 استخراج صدا (MP3)",
+                    callback_data=DownloaderCB(action="audio", token=token).pack(),
+                    style=Style.CONFIRM,
+                    emoji_slot="audio",
+                    registry=registry,
+                ),
+            )
+
+        kb.row(
+            inline_button(
+                t("common.cancel"),
+                callback_data=DownloaderCB(action="cancel", token=token).pack(),
+                style=Style.DESTRUCTIVE,
+                emoji_slot="error",
+                registry=registry,
+            )
+        )
+
+        uploader_line = f"👤 <b>سازنده:</b> {html.quote(info.uploader)}\n" if info.uploader else ""
+        duration_line = (
+            f"⏱ <b>مدت زمان:</b> <code>{fa_digits(info.duration_str)}</code>\n"
+            if info.duration_seconds
+            else ""
+        )
+
+        if info.is_playlist:
+            type_str = "پلی‌لیست / آلبوم"
+            count_str = fa_digits(str(info.playlist_count))
+            count_line = f"🔢 <b>تعداد ترک‌ها:</b> <code>{count_str}</code> عدد\n"
+            card_text = (
+                f"{info.platform_icon} <b>دانلود {type_str} از {info.platform_name}</b>\n\n"
+                f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
+                f"{uploader_line}"
+                f"{count_line}\n"
+                "نحوه دانلود را انتخاب کن:"
+            )
+        else:
+            card_text = (
+                f"🔴 <b>دانلود از یوتیوب</b>\n\n"
+                f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
+                f"{uploader_line}"
+                f"{duration_line}\n"
+                "کیفیت یا فرمت مورد نظرت را انتخاب کن:"
+            )
+
+        if status_msg:
+            await status_msg.edit_text(card_text, reply_markup=kb.as_markup())
+        else:
+            await message.answer(card_text, reply_markup=kb.as_markup())
+        return
+
+    # Direct auto-download without questioning for all other platforms
+    user_id = message.from_user.id if message.from_user else 0
+    if not await check_daily_quota(session, user_id, message):
+        return
+
+    if info.platform_key == "spotify":
+        action = "spotify_track"
+    elif info.is_gallery:
+        action = "gallery"
+    elif info.is_audio_only:
+        action = "audio"
+    else:
+        action = "video"
+
+    if status_msg:
+        try:
+            await status_msg.edit_text("⏳ <b>در حال دانلود رسانه از سرور…</b>")
+        except Exception:
+            pass
+
+    ctx: dict[str, Any] = {
+        "url": url,
+        "platform_key": info.platform_key,
+        "platform_name": info.platform_name,
+        "title": info.title,
+        "uploader": info.uploader,
+        "thumbnail_url": info.thumbnail_url,
+        "duration_str": info.duration_str,
+        "reply_to_id": message.message_id,
+        "is_playlist": False,
+        "playlist_count": 0,
+        "playlist_items": [],
+    }
+
+    await _perform_download(
+        chat_id=message.chat.id,
+        user_id=user_id,
+        reply_to_id=message.message_id,
+        action=action,
+        ctx=ctx,
+        status_msg=status_msg,
+        bot=bot,
+        session=session,
+        settings=settings,
+        fallback_msg=message,
+    )
+
+
+@router.message(Command("dl"))
+async def cmd_download_url(
+    message: Message,
+    command: CommandObject,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    """Download media from command: `/dl <url>`."""
+    arg_url = (command.args or "").strip()
+    url = extract_first_url(arg_url)
+    if not url:
+        await message.reply(
+            "لطفاً لینک مورد نظرت را به این شکل بفرست:\n"
+            "<code>/dl https://instagram.com/reel/...</code>"
+        )
+        return
+    await _handle_url_input(message, url, bot, session, settings)
+
+
+@router.message(Command("cookie", "cookies"), IsAdmin())
+async def cmd_cookie_info(message: Message, session: AsyncSession) -> None:
+    """Show Instagram cookies management dashboard for admins."""
+    from app.admin.cookies_router import ready_registry, render_cookies_dashboard
+
+    registry = await ready_registry()
+    text, kb = await render_cookies_dashboard(session, registry)
+    await message.reply(text, reply_markup=kb.as_markup())
+
+
+@router.message(
+    F.chat.type == "private",
+    IsAdmin(),
+    F.document,
+)
+async def upload_cookie_file(message: Message, bot: Bot, session: AsyncSession) -> None:
+    """Allow admins to upload cookies.txt directly to add to the account pool."""
+    doc = message.document
+    if not doc or not doc.file_name:
+        return
+    file_name = doc.file_name.lower()
+    valid_keywords = ("cookie", "insta", "instagram", "youtube", "yt")
+    if not (file_name.endswith(".txt") and any(k in file_name for k in valid_keywords)):
+        return
+
+    file_info = await bot.get_file(doc.file_id)
+    if not file_info.file_path:
+        await message.reply("❌ خطا در دریافت فایل از تلگرام.")
+        return
+
+    buf = io.BytesIO()
+    await bot.download_file(file_info.file_path, destination=buf)
+    raw_text = buf.getvalue().decode("utf-8", errors="ignore")
+
+    from app.admin.cookies_router import (
+        ready_registry,
+        render_cookies_dashboard,
+        sync_active_cookie_to_disk,
+    )
+    from app.media.cookie_checker import (
+        check_instagram_cookie_health_sync,
+        parse_and_normalize_cookies,
+    )
+
+    netscape_text, cookie_dict = parse_and_normalize_cookies(raw_text)
+    account_id = cookie_dict.get("ds_user_id")
+    repo = InstagramCookieRepo(session)
+    count = await repo.count()
+    label = f"اکانت {count + 1}" if not account_id else f"اکانت {account_id[:8]}"
+
+    is_valid, _, err = await asyncio.to_thread(check_instagram_cookie_health_sync, cookie_dict)
+    status_str = "valid" if is_valid else "invalid"
+
+    cookie = await repo.add(
+        label=label,
+        cookie_text=netscape_text,
+        account_id=account_id,
+        status=status_str,
+    )
+    if not is_valid:
+        cookie.error_message = err
+
+    await sync_active_cookie_to_disk(session)
+    await session.flush()
+
+    registry = await ready_registry()
+    _, kb = await render_cookies_dashboard(session, registry)
+    status_badge = "🟢 سالم و فعال در چرخه" if is_valid else f"⚠️ نیاز به بررسی ({err})"
+    await message.reply(
+        f"🍪 <b>اکانت «{html.quote(label)}» با موفقیت اضافه شد!</b>\n\n"
+        f"وضعیت اولیه: {status_badge}\n"
+        "این کوکی در دیتابیس ثبت شد و به صورت خودکار برای دانلودهای اینستاگرام استفاده می‌شود.",
+        reply_markup=kb.as_markup(),
+    )
+
+
+class ContainsMediaUrlFilter(BaseFilter):
+    """Filter that matches only when the message contains a supported media URL."""
+
+    async def __call__(self, message: Message) -> bool | dict[str, Any]:
+        text = (message.text or "").strip()
+        if not text or text.startswith("/"):
+            return False
+        url = extract_first_url(text)
+        if not url:
+            return False
+        key, _name, _icon = detect_platform(url)
+        if key == "other" and not (url.startswith("http://") or url.startswith("https://")):
+            return False
+        return {"extracted_url": url}
+
+
+@router.message(
+    F.chat.type == "private",
+    StateFilter(None),
+    ContainsMediaUrlFilter(),
+)
+async def auto_detect_url_message(
+    message: Message,
+    extracted_url: str,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    """Automatically catch URLs sent as private chat messages in idle state."""
+    await _handle_url_input(message, extracted_url, bot, session, settings)
+
+
+@router.callback_query(DownloaderCB.filter(F.action == "cancel"))
+async def cancel_download(query: CallbackQuery) -> None:
+    if isinstance(query.message, Message):
+        edited = await query.message.edit_text("دانلود لغو شد.")
+        if edited is None:
+            await query.message.answer("دانلود لغو شد.")
+    await query.answer()
+
+
+@router.callback_query(DownloaderCB.filter())
+async def execute_download(
+    query: CallbackQuery,
+    callback_data: DownloaderCB,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    action = callback_data.action
+    token = callback_data.token
+
+    if not isinstance(query.message, Message):
+        await query.answer(t("common.stale_button"), show_alert=True)
+        return
+
+    msg = query.message
+    ctx = await get_download_context(token)
+    if not ctx:
+        await query.answer(
+            "این درخواست منقضی شده است. لطفاً لینک را دوباره بفرستید.", show_alert=True
+        )
+        return
+
+    user_id = query.from_user.id if query.from_user else 0
+    if not await check_daily_quota(session, user_id, query):
+        return
+
+    await query.answer()
+    status = await msg.edit_text("⏳ <b>در حال دانلود رسانه از سرور…</b>", reply_markup=None)
+    status_msg: Message | None = status if isinstance(status, Message) else None
+
+    await _perform_download(
+        chat_id=msg.chat.id,
+        user_id=user_id,
+        reply_to_id=ctx.get("reply_to_id"),
+        action=action,
+        ctx=ctx,
+        status_msg=status_msg,
+        bot=bot,
+        session=session,
+        settings=settings,
+        fallback_msg=msg,
+    )
 
 
 feature = register(
