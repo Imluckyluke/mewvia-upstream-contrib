@@ -1096,6 +1096,58 @@ class TestSponsorGateMiddleware:
         assert len(sends) == 1
         assert "اسپانسر" in sends[0].text
 
+    async def test_group_media_url_enforces_sponsor_gate(self) -> None:
+        """Media URLs sent in groups must enforce sponsor gate to prevent free bypass."""
+        dp, reached = self._make_dispatcher()
+        bot = RecordingBot()
+
+        ch = SponsorChannel()
+        ch.id = 1
+        ch.channel_id = -100111
+        ch.title = "Sponsor Chan"
+        ch.is_active = True
+        ch.username = "sponsorchan"
+
+        media_url = "https://www.instagram.com/reel/C8xyz123"
+        try:
+            with (
+                patch(
+                    "app.middlewares.sponsor_gate.get_missing_sponsors",
+                    new=AsyncMock(return_value=[ch]),
+                ),
+                patch(
+                    "app.middlewares.sponsor_gate.get_emoji_registry",
+                    return_value=FakeRegistry(),
+                ),
+            ):
+                await dp.feed_update(bot, make_group_update(12, media_url, USER_ID))
+        finally:
+            await bot.session.close()
+
+        assert "message" not in reached, "media download in group must be blocked when unjoined"
+        sends = [c for c in bot.calls if type(c).__name__ == "SendMessage"]
+        assert len(sends) == 1
+        assert "اسپانسر" in sends[0].text
+
+    async def test_group_media_url_passes_when_sponsored(self) -> None:
+        """Media URLs in groups pass through to download handlers when user joined all sponsors."""
+        dp, reached = self._make_dispatcher()
+        bot = RecordingBot()
+
+        media_url = "https://www.instagram.com/reel/C8xyz123"
+        try:
+            with patch(
+                "app.middlewares.sponsor_gate.get_missing_sponsors",
+                new=AsyncMock(return_value=[]),
+            ):
+                await dp.feed_update(bot, make_group_update(13, media_url, USER_ID))
+        finally:
+            await bot.session.close()
+
+        assert "message" in reached, "media download in group must reach handler when sponsored"
+        sends = [c for c in bot.calls if type(c).__name__ == "SendMessage"]
+        assert len(sends) == 0, "no sponsor gate prompt should be sent when user is subscribed"
+
 
 # ===========================================================================
 # 8. SponsorGateMiddleware — direct call (DB-backed)

@@ -188,11 +188,19 @@ async def verify_sponsors(
     log.info("sponsor_verify_confirmed", user_id=user_id)
     await query.answer("عضویت شما تایید شد! خوش آمدید 🎉")
     if isinstance(query.message, Message):
-        body = t("start.greeting", name=html.quote(query.from_user.first_name or "دوست من"))
-        await query.message.edit_text(
-            body,
-            reply_markup=await main_menu(registry, is_admin=is_admin),
-        )
+        if query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+            user_mention = html.quote(query.from_user.first_name or "دوست من")
+            await query.message.edit_text(
+                f"🎉 <b>عضویت شما تایید شد {user_mention} عزیز!</b>\n\n"
+                "حالا می‌توانید لینک‌ها و دستورات خود را در گروه ارسال کنید تا ربات دانلود کند.",
+                reply_markup=None,
+            )
+        else:
+            body = t("start.greeting", name=html.quote(query.from_user.first_name or "دوست من"))
+            await query.message.edit_text(
+                body,
+                reply_markup=await main_menu(registry, is_admin=is_admin),
+            )
 
 
 # ---------------------------------------------------------------------------

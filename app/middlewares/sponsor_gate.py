@@ -122,9 +122,23 @@ class SponsorGateMiddleware(BaseMiddleware):
         # 2. Group / Supergroup non-command message bypass:
         # Do not check sponsors or prompt in group chats for regular chat
         # messages, stickers, photos, etc.
+        # BUT if it is a command OR contains a supported media URL, enforce the sponsor gate!
         if isinstance(inner, Message) and inner.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
-            text = inner.text or inner.caption or ""
-            if not text.startswith("/"):
+            text = (inner.text or inner.caption or "").strip()
+            is_cmd = text.startswith("/")
+            has_media_url = False
+            if not is_cmd and text:
+                from app.media.downloader import detect_platform, extract_first_url
+
+                found_url = extract_first_url(text)
+                if found_url:
+                    key, _, _ = detect_platform(found_url)
+                    if key != "other" or (
+                        found_url.startswith("http://") or found_url.startswith("https://")
+                    ):
+                        has_media_url = True
+
+            if not is_cmd and not has_media_url:
                 return await handler(event, data)
 
         # 3. Handler Exception: Let "check_sponsors" callback through to its handler
@@ -193,17 +207,32 @@ class SponsorGateMiddleware(BaseMiddleware):
             except Exception as exc:
                 log.warning("sponsor_leave_invite_failed", error=str(exc))
 
-        prompt_text = (
-            f"{registry.text('lock')} <b>عضویت اجباری در کانال‌های اسپانسر</b>\n\n"
-            "برای استفاده از امکانات ربات، لطفاً ابتدا در کانال‌های زیر عضو شوید "
-            "و سپس دکمه «عضو شدم» را بزنید:"
+        is_group = isinstance(inner, Message) and inner.chat.type in (
+            ChatType.GROUP,
+            ChatType.SUPERGROUP,
         )
+        first_name = html.quote(user.first_name or "دوست من")
+        if is_group:
+            prompt_text = (
+                f"{registry.text('lock')} <b>عضویت در کانال‌های اسپانسر</b>\n\n"
+                f"کاربر {first_name} عزیز، برای استفاده از امکانات ربات در گروه، "
+                "لطفاً ابتدا در کانال‌های زیر عضو شوید و سپس دکمه «عضو شدم» را بزنید:"
+            )
+        else:
+            prompt_text = (
+                f"{registry.text('lock')} <b>عضویت اجباری در کانال‌های اسپانسر</b>\n\n"
+                "برای استفاده از امکانات ربات، لطفاً ابتدا در کانال‌های زیر عضو شوید "
+                "و سپس دکمه «عضو شدم» را بزنید:"
+            )
 
         if isinstance(inner, CallbackQuery):
             await inner.answer("لطفاً ابتدا در کانال‌های اسپانسر عضو شوید.", show_alert=True)
             if inner.message and isinstance(inner.message, Message):
                 await inner.message.answer(prompt_text, reply_markup=kb.as_markup())
         elif isinstance(inner, Message):
-            await inner.answer(prompt_text, reply_markup=kb.as_markup())
+            if is_group:
+                await inner.reply(prompt_text, reply_markup=kb.as_markup())
+            else:
+                await inner.answer(prompt_text, reply_markup=kb.as_markup())
 
         return None

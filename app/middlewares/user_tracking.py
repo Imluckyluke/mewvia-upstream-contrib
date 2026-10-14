@@ -43,9 +43,18 @@ def is_real_interaction(event: TelegramObject) -> bool:
     if isinstance(inner, Message):
         chat_type = getattr(inner.chat, "type", None)
         if chat_type in (ChatType.GROUP, ChatType.SUPERGROUP):
-            # Group chatter is noise; only /commands count.
-            text = inner.text or inner.caption or ""
-            return text.startswith("/")
+            # Group chatter is noise; only /commands and media URLs count.
+            text = (inner.text or inner.caption or "").strip()
+            if text.startswith("/"):
+                return True
+            from app.media.downloader import detect_platform, extract_first_url
+
+            url = extract_first_url(text)
+            if url:
+                key, _, _ = detect_platform(url)
+                if key != "other" or (url.startswith("http://") or url.startswith("https://")):
+                    return True
+            return False
         # Private chats (and channels edge-cases) always count.
         return True
 

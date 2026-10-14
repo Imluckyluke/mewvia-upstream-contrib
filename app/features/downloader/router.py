@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from aiogram import Bot, F, Router, html
+from aiogram.enums import ChatType
 from aiogram.filters import BaseFilter, Command, CommandObject, StateFilter
 from aiogram.types import (
     CallbackQuery,
@@ -593,6 +594,8 @@ async def _handle_url_input(
             await message.answer(err)
         return
 
+    user_id = message.from_user.id if message.from_user else 0
+
     # User preference: Only YouTube videos and all Playlists/Albums show selection cards.
     # All other single media (Instagram, TikTok, Twitter, Spotify, etc.) auto-download at once!
     is_interactive = info.is_playlist or (info.platform_key == "youtube")
@@ -742,10 +745,25 @@ async def _handle_url_input(
                 "کیفیت یا فرمت مورد نظرت را انتخاب کن:"
             )
 
+        sent_card: Message | None = None
         if status_msg:
-            await status_msg.edit_text(card_text, reply_markup=kb.as_markup())
+            edited = await status_msg.edit_text(card_text, reply_markup=kb.as_markup())
+            sent_card = edited if isinstance(edited, Message) else status_msg
         else:
-            await message.answer(card_text, reply_markup=kb.as_markup())
+            sent_card = await message.reply(card_text, reply_markup=kb.as_markup())
+
+        # In groups, register ownership so only sender can tap quality / action buttons!
+        if message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP) and sent_card is not None:
+            from app.middlewares.group_guard import store_panel
+
+            user_name = message.from_user.first_name if message.from_user else "کاربر"
+            await store_panel(
+                message.chat.id,
+                sent_card.message_id,
+                owner_id=user_id,
+                owner_name=user_name,
+                reply_to_message_id=message.message_id,
+            )
         return
 
     # Direct auto-download without questioning for all other platforms
@@ -909,7 +927,6 @@ class ContainsMediaUrlFilter(BaseFilter):
 
 
 @router.message(
-    F.chat.type == "private",
     StateFilter(None),
     ContainsMediaUrlFilter(),
 )
