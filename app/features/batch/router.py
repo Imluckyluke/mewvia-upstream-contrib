@@ -29,6 +29,7 @@ from app.media.filters import FILTER_MAP
 from app.media.kinds import MediaKind, resolve_panel_media
 from app.media.specs import (
     TARGET_GIF,
+    TARGET_MP4,
     TARGET_PNG,
     TARGET_WEBM_STICKER,
     TARGET_WEBP,
@@ -414,6 +415,10 @@ async def apply_batch_changes(
             elif target_spec.id == TARGET_PNG.id:
                 await bot.send_photo(
                     chat_id=chat_id, photo=input_file_obj, reply_to_message_id=reply_to_id
+                )
+            elif target_spec.id == TARGET_MP4.id:
+                await bot.send_video(
+                    chat_id=chat_id, video=input_file_obj, reply_to_message_id=reply_to_id
                 )
             else:
                 await bot.send_document(

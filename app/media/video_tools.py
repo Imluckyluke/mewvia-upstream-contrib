@@ -26,6 +26,8 @@ async def make_video_note(
     args = [
         "-i",
         str(input_file),
+        "-t",
+        "60",
         "-c:v",
         "libx264",
         "-preset",
@@ -50,6 +52,8 @@ async def make_video_note(
         args = [
             "-i",
             str(input_file),
+            "-t",
+            "60",
             "-an",
             "-c:v",
             "libx264",
@@ -132,6 +136,11 @@ async def mute_video(input_file: Path, output_file: Path) -> MediaInfo:
 
 async def reverse_video(input_file: Path, output_file: Path, info: MediaInfo) -> MediaInfo:
     """Reverse video (and audio if present)."""
+    if info.duration and info.duration > 90.0:
+        raise ConversionError(
+            "معکوس کردن ویدیو فقط برای ویدیوهای تا ۹۰ ثانیه امکان‌پذیر است تا حافظه سرور اشباع نشود."
+        )
+
     if info.has_audio:
         vf_args = ["-vf", "reverse", "-af", "areverse"]
     else:

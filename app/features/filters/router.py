@@ -16,6 +16,8 @@ from app.core.logging import get_logger
 from app.db.repo import ConversionRepo
 from app.media.filters import FILTER_MAP, apply_filter_to_image, apply_filter_to_video
 from app.media.kinds import MediaKind, resolve_panel_media
+from app.media.pipeline import _convert_from_tgs
+from app.media.specs import TARGET_MP4
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
@@ -142,6 +144,14 @@ async def process_filter_apply(
 
         try:
             await bot.download(file_id, destination=src_file)
+
+            if kind == MediaKind.STICKER_ANIMATED:
+                temp_mp4 = work_dir / "tgs_temp.mp4"
+                await _convert_from_tgs(src_file, TARGET_MP4, temp_mp4, work_dir)
+                src_file = temp_mp4
+                is_video_media = True
+                out_ext = ".webm"
+                out_file = work_dir / f"output{out_ext}"
 
             start_time = time.perf_counter()
             if is_video_media:

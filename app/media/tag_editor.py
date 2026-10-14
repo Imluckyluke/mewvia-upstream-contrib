@@ -225,15 +225,16 @@ def apply_tags(
             tags.add(TRCK(encoding=3, text=str(track)))
         if cover_bytes is not None:
             tags.delall("APIC")
-            tags.add(
-                APIC(
-                    encoding=3,
-                    mime=cover_mime or "image/jpeg",
-                    type=3,
-                    desc="cover",
-                    data=cover_bytes,
+            if cover_bytes:
+                tags.add(
+                    APIC(
+                        encoding=3,
+                        mime=cover_mime or "image/jpeg",
+                        type=3,
+                        desc="cover",
+                        data=cover_bytes,
+                    )
                 )
-            )
         mp3.save()
     elif suffix == ".m4a":
         m4a: Any = handle if isinstance(handle, MP4) else MP4(path)
@@ -259,9 +260,12 @@ def apply_tags(
         if track is not None:
             m4a.tags["trkn"] = [(track, 0)]
         if cover_bytes is not None:
-            mime = cover_mime or "image/jpeg"
-            fmt = MP4Cover.FORMAT_JPEG if "png" not in mime else MP4Cover.FORMAT_PNG
-            m4a.tags["covr"] = [MP4Cover(cover_bytes, imageformat=fmt)]
+            if cover_bytes:
+                mime = cover_mime or "image/jpeg"
+                fmt = MP4Cover.FORMAT_JPEG if "png" not in mime else MP4Cover.FORMAT_PNG
+                m4a.tags["covr"] = [MP4Cover(cover_bytes, imageformat=fmt)]
+            else:
+                m4a.tags.pop("covr", None)
         m4a.save()
     elif suffix in (".ogg", ".opus"):
         cls = OggVorbis if suffix == ".ogg" else OggOpus
@@ -285,15 +289,18 @@ def apply_tags(
         if track is not None:
             ogg["tracknumber"] = str(track)
         if cover_bytes is not None:
-            import base64
+            if cover_bytes:
+                import base64
 
-            pic = Picture()
-            pic.type = 3
-            pic.mime = cover_mime or "image/jpeg"
-            pic.desc = "cover"
-            pic.data = cover_bytes
-            raw = pic.write()
-            ogg["metadata_block_picture"] = [base64.b64encode(raw).decode("ascii")]
+                pic = Picture()
+                pic.type = 3
+                pic.mime = cover_mime or "image/jpeg"
+                pic.desc = "cover"
+                pic.data = cover_bytes
+                raw = pic.write()
+                ogg["metadata_block_picture"] = [base64.b64encode(raw).decode("ascii")]
+            else:
+                ogg.pop("metadata_block_picture", None)
         ogg.save()
     elif suffix == ".flac":
         flac: Any = handle if isinstance(handle, FLAC) else FLAC(path)
@@ -316,13 +323,14 @@ def apply_tags(
         if track is not None:
             flac["tracknumber"] = str(track)
         if cover_bytes is not None:
-            pic = Picture()
-            pic.type = 3
-            pic.mime = cover_mime or "image/jpeg"
-            pic.desc = "cover"
-            pic.data = cover_bytes
             flac.clear_pictures()
-            flac.add_picture(pic)
+            if cover_bytes:
+                pic = Picture()
+                pic.type = 3
+                pic.mime = cover_mime or "image/jpeg"
+                pic.desc = "cover"
+                pic.data = cover_bytes
+                flac.add_picture(pic)
         flac.save()
 
     close = getattr(handle, "close", None)

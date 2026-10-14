@@ -58,6 +58,7 @@ TARGET_ID_LABELS: dict[str, str] = {
     "dl_tiktok": "دانلود از تیک‌تاک",
     "dl_twitter": "دانلود از توییتر (X)",
     "dl_pinterest": "دانلود از پینترست",
+    "dl_spotify": "دانلود از اسپاتیفای",
     "dl_soundcloud": "دانلود از ساندکلاد",
     "dl_reddit": "دانلود از ردیت",
     "dl_aparat": "دانلود از آپارات",

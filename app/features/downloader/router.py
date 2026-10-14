@@ -525,19 +525,63 @@ async def execute_download(
                     raise ConversionError("هیچ عکسی برای دانلود یافت نشد.")
 
                 file_size = sum(f.stat().st_size for f in gallery_files)
-                # Send up to 10 items as media group (handling mixed photos/videos)
-                media_group: list[Any] = []
-                for p in gallery_files[:10]:
-                    if p.suffix.lower() == ".mp4":
-                        media_group.append(InputMediaVideo(media=FSInputFile(p)))
-                    else:
-                        media_group.append(InputMediaPhoto(media=FSInputFile(p)))
-
-                await bot.send_media_group(
-                    chat_id=chat_id,
-                    media=media_group,
-                    reply_to_message_id=reply_to_id,
+                gallery_caption = (
+                    f"📸 <b>{html.quote(title)}</b>\n\nدانلود شده با @{settings.bot_username} 🐾"
                 )
+
+                if len(gallery_files) == 1:
+                    single_file = gallery_files[0]
+                    if single_file.suffix.lower() == ".mp4":
+                        await bot.send_video(
+                            chat_id=chat_id,
+                            video=FSInputFile(single_file),
+                            caption=gallery_caption[:1024],
+                            reply_to_message_id=reply_to_id,
+                        )
+                    else:
+                        await bot.send_photo(
+                            chat_id=chat_id,
+                            photo=FSInputFile(single_file),
+                            caption=gallery_caption[:1024],
+                            reply_to_message_id=reply_to_id,
+                        )
+                else:
+                    # Telegram limits send_media_group to 2-10 items per message
+                    # Chunk files into batches of 10
+                    for chunk_idx in range(0, len(gallery_files), 10):
+                        chunk = gallery_files[chunk_idx : chunk_idx + 10]
+                        media_group: list[Any] = []
+                        for i, p in enumerate(chunk):
+                            cap = gallery_caption[:1024] if chunk_idx == 0 and i == 0 else None
+                            if p.suffix.lower() == ".mp4":
+                                media_group.append(
+                                    InputMediaVideo(media=FSInputFile(p), caption=cap)
+                                )
+                            else:
+                                media_group.append(
+                                    InputMediaPhoto(media=FSInputFile(p), caption=cap)
+                                )
+                        if len(media_group) == 1:
+                            single_item = chunk[0]
+                            if single_item.suffix.lower() == ".mp4":
+                                await bot.send_video(
+                                    chat_id=chat_id,
+                                    video=FSInputFile(single_item),
+                                    reply_to_message_id=reply_to_id,
+                                )
+                            else:
+                                await bot.send_photo(
+                                    chat_id=chat_id,
+                                    photo=FSInputFile(single_item),
+                                    reply_to_message_id=reply_to_id,
+                                )
+                        else:
+                            await bot.send_media_group(
+                                chat_id=chat_id,
+                                media=media_group,
+                                reply_to_message_id=reply_to_id,
+                            )
+                        await asyncio.sleep(0.3)
 
             elif action == "spotify_track":
                 uploader = ctx.get("uploader") or "Spotify"
@@ -637,6 +681,7 @@ async def execute_download(
                     for idx, it in enumerate(items_to_download, 1)
                 ]
 
+                last_edit_time = 0.0
                 # Stream results as workers finish
                 for fut in asyncio.as_completed(tasks):
                     idx, it, file_path = await fut
@@ -674,7 +719,11 @@ async def execute_download(
                                     "track_send_failed", title=it_title, error=str(send_exc)
                                 )
 
-                    if status_msg is not None:
+                    now = time.perf_counter()
+                    if status_msg is not None and (
+                        now - last_edit_time >= 1.5 or sent_count == total_items
+                    ):
+                        last_edit_time = now
                         cur_fa = fa_digits(str(sent_count))
                         tot_fa = fa_digits(str(total_items))
                         prog_text = (
@@ -685,6 +734,15 @@ async def execute_download(
                             await status_msg.edit_text(prog_text)
                         except Exception:
                             pass
+
+                if sent_count == 0:
+                    if status_msg is not None:
+                        await status_msg.edit_text(
+                            "❌ <b>امکان دریافت ترک‌های این پلی‌لیست وجود نداشت.</b>\n"
+                            "ممکن است قطعات دارای محدودیت یا در این منطقه مسدود باشند."
+                        )
+                        status_msg = None
+                    return
 
                 if is_zip and zip_path.is_file() and zip_path.stat().st_size > 0:
                     zip_size = zip_path.stat().st_size

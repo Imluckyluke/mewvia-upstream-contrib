@@ -274,6 +274,10 @@ async def process_conversion(
                 await bot.send_photo(
                     chat_id=chat_id, photo=input_file_obj, reply_to_message_id=reply_to_id
                 )
+            elif target_spec.id == "mp4":
+                await bot.send_video(
+                    chat_id=chat_id, video=input_file_obj, reply_to_message_id=reply_to_id
+                )
             else:
                 await bot.send_document(
                     chat_id=chat_id, document=input_file_obj, reply_to_message_id=reply_to_id

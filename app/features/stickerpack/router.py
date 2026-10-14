@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 from pathlib import Path
 
@@ -36,6 +37,29 @@ from app.ui.texts import t
 log = get_logger(__name__)
 
 router = Router(name="stickerpack")
+
+EMOJI_PATTERN = re.compile(
+    r"(?:"
+    r"[\U0001F1E6-\U0001F1FF]{2}|"
+    r"[\U0001F600-\U0001F64F]|"
+    r"[\U0001F300-\U0001F5FF]|"
+    r"[\U0001F680-\U0001F6FF]|"
+    r"[\U0001F700-\U0001F77F]|"
+    r"[\U0001F780-\U0001F7FF]|"
+    r"[\U0001F800-\U0001F8FF]|"
+    r"[\U0001F900-\U0001F9FF]|"
+    r"[\U0001FA00-\U0001FA6F]|"
+    r"[\U0001FA70-\U0001FAFF]|"
+    r"[\u2600-\u26FF]|"
+    r"[\u2700-\u27BF]"
+    r")(?:[\uFE0E\uFE0F])?"
+    r"(?:[\U0001F3FB-\U0001F3FF])?"
+    r"(?:(?:\u200D)(?:"
+    r"[\U0001F600-\U0001F64F]|[\U0001F300-\U0001F5FF]|[\U0001F680-\U0001F6FF]|"
+    r"[\U0001F900-\U0001F9FF]|[\U0001FA70-\U0001FAFF]|[\u2600-\u26FF]|[\u2700-\u27BF]"
+    r")(?:[\uFE0E\uFE0F])?(?:[\U0001F3FB-\U0001F3FF])?)*",
+    re.UNICODE,
+)
 
 SCOPE = "spack_list"
 
@@ -188,7 +212,9 @@ async def process_pack_emoji_and_build(
     state: FSMContext,
     settings: Settings,
 ) -> None:
-    emoji = (message.text or "🎨").strip()[0]
+    raw_text = (message.text or "").strip()
+    match = EMOJI_PATTERN.search(raw_text)
+    emoji = match.group(0) if match else "🎨"
     data = await state.get_data()
     await state.clear()
 

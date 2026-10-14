@@ -448,6 +448,15 @@ async def prompt_tag_cover(query: CallbackQuery, state: FSMContext) -> None:
     kb = KB(registry)
     kb.row(
         inline_button(
+            "🗑️ حذف کامل کاور قبلی",
+            callback_data=TagFieldCB(action="clear_cover").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="trash",
+            registry=registry,
+        )
+    )
+    kb.row(
+        inline_button(
             "❌ انصراف",
             callback_data=TagFieldCB(action="cancel").pack(),
             style=Style.DESTRUCTIVE,
@@ -459,14 +468,32 @@ async def prompt_tag_cover(query: CallbackQuery, state: FSMContext) -> None:
         edited = await query.message.edit_text(
             "<b>🖼️ کاور جدید</b>\n\n"
             "یک <b>عکس</b> بفرست تا کاور آهنگ بشه (حداکثر ۵ مگابایت).\n"
-            "عکس مربعی بهترین نتیجه رو میده.",
+            "عکس مربعی بهترین نتیجه رو میده.\n\n"
+            "برای حذف کاور، دکمه «🗑️ حذف کامل کاور قبلی» را بزن.",
             reply_markup=kb.as_markup(),
         )
         if edited is None:
             await query.message.answer(
-                "<b>🖼️ کاور جدید</b>\n\nیک <b>عکس</b> بفرست تا کاور آهنگ بشه.",
+                "<b>🖼️ کاور جدید</b>\n\nیک <b>عکس</b> بفرست یا دکمه حذف را بزن.",
                 reply_markup=kb.as_markup(),
             )
+    await query.answer()
+
+
+@router.callback_query(TagFieldCB.filter(F.action == "clear_cover"))
+async def clear_tag_cover(query: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(cover_file_id="__CLEAR__")
+    await state.set_state(None)
+    data = await state.get_data()
+    summary = _staged_summary(data)
+    registry = await ready_registry()
+    kb = tag_editor_kb(registry, staged=data)
+    text = (
+        f"🗑️ <b>کاور آهنگ برای حذف انتخاب شد</b> 🖼️ ✅\n\n"
+        f"{summary}\n\nادامه بده یا «✅ ذخیره و ارسال» را بزن:"
+    )
+    if isinstance(query.message, Message):
+        await query.message.edit_text(text, reply_markup=kb.as_markup())
     await query.answer()
 
 
@@ -497,8 +524,24 @@ async def receive_tag_cover(message: Message, bot: Bot, state: FSMContext) -> No
 
 
 @router.message(TagEditFSM.waiting_for_cover)
-async def receive_tag_cover_invalid(message: Message) -> None:
-    await message.reply("این کاور نشد! لطفاً یک <b>عکس</b> بفرست (نه فایل، نه متن).")
+async def receive_tag_cover_invalid(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    if raw in ("حذف", "delete", "clear", "-"):
+        await state.update_data(cover_file_id="__CLEAR__")
+        await state.set_state(None)
+        data = await state.get_data()
+        summary = _staged_summary(data)
+        registry = await ready_registry()
+        kb = tag_editor_kb(registry, staged=data)
+        await message.reply(
+            f"🗑️ <b>کاور آهنگ برای حذف انتخاب شد</b> 🖼️ ✅\n\n"
+            f"{summary}\n\nادامه بده یا «✅ ذخیره و ارسال» را بزن:",
+            reply_markup=kb.as_markup(),
+        )
+        return
+    await message.reply(
+        "این کاور نشد! لطفاً یک <b>عکس</b> بفرست (یا برای حذف کاور، کلمه <code>حذف</code> را بفرست)."
+    )
 
 
 @router.callback_query(TagFieldCB.filter(F.action == "save"))
@@ -560,7 +603,10 @@ async def save_tag_edits(
 
             cover_bytes: bytes | None = None
             cover_mime: str | None = None
-            if cover_file_id:
+            if cover_file_id == "__CLEAR__":
+                cover_bytes = b""
+                cover_mime = ""
+            elif cover_file_id:
                 await bot.download(cover_file_id, destination=cover_file)
                 cover_bytes, cover_mime = _prepare_cover(cover_file)
 
@@ -640,7 +686,9 @@ def _staged_summary(data: dict[str, object]) -> str:
             continue
         shown = "🗑️ پاک میشه" if val == "__CLEAR__" else f"«{html.quote(str(val))}»"
         parts.append(f"• {labels[key]}: {shown}")
-    if data.get("cover_file_id"):
+    if data.get("cover_file_id") == "__CLEAR__":
+        parts.append("• کاور: 🗑️ پاک میشه")
+    elif data.get("cover_file_id"):
         parts.append("• کاور: 🖼️ عکس جدید ثبت شد")
     if not parts:
         return "<i>هنوز چیزی ویرایش نشده.</i>"

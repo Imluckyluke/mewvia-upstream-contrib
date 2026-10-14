@@ -17,6 +17,7 @@ from app.core.logging import get_logger
 from app.core.quota import check_daily_quota
 from app.db.repo import ConversionRepo
 from app.features.registry import Feature, register
+from app.media.audio_tools import extract_audio_from_video
 from app.media.kinds import resolve_panel_media
 from app.media.probe import probe
 from app.media.video_tools import compress_video, make_video_note, mute_video, reverse_video
@@ -73,6 +74,15 @@ async def start_vtool_menu(query: CallbackQuery) -> None:
             emoji_slot="refresh",
             registry=registry,
         ),
+    )
+    kb.row(
+        inline_button(
+            "🎵 استخراج صدا از ویدیو",
+            callback_data=VideoToolCB(action="extract").pack(),
+            style=Style.CONFIRM,
+            emoji_slot="audio",
+            registry=registry,
+        )
     )
     kb.row(
         inline_button(
@@ -222,6 +232,22 @@ async def process_video_tool(
                     caption="🔄 <b>ویدیو معکوس شد.</b>",
                 )
 
+            elif action == "extract":
+                out_file = work_dir / "extracted.mp3"
+                await extract_audio_from_video(src_file, out_file)
+                out_obj = FSInputFile(out_file)
+                await bot.send_audio(
+                    chat_id=msg.chat.id,
+                    audio=out_obj,
+                    reply_to_message_id=reply_to_id,
+                    title="Extracted Audio",
+                    caption=(
+                        f"🎵 <b>صدای استخراج‌شده از ویدیو</b>\n\n"
+                        f"دانلود شده با @{settings.bot_username} 🐾"
+                    ),
+                )
+                res_info = await probe(out_file)
+
             else:
                 return
 
@@ -232,10 +258,11 @@ async def process_video_tool(
                     pass
 
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            target_id = "atool_extract" if action == "extract" else f"vtool_{action}"
             await conv_repo.log_conversion(
                 telegram_id=user_id,
                 source_kind=kind.value,
-                target_id=f"vtool_{action}",
+                target_id=target_id,
                 in_bytes=file_size,
                 out_bytes=res_info.file_size,
                 duration_ms=elapsed_ms,

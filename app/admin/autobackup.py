@@ -14,11 +14,15 @@ still sends the file on demand.
 from __future__ import annotations
 
 import datetime
+import os
+import shutil
+import time
 from pathlib import Path
 
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.admin.backup import create_db_backup
 from app.config import Settings
@@ -28,6 +32,7 @@ from app.core.settings_store import get_settings_store
 log = get_logger(__name__)
 
 _JOB_ID = "autobackup"
+_CLEANUP_JOB_ID = "disk_cache_cleanup"
 _KEEP_DAYS = 7
 
 _scheduler: AsyncIOScheduler | None = None
@@ -36,6 +41,41 @@ _last_cron: str | None = None
 
 def get_scheduler() -> AsyncIOScheduler | None:
     return _scheduler
+
+
+def _prune_disk_cache(settings: Settings) -> None:
+    """Purge stale temporary files and cached media older than 24h to protect disk space."""
+    now = time.time()
+    cutoff_tmp = now - (2 * 3600)  # 2 hours for temp files
+    cutoff_media = now - (24 * 3600)  # 24 hours for downloaded telegram-bot-api media
+
+    # 1. Clean /data/tmp leftovers
+    if settings.tmp_dir.is_dir():
+        for p in settings.tmp_dir.iterdir():
+            try:
+                if p.stat().st_mtime < cutoff_tmp:
+                    if p.is_dir():
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        p.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    # 2. Clean /var/lib/telegram-bot-api media (documents, stickers, videos, temp)
+    bot_api_dir = Path("/var/lib/telegram-bot-api")
+    if bot_api_dir.is_dir():
+        for root, _dirs, files in os.walk(bot_api_dir):
+            if "binlog" in root:
+                continue
+            for f in files:
+                if f.endswith(".binlog"):
+                    continue
+                fp = Path(root) / f
+                try:
+                    if fp.stat().st_mtime < cutoff_media:
+                        fp.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
 
 def _prune_old_backups(backup_dir: Path, keep_days: int = _KEEP_DAYS) -> int:
@@ -93,8 +133,27 @@ async def sync_autobackup_job(settings: Settings, bot: Bot) -> str | None:
     except Exception:
         cron = ""
 
+    if _scheduler is None:
+        _scheduler = AsyncIOScheduler()
+        _scheduler.start()
+        log.info("autobackup_scheduler_started")
+
+    # Always ensure disk cache cleanup is active (every 6 hours)
+    if not _scheduler.get_job(_CLEANUP_JOB_ID):
+        _scheduler.add_job(
+            _prune_disk_cache,
+            trigger=IntervalTrigger(hours=6),
+            args=[settings],
+            id=_CLEANUP_JOB_ID,
+            replace_existing=True,
+        )
+        # Run one cleanup immediately in background thread
+        import asyncio
+
+        asyncio.get_running_loop().run_in_executor(None, _prune_disk_cache, settings)
+
     if not cron:
-        if _scheduler is not None and _scheduler.get_job(_JOB_ID):
+        if _scheduler.get_job(_JOB_ID):
             _scheduler.remove_job(_JOB_ID)
             log.info("autobackup_disabled")
         _last_cron = None
@@ -105,11 +164,6 @@ async def sync_autobackup_job(settings: Settings, bot: Bot) -> str | None:
     except ValueError as exc:
         log.warning("autobackup_bad_cron", cron=cron, error=str(exc))
         return _last_cron
-
-    if _scheduler is None:
-        _scheduler = AsyncIOScheduler()
-        _scheduler.start()
-        log.info("autobackup_scheduler_started")
 
     if cron == _last_cron and _scheduler.get_job(_JOB_ID):
         return cron

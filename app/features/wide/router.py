@@ -15,6 +15,8 @@ from app.config import Settings
 from app.core.logging import get_logger
 from app.db.repo import ConversionRepo
 from app.media.kinds import MediaKind, resolve_panel_media
+from app.media.pipeline import _convert_from_tgs
+from app.media.specs import TARGET_MP4
 from app.media.wide import make_image_wide, make_video_wide
 from app.ui.texts import t
 
@@ -86,6 +88,14 @@ async def process_wide_media(
 
         try:
             await bot.download(file_id, destination=src_file)
+
+            if kind == MediaKind.STICKER_ANIMATED:
+                temp_mp4 = work_dir / "tgs_temp.mp4"
+                await _convert_from_tgs(src_file, TARGET_MP4, temp_mp4, work_dir)
+                src_file = temp_mp4
+                is_video_media = True
+                out_ext = ".webm"
+                out_file = work_dir / f"output{out_ext}"
 
             start_time = time.perf_counter()
             if is_video_media:
