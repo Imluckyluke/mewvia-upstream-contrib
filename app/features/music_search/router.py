@@ -23,6 +23,12 @@ from app.db.repo import ConversionRepo
 from app.features.registry import Feature, register
 from app.media.downloader import download_audio, download_spotify_track
 from app.media.jobs import run_media_job
+from app.media.lyrics import (
+    build_full_lyrics_message,
+    build_lyrics_caption_block,
+    embed_lyrics_to_mp3,
+    fetch_lyrics,
+)
 from app.media.music_search import (
     SearchTrack,
     create_search_session_id,
@@ -406,14 +412,29 @@ async def select_and_download_track(
             registry = await ready_registry()
             p_slot = "spotify" if platform == "spotify" else "soundcloud"
             dur_val = fa_digits(track.duration_str)
+
+            # Check and embed song lyrics if available
+            lyrics = await fetch_lyrics(
+                track.title,
+                track.artist,
+                duration_seconds=track.duration_seconds,
+            )
+            if lyrics:
+                embed_lyrics_to_mp3(downloaded_file, lyrics)
+
+            lyrics_block, is_truncated = (
+                build_lyrics_caption_block(lyrics, registry) if lyrics else ("", False)
+            )
+
             caption = (
                 f"{registry.text(p_slot)} <b>{html.quote(track.title)}</b>\n"
                 f"{registry.text('user')} <b>خواننده:</b> {html.quote(track.artist)}\n"
-                f"{registry.text('clock')} <b>مدت زمان:</b> <code>{dur_val}</code>\n\n"
+                f"{registry.text('clock')} <b>مدت زمان:</b> <code>{dur_val}</code>"
+                f"{lyrics_block}\n\n"
                 f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
             )
 
-            await bot.send_audio(
+            sent_audio = await bot.send_audio(
                 chat_id=query.message.chat.id,
                 audio=FSInputFile(downloaded_file),
                 title=track.title[:64],
@@ -421,6 +442,19 @@ async def select_and_download_track(
                 caption=caption[:1024],
                 reply_to_message_id=reply_to_id,
             )
+
+            if is_truncated and lyrics and sent_audio:
+                full_lyrics_msg = build_full_lyrics_message(
+                    track.title, track.artist, lyrics, registry
+                )
+                try:
+                    await bot.send_message(
+                        chat_id=query.message.chat.id,
+                        text=full_lyrics_msg,
+                        reply_to_message_id=sent_audio.message_id,
+                    )
+                except Exception as l_exc:
+                    log.warning("send_full_lyrics_failed", error=str(l_exc))
 
             try:
                 await status_msg.delete()

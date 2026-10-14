@@ -53,6 +53,12 @@ from app.media.downloader import (
     store_download_context,
 )
 from app.media.jobs import run_media_job
+from app.media.lyrics import (
+    build_full_lyrics_message,
+    build_lyrics_caption_block,
+    embed_lyrics_to_mp3,
+    fetch_lyrics,
+)
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
@@ -186,11 +192,27 @@ async def _perform_download(
                     return
 
                 uploader = ctx.get("uploader") or "Mewvia"
+                dur_secs = ctx.get("duration_seconds")
+                dur_int = (
+                    int(dur_secs) if isinstance(dur_secs, (int, float)) and dur_secs > 0 else None
+                )
+
+                # Fetch and embed lyrics if available
+                lyrics = await fetch_lyrics(title, str(uploader), duration_seconds=dur_int)
+                if lyrics:
+                    embed_lyrics_to_mp3(downloaded_file, lyrics)
+
+                lyrics_block, is_truncated = (
+                    build_lyrics_caption_block(lyrics, registry) if lyrics else ("", False)
+                )
+
                 caption = (
-                    f"{registry.text('audio')} <b>{html.quote(title)}</b>\n\n"
+                    f"{registry.text('audio')} <b>{html.quote(title)}</b>\n"
+                    f"{registry.text('user')} <b>خواننده / سازنده:</b> {html.quote(str(uploader))}"
+                    f"{lyrics_block}\n\n"
                     f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
-                await bot.send_audio(
+                sent_audio = await bot.send_audio(
                     chat_id=chat_id,
                     audio=FSInputFile(downloaded_file),
                     title=title[:64],
@@ -198,6 +220,19 @@ async def _perform_download(
                     caption=caption[:1024],
                     reply_to_message_id=reply_to_id,
                 )
+
+                if is_truncated and lyrics and sent_audio:
+                    full_lyrics_msg = build_full_lyrics_message(
+                        title, str(uploader), lyrics, registry
+                    )
+                    try:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=full_lyrics_msg,
+                            reply_to_message_id=sent_audio.message_id,
+                        )
+                    except Exception as l_exc:
+                        log.warning("send_full_lyrics_failed", error=str(l_exc))
 
             elif action == "gallery":
 
@@ -287,11 +322,23 @@ async def _perform_download(
                     settings, _do_spotify, stage="download_spotify"
                 )
                 file_size = downloaded_file.stat().st_size
+
+                # Fetch and embed lyrics if available
+                lyrics = await fetch_lyrics(title, str(uploader))
+                if lyrics:
+                    embed_lyrics_to_mp3(downloaded_file, lyrics)
+
+                lyrics_block, is_truncated = (
+                    build_lyrics_caption_block(lyrics, registry) if lyrics else ("", False)
+                )
+
                 caption = (
-                    f"{registry.text('spotify')} <b>{html.quote(title)}</b>\n\n"
+                    f"{registry.text('spotify')} <b>{html.quote(title)}</b>\n"
+                    f"{registry.text('user')} <b>خواننده:</b> {html.quote(str(uploader))}"
+                    f"{lyrics_block}\n\n"
                     f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
-                await bot.send_audio(
+                sent_audio = await bot.send_audio(
                     chat_id=chat_id,
                     audio=FSInputFile(downloaded_file),
                     title=title[:64],
@@ -299,6 +346,19 @@ async def _perform_download(
                     caption=caption[:1024],
                     reply_to_message_id=reply_to_id,
                 )
+
+                if is_truncated and lyrics and sent_audio:
+                    full_lyrics_msg = build_full_lyrics_message(
+                        title, str(uploader), lyrics, registry
+                    )
+                    try:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=full_lyrics_msg,
+                            reply_to_message_id=sent_audio.message_id,
+                        )
+                    except Exception as l_exc:
+                        log.warning("send_full_lyrics_failed", error=str(l_exc))
 
             elif action in ("pl_zip", "pl_audio_all", "pl_audio_first5", "pl_video_all"):
                 items = list(ctx.get("playlist_items") or [])
