@@ -8,6 +8,8 @@ services:
     image: mewvia-bot:latest
     restart: unless-stopped
     init: true          # PID-1 zombie reaping for ffmpeg subprocesses
+    group_add:
+      - "101"           # Access files downloaded by local telegram-bot-api (GID 101)
     env_file: .env
     environment:
       # Service wiring (overrides .env so compose stays the source of truth for hosts)
