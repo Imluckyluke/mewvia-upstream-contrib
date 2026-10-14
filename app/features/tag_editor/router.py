@@ -136,7 +136,7 @@ def tag_editor_kb(registry: EmojiRegistry, staged: dict[str, object] | None = No
         return FIELD_SLOTS[field]
 
     def label(field: str) -> str:
-        return f"{FIELD_ICONS[field]} {FIELD_LABELS[field]}"
+        return FIELD_LABELS[field]
 
     kb = KB(registry)
     kb.row(
@@ -180,7 +180,7 @@ def tag_editor_kb(registry: EmojiRegistry, staged: dict[str, object] | None = No
             registry=registry,
         ),
         inline_button(
-            "🖼️ کاور جدید",
+            "کاور جدید",
             callback_data=TagFieldCB(action="cover").pack(),
             style=Style.CONFIRM,
             emoji_slot="ok" if staged.get("cover_file_id") else "photo",
@@ -190,7 +190,7 @@ def tag_editor_kb(registry: EmojiRegistry, staged: dict[str, object] | None = No
 
     kb.row(
         inline_button(
-            "✅ ذخیره و ارسال",
+            "ذخیره و ارسال",
             callback_data=TagFieldCB(action="save").pack(),
             style=Style.CONFIRM,
             emoji_slot="ok",
@@ -362,7 +362,7 @@ async def prompt_tag_field(
         hint = f"\nحداکثر {fa_digits(str(FIELD_LIMITS[field]))} کاراکتر."
     hint += "\nبرای پاک کردن مقدار فعلی، کلمه <code>حذف</code> را بفرست."
 
-    prompt_text = f"<b>📝 ویرایش {label}</b>{hint}\n\nمقدار جدید را بفرست:"
+    prompt_text = f"{registry.text('edit')} <b>ویرایش {label}</b>{hint}\n\nمقدار جدید را بفرست:"
     if isinstance(query.message, Message):
         edited = await query.message.edit_text(
             prompt_text,
@@ -448,7 +448,7 @@ async def prompt_tag_cover(query: CallbackQuery, state: FSMContext) -> None:
     kb = KB(registry)
     kb.row(
         inline_button(
-            "🗑️ حذف کامل کاور قبلی",
+            "حذف کامل کاور قبلی",
             callback_data=TagFieldCB(action="clear_cover").pack(),
             style=Style.PRIMARY,
             emoji_slot="trash",
@@ -457,7 +457,7 @@ async def prompt_tag_cover(query: CallbackQuery, state: FSMContext) -> None:
     )
     kb.row(
         inline_button(
-            "❌ انصراف",
+            t("common.cancel"),
             callback_data=TagFieldCB(action="cancel").pack(),
             style=Style.DESTRUCTIVE,
             emoji_slot="error",
@@ -466,15 +466,19 @@ async def prompt_tag_cover(query: CallbackQuery, state: FSMContext) -> None:
     )
     if isinstance(query.message, Message):
         edited = await query.message.edit_text(
-            "<b>🖼️ کاور جدید</b>\n\n"
+            f"{registry.text('cover')} <b>کاور جدید</b>\n\n"
             "یک <b>عکس</b> بفرست تا کاور آهنگ بشه (حداکثر ۵ مگابایت).\n"
             "عکس مربعی بهترین نتیجه رو میده.\n\n"
-            "برای حذف کاور، دکمه «🗑️ حذف کامل کاور قبلی» را بزن.",
+            "برای حذف کاور، دکمه «حذف کامل کاور قبلی» را بزن.",
             reply_markup=kb.as_markup(),
         )
         if edited is None:
+            ans_cover_text = (
+                f"{registry.text('cover')} <b>کاور جدید</b>\n\n"
+                "یک <b>عکس</b> بفرست یا دکمه حذف را بزن."
+            )
             await query.message.answer(
-                "<b>🖼️ کاور جدید</b>\n\nیک <b>عکس</b> بفرست یا دکمه حذف را بزن.",
+                ans_cover_text,
                 reply_markup=kb.as_markup(),
             )
     await query.answer()
@@ -578,7 +582,11 @@ async def save_tag_edits(
     await query.answer()
     await state.clear()
 
-    status = await msg.edit_text("⏳ <b>در حال ذخیره تگ‌ها و آماده‌سازی فایل…</b>", reply_markup=None)
+    registry = await ready_registry()
+    status = await msg.edit_text(
+        f"{registry.text('processing')} <b>در حال ذخیره تگ‌ها و آماده‌سازی فایل…</b>",
+        reply_markup=None,
+    )
     status_msg: Message | None = status if isinstance(status, Message) else None
 
     start_time = time.perf_counter()
@@ -623,15 +631,19 @@ async def save_tag_edits(
             final_tags = apply_tags(tagged, **kwargs)  # type: ignore[arg-type]
 
             out_obj = FSInputFile(tagged)
-            caption_title = final_tags.title or "ویرایش‌شده با Mewvia 🎵"
+            caption_title = final_tags.title or "ویرایش‌شده با Mewvia"
             caption_artist = f" — {final_tags.artist}" if final_tags.artist else ""
+            full_cap = (
+                f"{registry.text('audio')} "
+                f"<b>{html.quote(caption_title)}{html.quote(caption_artist)}</b>"
+            )
             await bot.send_audio(
                 chat_id=msg.chat.id,
                 audio=out_obj,
                 reply_to_message_id=reply_to_id,
                 title=caption_title[:64],
                 performer=(final_tags.artist or "")[:64],
-                caption=f"🎵 <b>{html.quote(caption_title)}{html.quote(caption_artist)}</b>",
+                caption=full_cap,
             )
 
             if status_msg:
@@ -671,9 +683,13 @@ async def cancel_tag_editor(query: CallbackQuery, state: FSMContext) -> None:
     await query.answer()
 
 
-def _staged_summary(data: dict[str, object]) -> str:
+def _staged_summary(data: dict[str, object], registry: EmojiRegistry | None = None) -> str:
     parts: list[str] = []
     labels = {**FIELD_LABELS, "cover_file_id": "کاور"}
+    ic_bullet = registry.text("bullet") if registry else "•"
+    ic_trash = registry.text("trash") if registry else "🗑️"
+    ic_ok = registry.text("ok") if registry else "✅"
+
     staged_map = {
         "title": data.get("tag_title"),
         "artist": data.get("tag_artist"),
@@ -684,12 +700,12 @@ def _staged_summary(data: dict[str, object]) -> str:
     for key, val in staged_map.items():
         if val is None:
             continue
-        shown = "🗑️ پاک میشه" if val == "__CLEAR__" else f"«{html.quote(str(val))}»"
-        parts.append(f"• {labels[key]}: {shown}")
+        shown = f"{ic_trash} پاک میشه" if val == "__CLEAR__" else f"«{html.quote(str(val))}»"
+        parts.append(f"{ic_bullet} {labels[key]}: {shown}")
     if data.get("cover_file_id") == "__CLEAR__":
-        parts.append("• کاور: 🗑️ پاک میشه")
+        parts.append(f"{ic_bullet} کاور: {ic_trash} پاک میشه")
     elif data.get("cover_file_id"):
-        parts.append("• کاور: 🖼️ عکس جدید ثبت شد")
+        parts.append(f"{ic_bullet} کاور: {ic_ok} عکس جدید ثبت شد")
     if not parts:
         return "<i>هنوز چیزی ویرایش نشده.</i>"
     return "<b>موارد آماده ذخیره:</b>\n" + "\n".join(parts)

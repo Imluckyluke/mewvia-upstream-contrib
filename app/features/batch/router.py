@@ -83,14 +83,14 @@ async def render_batch_menu(bot: Bot, chat_id: int, message_id: int) -> None:
 
     kb.row(
         inline_button(
-            f"↔️ واید کردن {check_wide}",
+            f"واید کردن {check_wide}",
             callback_data=BatchCB(action="toggle_wide").pack(),
             style=Style.PRIMARY if not opts.get("wide") else Style.CONFIRM,
             emoji_slot="wide" if not check_wide else "ok",
             registry=registry,
         ),
         inline_button(
-            f"🎨 فیلتر {check_flt}",
+            f"فیلتر {check_flt}",
             callback_data=BatchCB(action="filter_menu").pack(),
             style=Style.PRIMARY if not filter_id else Style.CONFIRM,
             emoji_slot="filter" if not check_flt else "ok",
@@ -99,14 +99,14 @@ async def render_batch_menu(bot: Bot, chat_id: int, message_id: int) -> None:
     )
     kb.row(
         inline_button(
-            f"📝 متن / استیکرمانی {check_txt}",
+            f"متن / استیکرمانی {check_txt}",
             callback_data=BatchCB(action="text_menu").pack(),
             style=Style.PRIMARY if not text_data else Style.CONFIRM,
             emoji_slot="text" if not check_txt else "ok",
             registry=registry,
         ),
         inline_button(
-            f"🎯 فرمت {check_fmt}",
+            f"فرمت {check_fmt}",
             callback_data=BatchCB(action="target_menu").pack(),
             style=Style.PRIMARY if not target_id else Style.CONFIRM,
             emoji_slot="download" if not check_fmt else "ok",
@@ -115,24 +115,25 @@ async def render_batch_menu(bot: Bot, chat_id: int, message_id: int) -> None:
     )
     kb.row(
         inline_button(
-            "❌ لغو و پاکسازی همه",
+            "لغو و پاکسازی همه",
             callback_data=BatchCB(action="clear").pack(),
             style=Style.DESTRUCTIVE,
             emoji_slot="error",
             registry=registry,
         ),
         inline_button(
-            "🚀 اعمال تغییرات",
+            "اعمال تغییرات",
             callback_data=BatchCB(action="apply").pack(),
             style=Style.CONFIRM,
-            emoji_slot="lightning",
+            emoji_slot="rocket",
             registry=registry,
         ),
     )
 
     try:
         await bot.edit_message_text(
-            _BATCH_MENU_TITLE,
+            f"{registry.text('tool')} <b>تغییرات دسته‌ای (ادغام چند عملیات)</b>\n\n"
+            "تغییرات مورد نظر را فعال کرده و در نهایت دکمه اعمال را بزنید:",
             chat_id=chat_id,
             message_id=message_id,
             reply_markup=kb.as_markup(),

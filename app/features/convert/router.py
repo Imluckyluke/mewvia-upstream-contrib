@@ -95,7 +95,7 @@ async def handle_incoming_media(message: Message, settings: Settings) -> None:
     ):
         kb.row(
             inline_button(
-                "🎬 ابزارهای ویدیو و ویدیومسیج",
+                "ابزارهای ویدیو و ویدیومسیج",
                 callback_data="vtool_action:start",
                 style=Style.PRIMARY,
                 emoji_slot="video",
@@ -106,10 +106,10 @@ async def handle_incoming_media(message: Message, settings: Settings) -> None:
     # Add Batch Processing Button
     kb.row(
         inline_button(
-            "⚙️ تغییرات دسته‌ای (چند کار همزمان)",
+            "تغییرات دسته‌ای (چند کار همزمان)",
             callback_data=BatchCB(action="menu").pack(),
             style=Style.CONFIRM,
-            emoji_slot="lightning",
+            emoji_slot="tool",
             registry=registry,
         )
     )
@@ -117,14 +117,14 @@ async def handle_incoming_media(message: Message, settings: Settings) -> None:
     # Add Text Overlay, Wide Media, Filters & StickerPack action rows
     kb.row(
         inline_button(
-            "📝 افزودن متن / استیکرمانی",
+            "افزودن متن / استیکرمانی",
             callback_data=TextOverlayCB(action="start").pack(),
             style=Style.PRIMARY,
             emoji_slot="text",
             registry=registry,
         ),
         inline_button(
-            "↔️ واید کردن (پهنش کن!)",
+            "واید کردن (پهنش کن!)",
             callback_data=WideCB(action="start").pack(),
             style=Style.CONFIRM,
             emoji_slot="wide",
@@ -133,14 +133,14 @@ async def handle_incoming_media(message: Message, settings: Settings) -> None:
     )
     kb.row(
         inline_button(
-            "🎨 فیلترهای رنگی / افکت",
+            "فیلترهای رنگی / افکت",
             callback_data=FilterCB(action="start").pack(),
             style=Style.PRIMARY,
             emoji_slot="filter",
             registry=registry,
         ),
         inline_button(
-            "📌 ساخت/افزودن به استیکرپک من",
+            "ساخت/افزودن به استیکرپک من",
             callback_data="spack_action:start",
             style=Style.CONFIRM,
             emoji_slot="pack",

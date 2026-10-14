@@ -69,10 +69,13 @@ def _add_to_zip(zip_path: Path, file_path: Path, arcname: str) -> None:
 
 
 async def ready_registry() -> EmojiRegistry:
-    registry = get_emoji_registry()
-    await registry.refresh_premium_flag()
-    await registry.load()
-    return registry
+    try:
+        registry = get_emoji_registry()
+        await registry.refresh_premium_flag()
+        await registry.load()
+        return registry
+    except Exception:
+        return get_emoji_registry()
 
 
 async def _perform_download(
@@ -89,6 +92,7 @@ async def _perform_download(
     fallback_msg: Message | None = None,
 ) -> None:
     """Execute the media download and send the media back to the user."""
+    registry = await ready_registry()
     url = str(ctx.get("url", ""))
     platform_key = str(ctx.get("platform_key", "other"))
     title = str(ctx.get("title", "media"))
@@ -143,7 +147,8 @@ async def _perform_download(
                     return
 
                 caption = (
-                    f"🎬 <b>{html.quote(title)}</b>\n\nدانلود شده با @{settings.bot_username} 🐾"
+                    f"{registry.text('video')} <b>{html.quote(title)}</b>\n\n"
+                    f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
                 await bot.send_video(
                     chat_id=chat_id,
@@ -168,7 +173,10 @@ async def _perform_download(
                 if file_size > settings.upload_limit:
                     limit_str = human_bytes(settings.upload_limit)
                     size_str = human_bytes(file_size)
-                    err_msg = f"❌ حجم فایل صوتی ({size_str}) بیشتر از سقف مجاز ({limit_str}) است."
+                    err_msg = (
+                        f"{registry.text('error')} حجم فایل صوتی ({size_str}) "
+                        f"بیشتر از سقف مجاز ({limit_str}) است."
+                    )
                     if status_msg:
                         await status_msg.edit_text(err_msg)
                     elif fallback_msg:
@@ -179,7 +187,8 @@ async def _perform_download(
 
                 uploader = ctx.get("uploader") or "Mewvia"
                 caption = (
-                    f"🎵 <b>{html.quote(title)}</b>\n\nدانلود شده با @{settings.bot_username} 🐾"
+                    f"{registry.text('audio')} <b>{html.quote(title)}</b>\n\n"
+                    f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
                 await bot.send_audio(
                     chat_id=chat_id,
@@ -205,7 +214,8 @@ async def _perform_download(
 
                 file_size = sum(f.stat().st_size for f in gallery_files)
                 gallery_caption = (
-                    f"📸 <b>{html.quote(title)}</b>\n\nدانلود شده با @{settings.bot_username} 🐾"
+                    f"{registry.text('photo')} <b>{html.quote(title)}</b>\n\n"
+                    f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
 
                 if len(gallery_files) == 1:
@@ -278,7 +288,8 @@ async def _perform_download(
                 )
                 file_size = downloaded_file.stat().st_size
                 caption = (
-                    f"🟢 <b>{html.quote(title)}</b>\n\nدانلود شده با @{settings.bot_username} 🐾"
+                    f"{registry.text('spotify')} <b>{html.quote(title)}</b>\n\n"
+                    f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
                 await bot.send_audio(
                     chat_id=chat_id,
@@ -376,10 +387,13 @@ async def _perform_download(
                         else:
                             try:
                                 if action == "pl_video_all":
+                                    caption_v = (
+                                        f"{registry.text('video')} <b>{html.quote(it_title)}</b>"
+                                    )
                                     await bot.send_video(
                                         chat_id=chat_id,
                                         video=FSInputFile(file_path),
-                                        caption=f"🎬 <b>{html.quote(it_title)}</b>",
+                                        caption=caption_v,
                                         reply_to_message_id=reply_to_id,
                                     )
                                 else:
@@ -404,8 +418,9 @@ async def _perform_download(
                         cur_fa = fa_digits(str(sent_count))
                         tot_fa = fa_digits(str(total_items))
                         prog_text = (
-                            f"⏳ <b>در حال پردازش آلبوم ({cur_fa} از {tot_fa})…</b>\n\n"
-                            f"🎵 <b>{html.quote(it_title)}</b>"
+                            f"{registry.text('processing')} "
+                            f"<b>در حال پردازش آلبوم ({cur_fa} از {tot_fa})…</b>\n\n"
+                            f"{registry.text('audio')} <b>{html.quote(it_title)}</b>"
                         )
                         try:
                             await status_msg.edit_text(prog_text)
@@ -414,10 +429,12 @@ async def _perform_download(
 
                 if sent_count == 0:
                     if status_msg is not None:
-                        await status_msg.edit_text(
-                            "❌ <b>امکان دریافت ترک‌های این پلی‌لیست وجود نداشت.</b>\n"
+                        err_pl_text = (
+                            f"{registry.text('error')} "
+                            "<b>امکان دریافت ترک‌های این پلی‌لیست وجود نداشت.</b>\n"
                             "ممکن است قطعات دارای محدودیت یا در این منطقه مسدود باشند."
                         )
+                        await status_msg.edit_text(err_pl_text)
                         status_msg = None
                     return
 
@@ -425,10 +442,11 @@ async def _perform_download(
                     zip_size = zip_path.stat().st_size
                     total_bytes = zip_size
                     caption = (
-                        f"📦 <b>آلبوم کامل: {html.quote(title)}</b>\n\n"
-                        f"🔢 تعداد: <code>{fa_digits(str(sent_count))}</code> ترک\n"
-                        f"💾 حجم: <code>{human_bytes(zip_size)}</code>\n\n"
-                        f"دانلود شده با @{settings.bot_username} 🐾"
+                        f"{registry.text('zip')} <b>آلبوم کامل: {html.quote(title)}</b>\n\n"
+                        f"{registry.text('bullet')} تعداد: "
+                        f"<code>{fa_digits(str(sent_count))}</code> ترک\n"
+                        f"{registry.text('file')} حجم: <code>{human_bytes(zip_size)}</code>\n\n"
+                        f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                     )
                     await bot.send_document(
                         chat_id=chat_id,
@@ -440,8 +458,9 @@ async def _perform_download(
                 file_size = total_bytes
                 if status_msg is not None:
                     done_text = (
-                        f"✅ <b>دانلود آلبوم / پلی‌لیست به پایان رسید!</b>\n\n"
-                        f"📦 <code>{fa_digits(str(sent_count))}</code> ترک با موفقیت آماده شد."
+                        f"{registry.text('ok')} <b>دانلود آلبوم / پلی‌لیست به پایان رسید!</b>\n\n"
+                        f"{registry.text('pack')} "
+                        f"<code>{fa_digits(str(sent_count))}</code> ترک با موفقیت آماده شد."
                     )
                     await status_msg.edit_text(done_text)
                     status_msg = None
@@ -556,16 +575,16 @@ async def _handle_url_input(
             count_fa = fa_digits(str(info.playlist_count))
             kb.row(
                 inline_button(
-                    f"📦 دانلود یکجا (فایل ZIP) [{count_fa} ترک]",
+                    f"دانلود یکجا (فایل ZIP) [{count_fa} ترک]",
                     callback_data=DownloaderCB(action="pl_zip", token=token).pack(),
                     style=Style.CONFIRM,
-                    emoji_slot="download",
+                    emoji_slot="zip",
                     registry=registry,
                 )
             )
             kb.row(
                 inline_button(
-                    "🎵 ارسال دونه‌دونه ترک‌ها (MP3)",
+                    "ارسال دونه‌دونه ترک‌ها (MP3)",
                     callback_data=DownloaderCB(action="pl_audio_all", token=token).pack(),
                     style=Style.PRIMARY,
                     emoji_slot="audio",
@@ -575,7 +594,7 @@ async def _handle_url_input(
             if info.platform_key != "spotify":
                 kb.row(
                     inline_button(
-                        f"🎬 دانلود تمام ویدیوها ({count_fa} عدد)",
+                        f"دانلود تمام ویدیوها ({count_fa} عدد)",
                         callback_data=DownloaderCB(action="pl_video_all", token=token).pack(),
                         style=Style.NEUTRAL,
                         emoji_slot="video",
@@ -585,10 +604,10 @@ async def _handle_url_input(
             if info.playlist_count > 5:
                 kb.row(
                     inline_button(
-                        "⚡️ دانلود ۵ مورد اول (سریع)",
+                        "دانلود ۵ مورد اول (سریع)",
                         callback_data=DownloaderCB(action="pl_audio_first5", token=token).pack(),
                         style=Style.NEUTRAL,
-                        emoji_slot="audio",
+                        emoji_slot="lightning",
                         registry=registry,
                     )
                 )
@@ -596,30 +615,30 @@ async def _handle_url_input(
             # YouTube single video
             kb.row(
                 inline_button(
-                    "🎬 بهترین کیفیت",
+                    "بهترین کیفیت",
                     callback_data=DownloaderCB(action="video", token=token).pack(),
                     style=Style.PRIMARY,
                     emoji_slot="video",
                     registry=registry,
                 ),
                 inline_button(
-                    "📱 کیفیت 720p HD",
+                    "کیفیت 720p HD",
                     callback_data=DownloaderCB(action="video_720", token=token).pack(),
                     style=Style.PRIMARY,
-                    emoji_slot="video",
+                    emoji_slot="quality_hd",
                     registry=registry,
                 ),
             )
             kb.row(
                 inline_button(
-                    "📉 کیفیت 480p (حجم کم)",
+                    "کیفیت 480p (حجم کم)",
                     callback_data=DownloaderCB(action="video_480", token=token).pack(),
                     style=Style.NEUTRAL,
-                    emoji_slot="video",
+                    emoji_slot="quality_sd",
                     registry=registry,
                 ),
                 inline_button(
-                    "🎵 استخراج صدا (MP3)",
+                    "استخراج صدا (MP3)",
                     callback_data=DownloaderCB(action="audio", token=token).pack(),
                     style=Style.CONFIRM,
                     emoji_slot="audio",
@@ -637,9 +656,14 @@ async def _handle_url_input(
             )
         )
 
-        uploader_line = f"👤 <b>سازنده:</b> {html.quote(info.uploader)}\n" if info.uploader else ""
+        uploader_line = (
+            f"{registry.text('user')} <b>سازنده:</b> {html.quote(info.uploader)}\n"
+            if info.uploader
+            else ""
+        )
         duration_line = (
-            f"⏱ <b>مدت زمان:</b> <code>{fa_digits(info.duration_str)}</code>\n"
+            f"{registry.text('clock')} <b>مدت زمان:</b> "
+            f"<code>{fa_digits(info.duration_str)}</code>\n"
             if info.duration_seconds
             else ""
         )
@@ -647,18 +671,25 @@ async def _handle_url_input(
         if info.is_playlist:
             type_str = "پلی‌لیست / آلبوم"
             count_str = fa_digits(str(info.playlist_count))
-            count_line = f"🔢 <b>تعداد ترک‌ها:</b> <code>{count_str}</code> عدد\n"
+            count_line = (
+                f"{registry.text('bullet')} <b>تعداد ترک‌ها:</b> <code>{count_str}</code> عدد\n"
+            )
+            p_slot = (
+                info.platform_key
+                if info.platform_key in ("youtube", "spotify", "soundcloud", "instagram")
+                else "download"
+            )
             card_text = (
-                f"{info.platform_icon} <b>دانلود {type_str} از {info.platform_name}</b>\n\n"
-                f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
+                f"{registry.text(p_slot)} <b>دانلود {type_str} از {info.platform_name}</b>\n\n"
+                f"{registry.text('text')} <b>عنوان:</b> {html.quote(info.title)}\n"
                 f"{uploader_line}"
                 f"{count_line}\n"
                 "نحوه دانلود را انتخاب کن:"
             )
         else:
             card_text = (
-                f"🔴 <b>دانلود از یوتیوب</b>\n\n"
-                f"📝 <b>عنوان:</b> {html.quote(info.title)}\n"
+                f"{registry.text('youtube')} <b>دانلود از یوتیوب</b>\n\n"
+                f"{registry.text('text')} <b>عنوان:</b> {html.quote(info.title)}\n"
                 f"{uploader_line}"
                 f"{duration_line}\n"
                 "کیفیت یا فرمت مورد نظرت را انتخاب کن:"

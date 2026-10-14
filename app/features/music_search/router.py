@@ -67,32 +67,30 @@ def _build_search_kb(
     sp_active = platform == "spotify"
     sc_active = platform == "soundcloud"
 
-    sp_label = "🟢 اسپاتیفای (فعال)" if sp_active else "🟢 اسپاتیفای"
-    sc_label = "🟠 ساندکلاد (فعال)" if sc_active else "🟠 ساندکلاد"
+    sp_label = "اسپاتیفای (فعال)" if sp_active else "اسپاتیفای"
+    sc_label = "ساندکلاد (فعال)" if sc_active else "ساندکلاد"
 
     kb.row(
         inline_button(
             sp_label,
             callback_data=MusicSearchCB(action="switch", platform="spotify", sid=sid).pack(),
             style=Style.CONFIRM if sp_active else Style.PRIMARY,
-            emoji_slot="ok" if sp_active else "audio",
+            emoji_slot="spotify",
             registry=registry,
         ),
         inline_button(
             sc_label,
             callback_data=MusicSearchCB(action="switch", platform="soundcloud", sid=sid).pack(),
             style=Style.CONFIRM if sc_active else Style.PRIMARY,
-            emoji_slot="ok" if sc_active else "audio",
+            emoji_slot="soundcloud",
             registry=registry,
         ),
     )
 
     # Row 2..N: Track download buttons
-    num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
     for idx, t_item in enumerate(tracks[:5], 1):
-        emoji_num = num_emojis[idx - 1] if idx <= len(num_emojis) else f"[{idx}]"
         clean_title = t_item.title[:28] + ("…" if len(t_item.title) > 28 else "")
-        btn_text = f"📥 {emoji_num} {clean_title} ({t_item.duration_str})"
+        btn_text = f"[{idx}] {clean_title} ({t_item.duration_str})"
         kb.row(
             inline_button(
                 btn_text,
@@ -108,14 +106,14 @@ def _build_search_kb(
     # Action footer
     kb.row(
         inline_button(
-            "🔍 جستجوی جدید",
+            "جستجوی جدید",
             callback_data=MusicSearchCB(action="prompt").pack(),
             style=Style.CONFIRM,
-            emoji_slot="refresh",
+            emoji_slot="search",
             registry=registry,
         ),
         inline_button(
-            "❌ بستن",
+            "بستن",
             callback_data=MusicSearchCB(action="cancel").pack(),
             style=Style.DESTRUCTIVE,
             emoji_slot="error",
@@ -125,24 +123,35 @@ def _build_search_kb(
     return kb
 
 
-def _render_search_text(query_str: str, platform: str, tracks: list[SearchTrack]) -> str:
-    p_name = "🟢 اسپاتیفای (Spotify)" if platform == "spotify" else "🟠 ساندکلاد (SoundCloud)"
-    num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
+def _render_search_text(
+    query_str: str,
+    platform: str,
+    tracks: list[SearchTrack],
+    registry: EmojiRegistry,
+) -> str:
+    p_icon = registry.text("spotify") if platform == "spotify" else registry.text("soundcloud")
+    p_name = (
+        f"{p_icon} اسپاتیفای (Spotify)"
+        if platform == "spotify"
+        else f"{p_icon} ساندکلاد (SoundCloud)"
+    )
 
     lines = [
-        f"<b>🔍 نتایج جستجو برای:</b> «<i>{html.quote(query_str)}</i>»\n"
+        f"{registry.text('search')} <b>نتایج جستجو برای:</b> «<i>{html.quote(query_str)}</i>»\n"
         f"<b>منبع فعال:</b> {p_name}\n"
     ]
 
     if not tracks:
-        lines.append("<i>هیچ نتیجه‌ای در این پلتفرم یافت نشد. می‌توانید منبع را عوض کنید.</i>")
+        lines.append(
+            f"{registry.text('warning')} "
+            "<i>هیچ نتیجه‌ای در این پلتفرم یافت نشد. می‌توانید منبع را عوض کنید.</i>"
+        )
     else:
         for idx, tr in enumerate(tracks[:5], 1):
-            emoji_num = num_emojis[idx - 1] if idx <= len(num_emojis) else f"[{idx}]"
-            dur_line = f"⏱ <code>{tr.duration_str}</code>"
+            dur_line = f"{registry.text('clock')} <code>{tr.duration_str}</code>"
             lines.append(
-                f"{emoji_num} <b>{html.quote(tr.title)}</b>\n"
-                f"   👤 {html.quote(tr.artist)} | {dur_line}"
+                f"[{idx}] <b>{html.quote(tr.title)}</b>\n"
+                f"   {registry.text('user')} {html.quote(tr.artist)} | {dur_line}"
             )
 
     lines.append("\nبرای دریافت هر آهنگ، دکمه مربوط به آن را در زیر لمس کنید:")
@@ -253,7 +262,7 @@ async def _execute_search(
 
     registry = await ready_registry()
     kb = _build_search_kb(sid, active_platform, tracks, registry)
-    card_text = _render_search_text(query_str, active_platform, tracks)
+    card_text = _render_search_text(query_str, active_platform, tracks, registry)
 
     if status_msg:
         await status_msg.edit_text(card_text, reply_markup=kb.as_markup())
@@ -290,7 +299,7 @@ async def switch_music_platform(query: CallbackQuery, callback_data: MusicSearch
 
     registry = await ready_registry()
     kb = _build_search_kb(sid, target_platform, tracks, registry)
-    card_text = _render_search_text(query_str, target_platform, tracks)
+    card_text = _render_search_text(query_str, target_platform, tracks, registry)
 
     try:
         await query.message.edit_text(card_text, reply_markup=kb.as_markup())
@@ -394,12 +403,14 @@ async def select_and_download_track(
                 )
                 return
 
-            p_icon = "🟢" if platform == "spotify" else "🟠"
+            registry = await ready_registry()
+            p_slot = "spotify" if platform == "spotify" else "soundcloud"
+            dur_val = fa_digits(track.duration_str)
             caption = (
-                f"{p_icon} <b>{html.quote(track.title)}</b>\n"
-                f"👤 <b>خواننده:</b> {html.quote(track.artist)}\n"
-                f"⏱ <b>مدت زمان:</b> <code>{fa_digits(track.duration_str)}</code>\n\n"
-                f"دانلود شده با @{settings.bot_username} 🐾"
+                f"{registry.text(p_slot)} <b>{html.quote(track.title)}</b>\n"
+                f"{registry.text('user')} <b>خواننده:</b> {html.quote(track.artist)}\n"
+                f"{registry.text('clock')} <b>مدت زمان:</b> <code>{dur_val}</code>\n\n"
+                f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
             )
 
             await bot.send_audio(

@@ -112,19 +112,20 @@ async def start_pack_flow(query: CallbackQuery, session: AsyncSession, state: FS
     for s_set in user_sets:
         kb.row(
             inline_button(
-                f"📦 {s_set.title} ({s_set.stickers_count})",
+                f"{s_set.title} ({s_set.stickers_count})",
                 callback_data=StickerPackCB(action="select", pack_name=s_set.name).pack(),
                 style=Style.PRIMARY,
+                emoji_slot="pack",
                 registry=registry,
             )
         )
 
     kb.row(
         inline_button(
-            "➕ ساخت پک جدید",
+            "ساخت پک جدید",
             callback_data=StickerPackCB(action="create").pack(),
             style=Style.CONFIRM,
-            emoji_slot="ok",
+            emoji_slot="add",
             registry=registry,
         )
     )
@@ -138,8 +139,12 @@ async def start_pack_flow(query: CallbackQuery, session: AsyncSession, state: FS
         )
     )
 
+    prompt_sp_text = (
+        f"{registry.text('pack')} <b>اضافه کردن به استیکرپک شخصی</b>\n\n"
+        "یک پک از لیست زیر انتخاب کن یا یک پک جدید بساز:"
+    )
     await query.message.edit_text(
-        "<b>📦 اضافه کردن به استیکرپک شخصی</b>\n\nیک پک از لیست زیر انتخاب کن یا یک پک جدید بساز:",
+        prompt_sp_text,
         reply_markup=kb.as_markup(),
     )
     await query.answer()
@@ -439,10 +444,10 @@ async def view_pack_detail(
     pack_url = f"https://t.me/addstickers/{s_set.name}"
     kb.row(
         inline_button(
-            "📦 افزودن به تلگرام",
+            "افزودن به تلگرام",
             url=pack_url,
             style=Style.CONFIRM,
-            emoji_slot="sticker",
+            emoji_slot="pack",
             registry=registry,
         )
     )
@@ -468,10 +473,10 @@ async def view_pack_detail(
     )
 
     text = (
-        f"📦 <b>{s_set.title}</b>\n\n"
-        f"• تعداد استیکر: <code>{s_set.stickers_count}</code>\n"
-        f"• نام فنی: <code>{s_set.name}</code>\n"
-        f"• لینک: {pack_url}"
+        f"{registry.text('pack')} <b>{s_set.title}</b>\n\n"
+        f"{registry.text('bullet')} تعداد استیکر: <code>{s_set.stickers_count}</code>\n"
+        f"{registry.text('bullet')} نام فنی: <code>{s_set.name}</code>\n"
+        f"{registry.text('bullet')} لینک: {pack_url}"
     )
 
     if isinstance(query.message, Message):
@@ -494,7 +499,7 @@ async def confirm_delete_pack(
 
     kb.row(
         inline_button(
-            "✅ بله، حذف شود",
+            "بله، حذف شود",
             callback_data=StickerPackCB(
                 action="delete", pack_name=s_set.name, page=callback_data.page
             ).pack(),
@@ -503,7 +508,7 @@ async def confirm_delete_pack(
             registry=registry,
         ),
         inline_button(
-            "❌ انصراف",
+            "انصراف",
             callback_data=StickerPackCB(
                 action="view", pack_name=s_set.name, page=callback_data.page
             ).pack(),

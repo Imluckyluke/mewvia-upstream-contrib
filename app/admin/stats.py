@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from app.ui.emoji import EmojiRegistry
 
 from app.core.units import fa_digits, human_bytes
 from app.db.models.conversion import Conversion
@@ -606,39 +610,47 @@ async def get_admin_stats(session: AsyncSession) -> AdminStats:
     )
 
 
-def format_stats_overview(stats: AdminStats) -> str:
+def format_stats_overview(stats: AdminStats, registry: EmojiRegistry | None = None) -> str:
     """Format overview & user segmentation tab."""
     engaged_pct = stats.engaged_user_rate
     passerby_pct = (stats.passerby_users / stats.total_users * 100) if stats.total_users else 0.0
     prem_pct = (stats.premium_users / stats.total_users * 100) if stats.total_users else 0.0
     conv_pct = stats.conversion_user_rate
 
+    ic_stats = registry.text("stats") if registry else "📊"
+    ic_users = registry.text("users") if registry else "👥"
+    ic_bullet = registry.text("bullet") if registry else "•"
+    ic_ban = registry.text("ban") if registry else "🚫"
+    ic_idea = registry.text("idea") if registry else "🎯"
+
     return (
-        "<b>📊 آمار جامع ربات Mewvia | بخش کاربران و رشد</b>\n\n"
-        "<b>👥 وضعیت کلی و فعالیت:</b>\n"
-        f"• کل کاربران: <code>{fa_digits(str(stats.total_users))}</code>\n"
-        f"• ورودی‌های جدید ۲۴ ساعت اخیر: <code>{fa_digits(str(stats.new_today))}</code>\n"
-        f"• ورودی‌های جدید ۷ روز اخیر: <code>{fa_digits(str(stats.new_week))}</code>\n"
-        f"• فعال امروز (۲۴ ساعت): <code>{fa_digits(str(stats.active_today))}</code>\n"
-        f"• فعال هفته (۷ روز): <code>{fa_digits(str(stats.active_week))}</code>\n\n"
-        "<b>🎯 کیفیت و تعامل مخاطبان:</b>\n"
-        f"• کاربران واقعی (۱+ استفاده موفق): "
+        f"<b>{ic_stats} آمار جامع ربات Mewvia | بخش کاربران و رشد</b>\n\n"
+        f"<b>{ic_users} وضعیت کلی و فعالیت:</b>\n"
+        f"{ic_bullet} کل کاربران: <code>{fa_digits(str(stats.total_users))}</code>\n"
+        f"{ic_bullet} ورودی‌های جدید ۲۴ ساعت اخیر: <code>{fa_digits(str(stats.new_today))}</code>\n"
+        f"{ic_bullet} ورودی‌های جدید ۷ روز اخیر: <code>{fa_digits(str(stats.new_week))}</code>\n"
+        f"{ic_bullet} فعال امروز (۲۴ ساعت): <code>{fa_digits(str(stats.active_today))}</code>\n"
+        f"{ic_bullet} فعال هفته (۷ روز): <code>{fa_digits(str(stats.active_week))}</code>\n\n"
+        f"<b>{ic_idea} کیفیت و تعامل مخاطبان:</b>\n"
+        f"{ic_bullet} کاربران واقعی (۱+ استفاده موفق): "
         f"<code>{fa_digits(str(stats.engaged_users))}</code> "
         f"(<code>{fa_digits(f'{engaged_pct:.1f}')}%</code>)\n"
-        f"• ثبت‌شده بدون استفاده: "
+        f"{ic_bullet} ثبت‌شده بدون استفاده: "
         f"<code>{fa_digits(str(stats.passerby_users))}</code> "
         f"(<code>{fa_digits(f'{passerby_pct:.1f}')}%</code>)\n"
-        f"• کاربران دارای پرمیوم تلگرام: <code>{fa_digits(str(stats.premium_users))}</code> "
+        f"{ic_bullet} کاربران دارای پرمیوم تلگرام: "
+        f"<code>{fa_digits(str(stats.premium_users))}</code> "
         f"(<code>{fa_digits(f'{prem_pct:.1f}')}%</code>)\n"
-        f"• استفاده‌کنندگان از ابزارهای مدیا: <code>{fa_digits(str(stats.converting_users))}</code> "
+        f"{ic_bullet} استفاده‌کنندگان از ابزارهای مدیا: "
+        f"<code>{fa_digits(str(stats.converting_users))}</code> "
         f"(<code>{fa_digits(f'{conv_pct:.1f}')}%</code>)\n\n"
-        "<b>🚫 مسدودی و ریزش:</b>\n"
-        f"• مسدود شده توسط ادمین: <code>{fa_digits(str(stats.banned_users))}</code>\n"
-        f"• ربات را بلاک کرده‌اند: <code>{fa_digits(str(stats.blocked_users))}</code>"
+        f"<b>{ic_ban} مسدودی و ریزش:</b>\n"
+        f"{ic_bullet} مسدود شده توسط ادمین: <code>{fa_digits(str(stats.banned_users))}</code>\n"
+        f"{ic_bullet} ربات را بلاک کرده‌اند: <code>{fa_digits(str(stats.blocked_users))}</code>"
     )
 
 
-def format_stats_media(stats: AdminStats) -> str:
+def format_stats_media(stats: AdminStats, registry: EmojiRegistry | None = None) -> str:
     """Format media processing & performance tab."""
     in_h = human_bytes(stats.total_in_bytes)
     out_h = human_bytes(stats.total_out_bytes)
@@ -649,117 +661,149 @@ def format_stats_media(stats: AdminStats) -> str:
     )
     avg_s = stats.avg_duration_ms / 1000.0
 
+    ic_convert = registry.text("convert") if registry else "🎨"
+    ic_reverse = registry.text("reverse") if registry else "🔄"
+    ic_backup = registry.text("backup") if registry else "💾"
+    ic_bullet = registry.text("bullet") if registry else "•"
+    ic_download = registry.text("download") if registry else "📥"
+    ic_pack = registry.text("pack") if registry else "📦"
+    ic_audio = registry.text("audio") if registry else "🎵"
+
     lines = [
-        "<b>🎨 آمار جامع مدیا، پردازش‌ها و ابزارها</b>\n",
-        "<b>🔄 عملیات‌های تبدیل:</b>",
-        f"• کل پردازش‌ها: <code>{fa_digits(str(stats.total_conversions))}</code>",
-        f"• تبدیل‌های موفق: <code>{fa_digits(str(stats.successful_conversions))}</code> "
+        f"<b>{ic_convert} آمار جامع مدیا، پردازش‌ها و ابزارها</b>\n",
+        f"<b>{ic_reverse} عملیات‌های تبدیل:</b>",
+        f"{ic_bullet} کل پردازش‌ها: <code>{fa_digits(str(stats.total_conversions))}</code>",
+        f"{ic_bullet} تبدیل‌های موفق: <code>{fa_digits(str(stats.successful_conversions))}</code> "
         f"(<code>{fa_digits(f'{stats.success_rate:.1f}')}%</code>)",
-        f"• ناموفق / رد شده: <code>{fa_digits(str(stats.failed_conversions))}</code> "
+        f"{ic_bullet} ناموفق / رد شده: <code>{fa_digits(str(stats.failed_conversions))}</code> "
         f"(<code>{fa_digits(f'{failed_pct:.1f}')}%</code>)",
-        f"• میانگین زمان تبدیل: <code>{fa_digits(f'{avg_s:.2f}')} ثانیه</code>\n",
-        "<b>💾 ترافیک سرور:</b>",
-        f"• کل حجم دریافتی: <code>{in_h}</code>",
-        f"• کل حجم ارسالی: <code>{out_h}</code>\n",
+        f"{ic_bullet} میانگین زمان تبدیل: <code>{fa_digits(f'{avg_s:.2f}')} ثانیه</code>\n",
+        f"<b>{ic_backup} ترافیک سرور:</b>",
+        f"{ic_bullet} کل حجم دریافتی: <code>{in_h}</code>",
+        f"{ic_bullet} کل حجم ارسالی: <code>{out_h}</code>\n",
     ]
 
     if stats.top_sources:
-        lines.append("<b>📥 پرکاربردترین ورودی‌ها:</b>")
+        lines.append(f"<b>{ic_download} پرکاربردترین ورودی‌ها:</b>")
         for kind, count in stats.top_sources:
             label = SOURCE_KIND_LABELS.get(kind, kind)
-            lines.append(f"• {label}: <code>{fa_digits(str(count))}</code> بار")
+            lines.append(f"{ic_bullet} {label}: <code>{fa_digits(str(count))}</code> بار")
         lines.append("")
 
     if stats.top_targets:
-        lines.append("<b>📤 محبوب‌ترین خروجی‌ها / ابزارها:</b>")
+        lines.append(
+            f"<b>{registry.text('rocket') if registry else '📤'} محبوب‌ترین خروجی‌ها / ابزارها:</b>"
+        )
         for target, count in stats.top_targets:
             label = TARGET_ID_LABELS.get(target, target)
-            lines.append(f"• {label}: <code>{fa_digits(str(count))}</code> بار")
+            lines.append(f"{ic_bullet} {label}: <code>{fa_digits(str(count))}</code> بار")
         lines.append("")
 
     if stats.total_sticker_packs > 0 or stats.total_stickers_count > 0:
-        lines.append("<b>📦 استیکرپک‌ها:</b>")
-        lines.append(f"• پک‌های ساخته شده: <code>{fa_digits(str(stats.total_sticker_packs))}</code>")
-        lines.append(f"• مجموع استیکرها: <code>{fa_digits(str(stats.total_stickers_count))}</code>")
+        lines.append(f"<b>{ic_pack} استیکرپک‌ها:</b>")
+        lines.append(
+            f"{ic_bullet} پک‌های ساخته شده: <code>{fa_digits(str(stats.total_sticker_packs))}</code>"
+        )
+        lines.append(
+            f"{ic_bullet} مجموع استیکرها: <code>{fa_digits(str(stats.total_stickers_count))}</code>"
+        )
         lines.append("")
 
-    lines.append("<b>🎵 ابزارهای موزیک و ویس:</b>")
+    lines.append(f"<b>{ic_audio} ابزارهای موزیک و ویس:</b>")
     if stats.music_voice_total > 0:
         lines.append(
-            f"• کل عملیات صوتی: <code>{fa_digits(str(stats.music_voice_total))}</code> "
+            f"{ic_bullet} کل عملیات صوتی: <code>{fa_digits(str(stats.music_voice_total))}</code> "
             f"(موفق: <code>{fa_digits(f'{stats.music_voice_success_rate:.1f}')}%</code>)"
         )
-        lines.append(f"• حجم خروجی صوتی: <code>{human_bytes(stats.music_voice_bytes)}</code>")
+        lines.append(
+            f"{ic_bullet} حجم خروجی صوتی: <code>{human_bytes(stats.music_voice_bytes)}</code>"
+        )
     else:
-        lines.append("• <i>هنوز عملیات صوتی ثبت نشده است.</i>")
+        lines.append(f"{ic_bullet} <i>هنوز عملیات صوتی ثبت نشده است.</i>")
     if stats.voice_intake or stats.audio_intake:
         lines.append(
-            f"• ورودی ویس: <code>{fa_digits(str(stats.voice_intake))}</code> | "
+            f"{ic_bullet} ورودی ویس: <code>{fa_digits(str(stats.voice_intake))}</code> | "
             f"ورودی موزیک: <code>{fa_digits(str(stats.audio_intake))}</code>"
         )
     if stats.music_voice_tools:
         for target, count in stats.music_voice_tools:
             label = TARGET_ID_LABELS.get(target, target)
-            lines.append(f"• {label}: <code>{fa_digits(str(count))}</code> بار")
+            lines.append(f"{ic_bullet} {label}: <code>{fa_digits(str(count))}</code> بار")
 
     return "\n".join(lines)
 
 
-def format_stats_sponsors(stats: AdminStats) -> str:
+def format_stats_sponsors(stats: AdminStats, registry: EmojiRegistry | None = None) -> str:
     """Format sponsor & forced membership growth analytics tab."""
+    ic_sponsor = registry.text("sponsor") if registry else "📢"
+    ic_stats = registry.text("stats") if registry else "📊"
+    ic_bullet = registry.text("bullet") if registry else "•"
+    ic_idea = registry.text("idea") if registry else "💡"
+
     lines = [
-        "<b>📢 آمار جامع اسپانسر و عضویت اجباری</b>\n",
-        "<b>📊 وضعیت کلی گیت اسپانسر:</b>",
-        f"• کل کانال‌های ثبت‌شده: <code>{fa_digits(str(stats.total_sponsors))}</code>",
-        f"• کانال‌های فعال در گیت: <code>{fa_digits(str(stats.active_sponsors))}</code>",
+        f"<b>{ic_sponsor} آمار جامع اسپانسر و عضویت اجباری</b>\n",
+        f"<b>{ic_stats} وضعیت کلی گیت اسپانسر:</b>",
+        f"{ic_bullet} کل کانال‌های ثبت‌شده: <code>{fa_digits(str(stats.total_sponsors))}</code>",
+        f"{ic_bullet} کانال‌های فعال در گیت: <code>{fa_digits(str(stats.active_sponsors))}</code>",
         (
-            f"• کاربران تاییدشده عضو (یکتا): "
+            f"{ic_bullet} کاربران تاییدشده عضو (یکتا): "
             f"<code>{fa_digits(str(stats.total_seen_members))}</code> نفر\n"
         ),
     ]
 
     if stats.sponsor_breakdown:
-        lines.append("<b>🔹 اعضای تاییدشده به تفکیک کانال‌های فعال:</b>")
+        lines.append(f"<b>{ic_bullet} اعضای تاییدشده به تفکیک کانال‌های فعال:</b>")
         for title, _channel_id, seen_count in stats.sponsor_breakdown:
             lines.append(
-                f"• <b>{title}</b>: <code>{fa_digits(str(seen_count))}</code> ممبر تاییدشده"
+                f"{ic_bullet} <b>{title}</b>: "
+                f"<code>{fa_digits(str(seen_count))}</code> ممبر تاییدشده"
             )
         lines.append("")
     else:
         lines.append("<i>هنوز کانال اسپانسر فعالی با ممبر تاییدشده ثبت نشده است.</i>\n")
 
     lines.append(
-        "💡 <b>مکانیزم گیت:</b>\n"
+        f"{ic_idea} <b>مکانیزم گیت:</b>\n"
         "«ممبر تاییدشده» کاربری است که عضویت او حداقل یک‌بار توسط ربات استعلام و ثبت شده است. "
         "در صورت لفت دادن کاربر، ربات در همان ثانیه پیام دعوت خودکار در پی‌وی می‌فرستد."
     )
     return "\n".join(lines)
 
 
-def format_stats_downloader(stats: AdminStats) -> str:
+def format_stats_downloader(stats: AdminStats, registry: EmojiRegistry | None = None) -> str:
     """Format downloader metrics & per-platform breakdown tab."""
     avg_s = stats.downloader_avg_duration_ms / 1000.0 if stats.downloader_avg_duration_ms else 0.0
     bytes_h = human_bytes(stats.downloader_bytes)
     succ_rate = stats.downloader_success_rate
 
+    ic_download = registry.text("download") if registry else "📥"
+    ic_stats = registry.text("stats") if registry else "📊"
+    ic_bullet = registry.text("bullet") if registry else "•"
+    ic_tool = registry.text("tool") if registry else "⚙️"
+    ic_ok = registry.text("ok") if registry else "🟢"
+
     lines = [
-        "<b>📥 آمار جامع دانلودر چندرسانه‌ای | Mewvia Downloader</b>\n",
-        "<b>📊 عملکرد کلی دانلودها:</b>",
-        f"• کل درخواست‌های دانلود: <code>{fa_digits(str(stats.downloader_total))}</code>",
-        f"• دانلودهای موفق: <code>{fa_digits(str(stats.downloader_success))}</code> "
-        f"(<code>{fa_digits(f'{succ_rate:.1f}')}%</code>)",
-        f"• دانلودهای ناموفق / خطا: <code>{fa_digits(str(stats.downloader_failed))}</code>",
+        f"<b>{ic_download} آمار جامع دانلودر چندرسانه‌ای | Mewvia Downloader</b>\n",
+        f"<b>{ic_stats} عملکرد کلی دانلودها:</b>",
+        f"{ic_bullet} کل درخواست‌های دانلود: <code>{fa_digits(str(stats.downloader_total))}</code>",
         (
-            f"• کاربران یکتا دانلودر: "
+            f"{ic_bullet} دانلودهای موفق: <code>{fa_digits(str(stats.downloader_success))}</code> "
+            f"(<code>{fa_digits(f'{succ_rate:.1f}')}%</code>)"
+        ),
+        f"{ic_bullet} دانلودهای ناموفق / خطا: "
+        f"<code>{fa_digits(str(stats.downloader_failed))}</code>",
+        (
+            f"{ic_bullet} کاربران یکتا دانلودر: "
             f"<code>{fa_digits(str(stats.downloader_unique_users))}</code> کاربر"
         ),
-        f"• دانلودهای ۲۴ ساعت اخیر: <code>{fa_digits(str(stats.downloader_today))}</code>",
-        f"• دانلودهای ۷ روز اخیر: <code>{fa_digits(str(stats.downloader_week))}</code>",
-        f"• میانگین زمان دانلود: <code>{fa_digits(f'{avg_s:.2f}')} ثانیه</code>",
-        f"• حجم کل ترافیک ارسالی: <code>{bytes_h}</code>\n",
+        f"{ic_bullet} دانلودهای ۲۴ ساعت اخیر: "
+        f"<code>{fa_digits(str(stats.downloader_today))}</code>",
+        f"{ic_bullet} دانلودهای ۷ روز اخیر: <code>{fa_digits(str(stats.downloader_week))}</code>",
+        f"{ic_bullet} میانگین زمان دانلود: <code>{fa_digits(f'{avg_s:.2f}')} ثانیه</code>",
+        f"{ic_bullet} حجم کل ترافیک ارسالی: <code>{bytes_h}</code>\n",
     ]
 
-    lines.append("<b>🌐 تفکیک پلتفرم‌ها و آمار زیرمجموعه:</b>")
+    lines.append(f"<b>{ic_bullet} تفکیک پلتفرم‌ها و آمار زیرمجموعه:</b>")
     if stats.downloader_platforms:
         for _tgt, name, icon, total, succ, b_count in stats.downloader_platforms:
             rate = (succ / total * 100) if total else 0.0
@@ -773,16 +817,16 @@ def format_stats_downloader(stats: AdminStats) -> str:
             )
         lines.append("")
     else:
-        lines.append("• <i>هنوز دانلودی از پلتفرم‌ها ثبت نشده است.</i>\n")
+        lines.append(f"{ic_bullet} <i>هنوز دانلودی از پلتفرم‌ها ثبت نشده است.</i>\n")
 
-    lines.append("<b>⚙️ وضعیت زیرساخت و سرویس‌های دانلود:</b>")
+    lines.append(f"<b>{ic_tool} وضعیت زیرساخت و سرویس‌های دانلود:</b>")
     lines.append(
-        f"• اکانت‌های اینستاگرام فعال: "
+        f"{ic_bullet} اکانت‌های اینستاگرام فعال: "
         f"<code>{fa_digits(str(stats.downloader_active_cookies))}</code> از "
         f"<code>{fa_digits(str(stats.downloader_total_cookies))}</code> اکانت"
     )
-    lines.append("• تونل پراکسی WARP: 🟢 متصل (SOCKS5)")
-    lines.append("• ارائه‌دهنده PO-Token یوتیوب: 🟢 فعال")
+    lines.append(f"{ic_bullet} تونل پراکسی WARP: {ic_ok} متصل (SOCKS5)")
+    lines.append(f"{ic_bullet} ارائه‌دهنده PO-Token یوتیوب: {ic_ok} فعال")
 
     return "\n".join(lines)
 

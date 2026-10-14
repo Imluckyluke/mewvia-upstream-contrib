@@ -133,7 +133,7 @@ async def build_admin_panel_kb(registry: EmojiRegistry) -> KB:
             registry=registry,
         ),
         inline_button(
-            "⚙️ تنظیمات ربات",
+            "تنظیمات ربات",
             callback_data="admin_act:settings",
             style=Style.PRIMARY,
             emoji_slot="admin",
@@ -165,7 +165,9 @@ async def build_admin_panel_kb(registry: EmojiRegistry) -> KB:
 async def cmd_admin(message: Message, session: AsyncSession) -> None:
     registry = await ready_registry()
     kb = await build_admin_panel_kb(registry)
-    await message.answer("<b>🛠 پنل مدیریت ربات Mewvia</b>", reply_markup=kb.as_markup())
+    await message.answer(
+        f"<b>{registry.text('admin')} پنل مدیریت ربات Mewvia</b>", reply_markup=kb.as_markup()
+    )
 
 
 @router.callback_query(MenuCB.filter(F.target == "admin"), IsAdmin())
@@ -174,7 +176,8 @@ async def menu_admin(query: CallbackQuery, session: AsyncSession) -> None:
     kb = await build_admin_panel_kb(registry)
     if isinstance(query.message, Message):
         await query.message.edit_text(
-            "<b>🛠 پنل مدیریت ربات Mewvia</b>", reply_markup=kb.as_markup()
+            f"<b>{registry.text('admin')} پنل مدیریت ربات Mewvia</b>",
+            reply_markup=kb.as_markup(),
         )
     await query.answer()
 
@@ -189,14 +192,14 @@ def _build_stats_tabs_kb(current_tab: str, registry: EmojiRegistry) -> KB:
     # Row 1: Interactive tab navigation
     kb.row(
         inline_button(
-            "👥 کاربران" + (" ✅" if current_tab == "overview" else ""),
+            "کاربران" + (" ✅" if current_tab == "overview" else ""),
             callback_data="admin_stats:overview",
             style=Style.CONFIRM if current_tab == "overview" else Style.PRIMARY,
             emoji_slot="users",
             registry=registry,
         ),
         inline_button(
-            "🎨 مدیا" + (" ✅" if current_tab == "media" else ""),
+            "مدیا" + (" ✅" if current_tab == "media" else ""),
             callback_data="admin_stats:media",
             style=Style.CONFIRM if current_tab == "media" else Style.PRIMARY,
             emoji_slot="convert",
@@ -205,14 +208,14 @@ def _build_stats_tabs_kb(current_tab: str, registry: EmojiRegistry) -> KB:
     )
     kb.row(
         inline_button(
-            "📥 دانلودر" + (" ✅" if current_tab == "downloader" else ""),
+            "دانلودر" + (" ✅" if current_tab == "downloader" else ""),
             callback_data="admin_stats:downloader",
             style=Style.CONFIRM if current_tab == "downloader" else Style.PRIMARY,
             emoji_slot="download",
             registry=registry,
         ),
         inline_button(
-            "📢 اسپانسر" + (" ✅" if current_tab == "sponsors" else ""),
+            "اسپانسر" + (" ✅" if current_tab == "sponsors" else ""),
             callback_data="admin_stats:sponsors",
             style=Style.CONFIRM if current_tab == "sponsors" else Style.PRIMARY,
             emoji_slot="sponsor",
@@ -266,13 +269,13 @@ async def admin_stats_action(query: CallbackQuery, session: AsyncSession) -> Non
     registry = await ready_registry()
 
     if tab == "media":
-        text = format_stats_media(stats)
+        text = format_stats_media(stats, registry)
     elif tab == "downloader":
-        text = format_stats_downloader(stats)
+        text = format_stats_downloader(stats, registry)
     elif tab == "sponsors":
-        text = format_stats_sponsors(stats)
+        text = format_stats_sponsors(stats, registry)
     else:
-        text = format_stats_overview(stats)
+        text = format_stats_overview(stats, registry)
         tab = "overview"
 
     kb = _build_stats_tabs_kb(tab, registry)
@@ -361,7 +364,7 @@ async def _render_users_page(
     if page > 1:
         nav_buttons.append(
             inline_button(
-                "◀️ قبلی",
+                "قبلی",
                 callback_data=f"admin_users:page:{page - 1}",
                 style=Style.PRIMARY,
                 emoji_slot="back",
@@ -380,7 +383,7 @@ async def _render_users_page(
     if page < total_pages:
         nav_buttons.append(
             inline_button(
-                "بعدی ▶️",
+                "بعدی",
                 callback_data=f"admin_users:page:{page + 1}",
                 style=Style.PRIMARY,
                 emoji_slot="next",
@@ -392,7 +395,7 @@ async def _render_users_page(
     # Search & Tool Buttons
     tool_buttons = [
         inline_button(
-            "🔍 جستجوی کاربر",
+            "جستجوی کاربر",
             callback_data="admin_users:search",
             style=Style.PRIMARY,
             emoji_slot="search",
@@ -402,7 +405,7 @@ async def _render_users_page(
     if query:
         tool_buttons.append(
             inline_button(
-                "❌ لغو جستجو",
+                "لغو جستجو",
                 callback_data="admin_act:users",
                 style=Style.DESTRUCTIVE,
                 emoji_slot="delete",
@@ -464,14 +467,14 @@ async def _render_user_detail(
         kb = KB(registry)
         kb.row(
             inline_button(
-                "🔙 بازگشت به لیست",
+                "بازگشت به لیست",
                 callback_data=f"admin_users:page:{page}",
                 style=Style.PRIMARY,
                 emoji_slot="back",
                 registry=registry,
             )
         )
-        return "❌ <i>کاربر مورد نظر یافت نشد.</i>", kb
+        return f"{registry.text('error')} <i>کاربر مورد نظر یافت نشد.</i>", kb
 
     # Conversion history
     conv_stmt = select(
@@ -510,37 +513,51 @@ async def _render_user_detail(
     uname = f"@{user.username}" if user.username else "ندارد"
     fullname = html.quote(f"{user.first_name or ''} {user.last_name or ''}".strip() or "نامشخص")
     prem_text = "دارد ⭐️" if user.is_premium else "ندارد"
-    banned_text = "مسدود (Ban) 🚫" if user.is_banned else "مجاز و فعال ✅"
-    block_text = "ربات را بلاک کرده ⚠️" if user.has_blocked_bot else "طبیعی ✔️"
+    banned_text = (
+        f"مسدود (Ban) {registry.text('ban')}"
+        if user.is_banned
+        else f"مجاز و فعال {registry.text('ok')}"
+    )
+    block_text = (
+        f"ربات را بلاک کرده {registry.text('warning')}"
+        if user.has_blocked_bot
+        else f"طبیعی {registry.text('ok')}"
+    )
 
+    created_str = user.created_at.strftime("%Y-%m-%d %H:%M")
+    seen_str = user.last_seen_at.strftime("%Y-%m-%d %H:%M")
     lines = [
-        "<b>👤 کارت مشخصات و مدیریت کاربر</b>\n",
-        f"• <b>نام:</b> {fullname}",
-        f"• <b>یوزرنیم:</b> {uname}",
-        f"• <b>شناسه عددی (ID):</b> <code>{user.telegram_id}</code>",
-        f"• <b>زبان تلگرام:</b> <code>{user.language_code or '-'}</code>",
-        f"• <b>پرمیوم تلگرام:</b> {prem_text}",
-        f"• <b>تاریخ عضویت:</b> <code>{user.created_at.strftime('%Y-%m-%d %H:%M')}</code>",
-        f"• <b>آخرین فعالیت:</b> <code>{user.last_seen_at.strftime('%Y-%m-%d %H:%M')}</code>",
-        f"• <b>تعداد تعاملات:</b> <code>{fa_digits(str(user.updates_seen))}</code> بار",
-        f"• <b>وضعیت بلاک:</b> {block_text}",
-        f"• <b>وضعیت دسترسی:</b> {banned_text}\n",
-        "<b>📊 سابقه فعالیت‌های مدیا:</b>",
-        f"• کل تبدیل‌ها: <code>{fa_digits(str(total_conv))}</code> "
+        f"<b>{registry.text('user')} کارت مشخصات و مدیریت کاربر</b>\n",
+        f"{registry.text('bullet')} <b>نام:</b> {fullname}",
+        f"{registry.text('bullet')} <b>یوزرنیم:</b> {uname}",
+        f"{registry.text('bullet')} <b>شناسه عددی (ID):</b> <code>{user.telegram_id}</code>",
+        f"{registry.text('bullet')} <b>زبان تلگرام:</b> <code>{user.language_code or '-'}</code>",
+        f"{registry.text('bullet')} <b>پرمیوم تلگرام:</b> {prem_text}",
+        f"{registry.text('bullet')} <b>تاریخ عضویت:</b> <code>{created_str}</code>",
+        f"{registry.text('bullet')} <b>آخرین فعالیت:</b> <code>{seen_str}</code>",
+        f"{registry.text('bullet')} <b>تعداد تعاملات:</b> "
+        f"<code>{fa_digits(str(user.updates_seen))}</code> بار",
+        f"{registry.text('bullet')} <b>وضعیت بلاک:</b> {block_text}",
+        f"{registry.text('bullet')} <b>وضعیت دسترسی:</b> {banned_text}\n",
+        f"<b>{registry.text('stats')} سابقه فعالیت‌های مدیا:</b>",
+        f"{registry.text('bullet')} کل تبدیل‌ها: <code>{fa_digits(str(total_conv))}</code> "
         f"(موفق: <code>{fa_digits(str(succ_conv))}</code>)",
-        f"• ترافیک کل مصرفی: <code>{human_bytes(in_b + out_b)}</code>",
-        f"• پک‌های استیکر: <code>{fa_digits(str(packs_cnt))}</code> "
+        f"{registry.text('bullet')} ترافیک کل مصرفی: <code>{human_bytes(in_b + out_b)}</code>",
+        f"{registry.text('bullet')} پک‌های استیکر: <code>{fa_digits(str(packs_cnt))}</code> "
         f"(استیکرها: <code>{fa_digits(str(stickers_cnt))}</code>)",
     ]
     if sp_titles:
-        lines.append(f"• عضویت در اسپانسر: {', '.join(sp_titles)} ✅")
+        lines.append(
+            f"{registry.text('bullet')} عضویت در اسپانسر: "
+            f"{', '.join(sp_titles)} {registry.text('ok')}"
+        )
     else:
-        lines.append("• عضویت در اسپانسر: ثبت نشده")
+        lines.append(f"{registry.text('bullet')} عضویت در اسپانسر: ثبت نشده")
 
     kb = KB(registry)
-    ban_label = "✅ رفع مسدودی (Unban)" if user.is_banned else "🚫 مسدود کردن (Ban)"
+    ban_label = "رفع مسدودی (Unban)" if user.is_banned else "مسدود کردن (Ban)"
     ban_style = Style.CONFIRM if user.is_banned else Style.DESTRUCTIVE
-    ban_emoji = "ok" if user.is_banned else "delete"
+    ban_emoji = "unban" if user.is_banned else "ban"
     kb.row(
         inline_button(
             ban_label,
@@ -552,7 +569,7 @@ async def _render_user_detail(
     )
     kb.row(
         inline_button(
-            "🔙 بازگشت به لیست",
+            "بازگشت به لیست",
             callback_data=f"admin_users:page:{page}",
             style=Style.PRIMARY,
             emoji_slot="back",
@@ -781,23 +798,23 @@ async def render_settings_panel() -> tuple[str, KB]:
     kb = KB(registry)
     kb.row(
         inline_button(
-            "🔧 تغییر حالت تعمیر",
+            "تغییر حالت تعمیر",
             callback_data="admin_settings:toggle_maintenance",
             style=Style.CONFIRM if not maintenance else Style.DESTRUCTIVE,
-            emoji_slot="admin",
+            emoji_slot="tool",
             registry=registry,
         ),
     )
     kb.row(
         inline_button(
-            "📊 تغییر سهمیه روزانه",
+            "تغییر سهمیه روزانه",
             callback_data="admin_settings:set_quota",
             style=Style.PRIMARY,
             emoji_slot="stats",
             registry=registry,
         ),
         inline_button(
-            "💾 زمان‌بندی بکاپ خودکار",
+            "زمان‌بندی بکاپ خودکار",
             callback_data="admin_settings:set_cron",
             style=Style.PRIMARY,
             emoji_slot="backup",
@@ -806,7 +823,7 @@ async def render_settings_panel() -> tuple[str, KB]:
     )
     kb.row(
         inline_button(
-            "💾 بکاپ فوری",
+            "بکاپ فوری",
             callback_data="admin_act:backup",
             style=Style.CONFIRM,
             emoji_slot="backup",

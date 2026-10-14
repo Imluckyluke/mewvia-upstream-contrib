@@ -54,34 +54,34 @@ async def handle_incoming_audio(message: Message) -> None:
     if message.voice:
         kb.row(
             inline_button(
-                "🎵 تبدیل ویس به MP3",
+                "تبدیل ویس به MP3",
                 callback_data=AudioToolCB(action="to_mp3").pack(),
                 style=Style.PRIMARY,
                 emoji_slot="audio",
                 registry=registry,
             ),
             inline_button(
-                "⚡ تغییر سرعت ویس",
+                "تغییر سرعت ویس",
                 callback_data=AudioToolCB(action="speed_menu").pack(),
                 style=Style.CONFIRM,
-                emoji_slot="clock",
+                emoji_slot="lightning",
                 registry=registry,
             ),
         )
     elif message.audio:
         kb.row(
             inline_button(
-                "🎤 تبدیل موزیک به ویس (Voice)",
+                "تبدیل موزیک به ویس (Voice)",
                 callback_data=AudioToolCB(action="to_voice").pack(),
                 style=Style.CONFIRM,
-                emoji_slot="audio",
+                emoji_slot="mic",
                 registry=registry,
             ),
             inline_button(
-                "⚡ تغییر سرعت موزیک",
+                "تغییر سرعت موزیک",
                 callback_data=AudioToolCB(action="speed_menu").pack(),
                 style=Style.PRIMARY,
-                emoji_slot="clock",
+                emoji_slot="lightning",
                 registry=registry,
             ),
         )
@@ -89,7 +89,7 @@ async def handle_incoming_audio(message: Message) -> None:
     if message.audio:
         kb.row(
             inline_button(
-                "🎵 ویرایش تگ و کاور",
+                "ویرایش تگ و کاور",
                 callback_data=AudioToolCB(action="tag_menu").pack(),
                 style=Style.CONFIRM,
                 emoji_slot="edit",
@@ -108,7 +108,7 @@ async def handle_incoming_audio(message: Message) -> None:
     )
 
     sent_msg = await message.reply(
-        "<b>🎵 ابزارهای صدا و ویس</b>\n\nعملیات مورد نظر را انتخاب کن:",
+        f"{registry.text('audio')} <b>ابزارهای صدا و ویس</b>\n\nعملیات مورد نظر را انتخاب کن:",
         reply_markup=kb.as_markup(),
     )
 
@@ -172,7 +172,8 @@ async def audio_speed_menu(query: CallbackQuery) -> None:
 
     if isinstance(query.message, Message):
         await query.message.edit_text(
-            "<b>⚡ سرعت مورد نظر را انتخاب کن:</b>", reply_markup=kb.as_markup()
+            f"{registry.text('clock')} <b>سرعت مورد نظر را انتخاب کن:</b>",
+            reply_markup=kb.as_markup(),
         )
     await query.answer()
 

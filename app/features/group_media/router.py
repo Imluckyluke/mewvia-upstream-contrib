@@ -66,14 +66,14 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
         if kind == MediaKind.VOICE:
             kb.row(
                 inline_button(
-                    "🎵 تبدیل ویس به MP3",
+                    "تبدیل ویس به MP3",
                     callback_data=AudioToolCB(action="to_mp3").pack(),
                     style=Style.PRIMARY,
                     emoji_slot="audio",
                     registry=registry,
                 ),
                 inline_button(
-                    "⚡ تغییر سرعت ویس",
+                    "تغییر سرعت ویس",
                     callback_data=AudioToolCB(action="speed_menu").pack(),
                     style=Style.CONFIRM,
                     emoji_slot="lightning",
@@ -83,14 +83,14 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
         else:  # AUDIO
             kb.row(
                 inline_button(
-                    "🗣 تبدیل به ویس",
+                    "تبدیل به ویس",
                     callback_data=AudioToolCB(action="to_voice").pack(),
                     style=Style.PRIMARY,
-                    emoji_slot="audio",
+                    emoji_slot="mic",
                     registry=registry,
                 ),
                 inline_button(
-                    "⚡ تغییر سرعت موزیک",
+                    "تغییر سرعت موزیک",
                     callback_data=AudioToolCB(action="speed_menu").pack(),
                     style=Style.CONFIRM,
                     emoji_slot="lightning",
@@ -99,7 +99,7 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
             )
             kb.row(
                 inline_button(
-                    "🎵 ویرایش تگ و کاور",
+                    "ویرایش تگ و کاور",
                     callback_data=AudioToolCB(action="tag_menu").pack(),
                     style=Style.CONFIRM,
                     emoji_slot="edit",
@@ -128,7 +128,7 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
     ):
         kb.row(
             inline_button(
-                "🎬 ابزارهای ویدیو و ویدیومسیج",
+                "ابزارهای ویدیو و ویدیومسیج",
                 callback_data="vtool_action:start",
                 style=Style.PRIMARY,
                 emoji_slot="video",
@@ -147,14 +147,14 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
     ):
         kb.row(
             inline_button(
-                "📝 افزودن متن / استیکرمانی",
+                "افزودن متن / استیکرمانی",
                 callback_data=TextOverlayCB(action="start").pack(),
                 style=Style.PRIMARY,
                 emoji_slot="text",
                 registry=registry,
             ),
             inline_button(
-                "↔️ واید کردن (پهنش کن!)",
+                "واید کردن (پهنش کن!)",
                 callback_data=WideCB(action="start").pack(),
                 style=Style.CONFIRM,
                 emoji_slot="wide",
@@ -163,14 +163,14 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
         )
         kb.row(
             inline_button(
-                "🎨 فیلترهای رنگی / افکت",
+                "فیلترهای رنگی / افکت",
                 callback_data=FilterCB(action="start").pack(),
                 style=Style.PRIMARY,
                 emoji_slot="filter",
                 registry=registry,
             ),
             inline_button(
-                "📌 ساخت/افزودن به استیکرپک من",
+                "ساخت/افزودن به استیکرپک من",
                 callback_data="spack_action:start",
                 style=Style.CONFIRM,
                 emoji_slot="pack",
@@ -182,10 +182,10 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
     if kind not in (MediaKind.VOICE, MediaKind.AUDIO):
         kb.row(
             inline_button(
-                "⚙️ تغییرات دسته‌ای (چند کار همزمان)",
+                "تغییرات دسته‌ای (چند کار همزمان)",
                 callback_data=BatchCB(action="menu").pack(),
                 style=Style.CONFIRM,
-                emoji_slot="lightning",
+                emoji_slot="tool",
                 registry=registry,
             )
         )

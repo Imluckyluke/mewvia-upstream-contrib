@@ -155,27 +155,27 @@ async def render_cookies_dashboard(
                 label_text,
                 callback_data=f"igc:view:{c.id}",
                 style=Style.PRIMARY if c.is_active else Style.NEUTRAL,
-                emoji_slot="tool",
+                emoji_slot="cookie",
                 registry=registry,
             )
         )
         kb.row(
             inline_button(
-                "⏸ توقف" if c.is_active else "▶️ فعال‌سازی",
+                "توقف" if c.is_active else "فعال‌سازی",
                 callback_data=f"igc:toggle:{c.id}",
                 style=Style.NEUTRAL if c.is_active else Style.CONFIRM,
                 emoji_slot="on" if c.is_active else "off",
                 registry=registry,
             ),
             inline_button(
-                "🧪 تست",
+                "تست",
                 callback_data=f"igc:test:{c.id}",
                 style=Style.PRIMARY,
                 emoji_slot="refresh",
                 registry=registry,
             ),
             inline_button(
-                "🗑 حذف",
+                "حذف",
                 callback_data=f"igc:del:{c.id}",
                 style=Style.DESTRUCTIVE,
                 emoji_slot="delete",
@@ -186,14 +186,14 @@ async def render_cookies_dashboard(
     # Action buttons
     kb.row(
         inline_button(
-            "➕ افزودن اکانت جدید",
+            "افزودن اکانت جدید",
             callback_data="igc:add",
             style=Style.CONFIRM,
             emoji_slot="add",
             registry=registry,
         ),
         inline_button(
-            "🧪 تست سلامت همه",
+            "تست سلامت همه",
             callback_data="igc:test_all",
             style=Style.PRIMARY,
             emoji_slot="refresh",
@@ -250,14 +250,14 @@ async def render_cookie_detail(c: InstagramCookie, registry: EmojiRegistry) -> t
     kb = KB(registry)
     kb.row(
         inline_button(
-            "🧪 تست آنلاین وضعیت",
+            "تست آنلاین وضعیت",
             callback_data=f"igc:test:{c.id}",
             style=Style.PRIMARY,
             emoji_slot="refresh",
             registry=registry,
         ),
         inline_button(
-            "⏸ توقف در چرخه" if c.is_active else "▶️ فعال در چرخه",
+            "توقف در چرخه" if c.is_active else "فعال در چرخه",
             callback_data=f"igc:toggle:{c.id}",
             style=Style.NEUTRAL if c.is_active else Style.CONFIRM,
             emoji_slot="on" if c.is_active else "off",
@@ -266,14 +266,14 @@ async def render_cookie_detail(c: InstagramCookie, registry: EmojiRegistry) -> t
     )
     kb.row(
         inline_button(
-            "✏️ تغییر نام / برچسب",
+            "تغییر نام / برچسب",
             callback_data=f"igc:edit_label:{c.id}",
             style=Style.PRIMARY,
             emoji_slot="edit",
             registry=registry,
         ),
         inline_button(
-            "📥 خروجی فایل کوکی",
+            "خروجی فایل کوکی",
             callback_data=f"igc:export:{c.id}",
             style=Style.NEUTRAL,
             emoji_slot="download",
@@ -282,14 +282,14 @@ async def render_cookie_detail(c: InstagramCookie, registry: EmojiRegistry) -> t
     )
     kb.row(
         inline_button(
-            "🗑 حذف اکانت",
+            "حذف اکانت",
             callback_data=f"igc:del:{c.id}",
             style=Style.DESTRUCTIVE,
             emoji_slot="delete",
             registry=registry,
         ),
         inline_button(
-            "🔙 بازگشت به لیست",
+            "بازگشت به لیست",
             callback_data="igc:list",
             style=Style.PRIMARY,
             emoji_slot="back",
@@ -446,14 +446,14 @@ async def delete_cookie_confirm(query: CallbackQuery, session: AsyncSession) -> 
     kb = KB(registry)
     kb.row(
         inline_button(
-            "✅ بله، حذف کن",
+            "بله، حذف کن",
             callback_data=f"igc:del_yes:{cookie.id}",
             style=Style.DESTRUCTIVE,
             emoji_slot="delete",
             registry=registry,
         ),
         inline_button(
-            "❌ انصراف",
+            "انصراف",
             callback_data=f"igc:view:{cookie.id}",
             style=Style.NEUTRAL,
             emoji_slot="error",
@@ -522,7 +522,7 @@ async def add_cookie_start(query: CallbackQuery, state: FSMContext) -> None:
     kb = KB(registry)
     kb.row(
         inline_button(
-            "❌ لغو",
+            "لغو",
             callback_data="igc:list",
             style=Style.DESTRUCTIVE,
             emoji_slot="error",
@@ -531,9 +531,9 @@ async def add_cookie_start(query: CallbackQuery, state: FSMContext) -> None:
     )
 
     prompt = (
-        "🍪 <b>افزودن کوکی جدید اینستاگرام:</b>\n\n"
+        f"{registry.text('cookie')} <b>افزودن کوکی جدید اینستاگرام:</b>\n\n"
         "لطفاً فایل <code>cookies.txt</code> یا متن کوکی اکانت اینستاگرام را بفرست.\n\n"
-        "💡 <b>نحوه دریافت:</b>\n"
+        f"{registry.text('idea')} <b>نحوه دریافت:</b>\n"
         "با افزونه <i>Get cookies.txt LOCALLY</i> مرورگر، از سایت اینستاگرام خروجی بگیر "
         "و فایل را مستقیماً همین‌جا آپلود کن."
     )
@@ -591,14 +591,14 @@ async def _handle_cookie_content(message: Message, raw_text: str, state: FSMCont
     kb = KB(registry)
     kb.row(
         inline_button(
-            "⏩ استفاده از نام خودکار",
+            "استفاده از نام خودکار",
             callback_data="igc:use_auto_label",
             style=Style.CONFIRM,
             emoji_slot="ok",
             registry=registry,
         ),
         inline_button(
-            "❌ لغو",
+            "لغو",
             callback_data="igc:list",
             style=Style.DESTRUCTIVE,
             emoji_slot="error",

@@ -45,39 +45,39 @@ async def start_vtool_menu(query: CallbackQuery) -> None:
 
     kb.row(
         inline_button(
-            "🔴 ویدیومسیج گرد",
+            "ویدیومسیج گرد",
             callback_data=VideoToolCB(action="note").pack(),
             style=Style.CONFIRM,
-            emoji_slot="video",
+            emoji_slot="video_note",
             registry=registry,
         ),
         inline_button(
-            "📉 فشرده‌سازی ویدیو",
+            "فشرده‌سازی ویدیو",
             callback_data=VideoToolCB(action="compress_menu").pack(),
             style=Style.PRIMARY,
-            emoji_slot="download",
+            emoji_slot="compress",
             registry=registry,
         ),
     )
     kb.row(
         inline_button(
-            "🔇 بی‌صدا کردن",
+            "بی‌صدا کردن",
             callback_data=VideoToolCB(action="mute").pack(),
             style=Style.PRIMARY,
-            emoji_slot="audio",
+            emoji_slot="mute",
             registry=registry,
         ),
         inline_button(
-            "🔄 معکوس کردن",
+            "معکوس کردن",
             callback_data=VideoToolCB(action="reverse").pack(),
             style=Style.PRIMARY,
-            emoji_slot="refresh",
+            emoji_slot="reverse",
             registry=registry,
         ),
     )
     kb.row(
         inline_button(
-            "🎵 استخراج صدا از ویدیو",
+            "استخراج صدا از ویدیو",
             callback_data=VideoToolCB(action="extract").pack(),
             style=Style.CONFIRM,
             emoji_slot="audio",
@@ -89,14 +89,18 @@ async def start_vtool_menu(query: CallbackQuery) -> None:
             t("common.back"),
             callback_data="menu:root",
             style=Style.DESTRUCTIVE,
-            emoji_slot="error",
+            emoji_slot="back",
             registry=registry,
         )
     )
 
     if isinstance(query.message, Message):
+        prompt_v_text = (
+            f"{registry.text('video')} <b>ابزارهای ویدیو</b>\n\n"
+            "عملیات مورد نظر را روی ویدیو انتخاب کن:"
+        )
         await query.message.edit_text(
-            "<b>🎬 ابزارهای ویدیو</b>\n\nعملیات مورد نظر را روی ویدیو انتخاب کن:",
+            prompt_v_text,
             reply_markup=kb.as_markup(),
         )
     await query.answer()
@@ -188,6 +192,7 @@ async def process_video_tool(
             await bot.download(file_id, destination=src_file)
             info = await probe(src_file)
 
+            registry = await ready_registry()
             if action == "note":
                 out_file = work_dir / "video_note.mp4"
                 res_info = await make_video_note(src_file, out_file, info)
@@ -203,13 +208,15 @@ async def process_video_tool(
                 out_obj = FSInputFile(out_file)
                 old_kb = info.file_size // 1024
                 new_kb = res_info.file_size // 1024
+                cap_cmp = (
+                    f"{registry.text('compress')} <b>فشرده‌سازی انجام شد!</b>\n"
+                    f"حجم قبلی: {old_kb}KB ➔ جدید: {new_kb}KB"
+                )
                 await bot.send_video(
                     chat_id=msg.chat.id,
                     video=out_obj,
                     reply_to_message_id=reply_to_id,
-                    caption=(
-                        f"📉 <b>فشرده‌سازی انجام شد!</b>\nحجم قبلی: {old_kb}KB ➔ جدید: {new_kb}KB"
-                    ),
+                    caption=cap_cmp,
                 )
 
             elif action == "mute":
@@ -219,7 +226,7 @@ async def process_video_tool(
                     chat_id=msg.chat.id,
                     video=out_obj,
                     reply_to_message_id=reply_to_id,
-                    caption="🔇 <b>صدا با موفقیت حذف شد.</b>",
+                    caption=f"{registry.text('mute')} <b>صدا با موفقیت حذف شد.</b>",
                 )
 
             elif action == "reverse":
@@ -229,7 +236,7 @@ async def process_video_tool(
                     chat_id=msg.chat.id,
                     video=out_obj,
                     reply_to_message_id=reply_to_id,
-                    caption="🔄 <b>ویدیو معکوس شد.</b>",
+                    caption=f"{registry.text('reverse')} <b>ویدیو معکوس شد.</b>",
                 )
 
             elif action == "extract":
@@ -242,8 +249,8 @@ async def process_video_tool(
                     reply_to_message_id=reply_to_id,
                     title="Extracted Audio",
                     caption=(
-                        f"🎵 <b>صدای استخراج‌شده از ویدیو</b>\n\n"
-                        f"دانلود شده با @{settings.bot_username} 🐾"
+                        f"{registry.text('audio')} <b>صدای استخراج‌شده از ویدیو</b>\n\n"
+                        f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                     ),
                 )
                 res_info = await probe(out_file)
