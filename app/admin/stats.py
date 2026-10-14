@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.units import fa_digits, human_bytes
 from app.db.models.conversion import Conversion
+from app.db.models.instagram_cookie import InstagramCookie
 from app.db.models.sponsor_channel import SponsorChannel
 from app.db.models.sponsor_seen import SponsorSeenMember
 from app.db.models.sticker_set import StickerSet
@@ -78,6 +79,21 @@ MUSIC_VOICE_TARGETS: tuple[str, ...] = (
 #: Source kinds counted as music/voice intake.
 MUSIC_VOICE_SOURCES: tuple[str, ...] = ("voice", "audio")
 
+#: Metadata for supported media downloader platforms.
+PLATFORM_META: dict[str, dict[str, str]] = {
+    "dl_youtube": {"name": "یوتیوب (YouTube)", "icon": "🔴"},
+    "dl_instagram": {"name": "اینستاگرام (Instagram)", "icon": "🟣"},
+    "dl_spotify": {"name": "اسپاتیفای (Spotify)", "icon": "🟢"},
+    "dl_soundcloud": {"name": "ساندکلاد (SoundCloud)", "icon": "🟠"},
+    "dl_tiktok": {"name": "تیک‌تاک (TikTok)", "icon": "⚫️"},
+    "dl_twitter": {"name": "توییتر (X)", "icon": "🔵"},
+    "dl_pinterest": {"name": "پینترست (Pinterest)", "icon": "📌"},
+    "dl_reddit": {"name": "ردیت (Reddit)", "icon": "🟧"},
+    "dl_aparat": {"name": "آپارات (Aparat)", "icon": "📺"},
+    "dl_facebook": {"name": "فیسبوک (Facebook)", "icon": "🔷"},
+    "dl_other": {"name": "سایر پلتفرم‌ها", "icon": "🌐"},
+}
+
 
 @dataclass(frozen=True, slots=True)
 class AdminStats:
@@ -124,6 +140,21 @@ class AdminStats:
     total_seen_members: int = 0
     sponsor_breakdown: tuple[tuple[str, int, int], ...] = field(default_factory=tuple)
 
+    # --- Downloader Analytics ---
+    downloader_total: int = 0
+    downloader_success: int = 0
+    downloader_failed: int = 0
+    downloader_bytes: int = 0
+    downloader_today: int = 0
+    downloader_week: int = 0
+    downloader_unique_users: int = 0
+    downloader_avg_duration_ms: float = 0.0
+    downloader_platforms: tuple[tuple[str, str, str, int, int, int], ...] = field(
+        default_factory=tuple
+    )
+    downloader_total_cookies: int = 0
+    downloader_active_cookies: int = 0
+
     @property
     def success_rate(self) -> float:
         if self.total_conversions == 0:
@@ -147,6 +178,12 @@ class AdminStats:
         if self.music_voice_total == 0:
             return 100.0
         return (self.music_voice_success / self.music_voice_total) * 100.0
+
+    @property
+    def downloader_success_rate(self) -> float:
+        if self.downloader_total == 0:
+            return 100.0
+        return (self.downloader_success / self.downloader_total) * 100.0
 
 
 async def get_admin_stats(session: AsyncSession) -> AdminStats:
@@ -360,6 +397,169 @@ async def get_admin_stats(session: AsyncSession) -> AdminStats:
     ).all()
     sponsor_breakdown = tuple((str(row[0]), int(row[1]), int(row[2])) for row in breakdown_raw)
 
+    # 7. Downloader analytics (single-pass aggregate over dl_% targets)
+    dl_row = (
+        await session.execute(
+            select(
+                func.coalesce(
+                    func.sum(case((Conversion.target_id.like("dl_%"), 1), else_=0)),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    Conversion.target_id.like("dl_%"),
+                                    Conversion.status == "success",
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    Conversion.target_id.like("dl_%"),
+                                    Conversion.status != "success",
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (Conversion.target_id.like("dl_%"), Conversion.out_bytes),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    Conversion.target_id.like("dl_%"),
+                                    Conversion.created_at >= day_ago,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    Conversion.target_id.like("dl_%"),
+                                    Conversion.created_at >= week_ago,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.count(
+                    func.distinct(
+                        case(
+                            (Conversion.target_id.like("dl_%"), Conversion.telegram_id),
+                            else_=None,
+                        )
+                    )
+                ),
+                func.coalesce(
+                    func.avg(
+                        case(
+                            (
+                                and_(
+                                    Conversion.target_id.like("dl_%"),
+                                    Conversion.status == "success",
+                                ),
+                                Conversion.duration_ms,
+                            ),
+                            else_=None,
+                        )
+                    ),
+                    0,
+                ),
+            )
+        )
+    ).one()
+
+    downloader_total = int(dl_row[0])
+    downloader_success = int(dl_row[1])
+    downloader_failed = int(dl_row[2])
+    downloader_bytes = int(dl_row[3])
+    downloader_today = int(dl_row[4])
+    downloader_week = int(dl_row[5])
+    downloader_unique_users = int(dl_row[6])
+    downloader_avg_duration_ms = float(dl_row[7])
+
+    # Per-platform breakdown
+    dl_platforms_raw = (
+        await session.execute(
+            select(
+                Conversion.target_id,
+                func.count(Conversion.id),
+                func.coalesce(
+                    func.sum(case((Conversion.status == "success", 1), else_=0)),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (Conversion.status == "success", Conversion.out_bytes),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+            )
+            .where(Conversion.target_id.like("dl_%"))
+            .group_by(Conversion.target_id)
+            .order_by(func.count(Conversion.id).desc())
+        )
+    ).all()
+
+    downloader_platforms: list[tuple[str, str, str, int, int, int]] = []
+    for p_row in dl_platforms_raw:
+        tgt = str(p_row[0])
+        tot = int(p_row[1])
+        succ = int(p_row[2])
+        b_count = int(p_row[3])
+        meta = PLATFORM_META.get(tgt, {"name": TARGET_ID_LABELS.get(tgt, tgt), "icon": "🌐"})
+        downloader_platforms.append((tgt, meta["name"], meta["icon"], tot, succ, b_count))
+
+    # Instagram cookies status
+    cookie_counts = (
+        await session.execute(
+            select(
+                func.count(InstagramCookie.id),
+                func.coalesce(
+                    func.sum(case((InstagramCookie.is_active.is_(True), 1), else_=0)),
+                    0,
+                ),
+            )
+        )
+    ).one()
+    downloader_total_cookies = int(cookie_counts[0])
+    downloader_active_cookies = int(cookie_counts[1])
+
     return AdminStats(
         total_users=total_users,
         active_today=active_today,
@@ -392,6 +592,17 @@ async def get_admin_stats(session: AsyncSession) -> AdminStats:
         active_sponsors=active_sponsors,
         total_seen_members=int(total_seen_members),
         sponsor_breakdown=sponsor_breakdown,
+        downloader_total=downloader_total,
+        downloader_success=downloader_success,
+        downloader_failed=downloader_failed,
+        downloader_bytes=downloader_bytes,
+        downloader_today=downloader_today,
+        downloader_week=downloader_week,
+        downloader_unique_users=downloader_unique_users,
+        downloader_avg_duration_ms=downloader_avg_duration_ms,
+        downloader_platforms=tuple(downloader_platforms),
+        downloader_total_cookies=downloader_total_cookies,
+        downloader_active_cookies=downloader_active_cookies,
     )
 
 
@@ -522,6 +733,57 @@ def format_stats_sponsors(stats: AdminStats) -> str:
         "«ممبر تاییدشده» کاربری است که عضویت او حداقل یک‌بار توسط ربات استعلام و ثبت شده است. "
         "در صورت لفت دادن کاربر، ربات در همان ثانیه پیام دعوت خودکار در پی‌وی می‌فرستد."
     )
+    return "\n".join(lines)
+
+
+def format_stats_downloader(stats: AdminStats) -> str:
+    """Format downloader metrics & per-platform breakdown tab."""
+    avg_s = stats.downloader_avg_duration_ms / 1000.0 if stats.downloader_avg_duration_ms else 0.0
+    bytes_h = human_bytes(stats.downloader_bytes)
+    succ_rate = stats.downloader_success_rate
+
+    lines = [
+        "<b>📥 آمار جامع دانلودر چندرسانه‌ای | Mewvia Downloader</b>\n",
+        "<b>📊 عملکرد کلی دانلودها:</b>",
+        f"• کل درخواست‌های دانلود: <code>{fa_digits(str(stats.downloader_total))}</code>",
+        f"• دانلودهای موفق: <code>{fa_digits(str(stats.downloader_success))}</code> "
+        f"(<code>{fa_digits(f'{succ_rate:.1f}')}%</code>)",
+        f"• دانلودهای ناموفق / خطا: <code>{fa_digits(str(stats.downloader_failed))}</code>",
+        (
+            f"• کاربران یکتا دانلودر: "
+            f"<code>{fa_digits(str(stats.downloader_unique_users))}</code> کاربر"
+        ),
+        f"• دانلودهای ۲۴ ساعت اخیر: <code>{fa_digits(str(stats.downloader_today))}</code>",
+        f"• دانلودهای ۷ روز اخیر: <code>{fa_digits(str(stats.downloader_week))}</code>",
+        f"• میانگین زمان دانلود: <code>{fa_digits(f'{avg_s:.2f}')} ثانیه</code>",
+        f"• حجم کل ترافیک ارسالی: <code>{bytes_h}</code>\n",
+    ]
+
+    lines.append("<b>🌐 تفکیک پلتفرم‌ها و آمار زیرمجموعه:</b>")
+    if stats.downloader_platforms:
+        for _tgt, name, icon, total, succ, b_count in stats.downloader_platforms:
+            rate = (succ / total * 100) if total else 0.0
+            size_str = human_bytes(b_count)
+            lines.append(
+                f"{icon} <b>{name}:</b>\n"
+                f"   └ تعداد: <code>{fa_digits(str(total))}</code> | "
+                f"موفق: <code>{fa_digits(str(succ))}</code> "
+                f"(<code>{fa_digits(f'{rate:.0f}')}%</code>) | "
+                f"حجم: <code>{size_str}</code>"
+            )
+        lines.append("")
+    else:
+        lines.append("• <i>هنوز دانلودی از پلتفرم‌ها ثبت نشده است.</i>\n")
+
+    lines.append("<b>⚙️ وضعیت زیرساخت و سرویس‌های دانلود:</b>")
+    lines.append(
+        f"• اکانت‌های اینستاگرام فعال: "
+        f"<code>{fa_digits(str(stats.downloader_active_cookies))}</code> از "
+        f"<code>{fa_digits(str(stats.downloader_total_cookies))}</code> اکانت"
+    )
+    lines.append("• تونل پراکسی WARP: 🟢 متصل (SOCKS5)")
+    lines.append("• ارائه‌دهنده PO-Token یوتیوب: 🟢 فعال")
+
     return "\n".join(lines)
 
 

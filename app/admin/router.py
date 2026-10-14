@@ -27,6 +27,7 @@ from app.admin.broadcast import send_broadcast
 from app.admin.cookies_router import router as cookies_router
 from app.admin.sponsor_router import router as sponsor_router
 from app.admin.stats import (
+    format_stats_downloader,
     format_stats_media,
     format_stats_overview,
     format_stats_sponsors,
@@ -201,6 +202,15 @@ def _build_stats_tabs_kb(current_tab: str, registry: EmojiRegistry) -> KB:
             emoji_slot="convert",
             registry=registry,
         ),
+    )
+    kb.row(
+        inline_button(
+            "📥 دانلودر" + (" ✅" if current_tab == "downloader" else ""),
+            callback_data="admin_stats:downloader",
+            style=Style.CONFIRM if current_tab == "downloader" else Style.PRIMARY,
+            emoji_slot="download",
+            registry=registry,
+        ),
         inline_button(
             "📢 اسپانسر" + (" ✅" if current_tab == "sponsors" else ""),
             callback_data="admin_stats:sponsors",
@@ -209,7 +219,7 @@ def _build_stats_tabs_kb(current_tab: str, registry: EmojiRegistry) -> KB:
             registry=registry,
         ),
     )
-    # Row 2: Refresh & Back
+    # Row 3: Refresh & Back
     refresh_cb = "admin_act:stats" if current_tab == "overview" else f"admin_stats:{current_tab}"
     kb.row(
         inline_button(
@@ -236,6 +246,7 @@ def _build_stats_tabs_kb(current_tab: str, registry: EmojiRegistry) -> KB:
             "admin_act:stats",
             "admin_stats:overview",
             "admin_stats:media",
+            "admin_stats:downloader",
             "admin_stats:sponsors",
         }
     ),
@@ -256,6 +267,8 @@ async def admin_stats_action(query: CallbackQuery, session: AsyncSession) -> Non
 
     if tab == "media":
         text = format_stats_media(stats)
+    elif tab == "downloader":
+        text = format_stats_downloader(stats)
     elif tab == "sponsors":
         text = format_stats_sponsors(stats)
     else:
