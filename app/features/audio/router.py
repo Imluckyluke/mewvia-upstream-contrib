@@ -309,15 +309,24 @@ async def process_audio_tool(
 @router.callback_query(MenuCB.filter(F.target == "audio"))
 async def menu_audio(query: CallbackQuery) -> None:
     registry = await ready_registry()
-    kb = (
-        KB(registry)
-        .button(
+    kb = KB(registry)
+    kb.row(
+        inline_button(
+            "🔍 جستجوی مستقیم موزیک",
+            callback_data="msearch:prompt",
+            style=Style.CONFIRM,
+            emoji_slot="search",
+            registry=registry,
+        )
+    )
+    kb.row(
+        inline_button(
             t("common.back"),
             callback_data=MenuCB(target="root").pack(),
             style=Style.PRIMARY,
             emoji_slot="back",
+            registry=registry,
         )
-        .as_markup()
     )
     if isinstance(query.message, Message):
         await query.message.edit_text(
@@ -326,8 +335,9 @@ async def menu_audio(query: CallbackQuery) -> None:
             "• تبدیل موزیک به ویس تلگرام (Voice)\n"
             "• تبدیل ویس به فایل صوتی MP3\n"
             "• تغییر سرعت ویس و موزیک (0.5x تا 2.0x)\n"
-            "• ویرایش تگ و کاور موزیک (نام، خواننده، آلبوم، کاور) 🎵",
-            reply_markup=kb,
+            "• ویرایش تگ و کاور موزیک (نام، خواننده، آلبوم، کاور)\n"
+            "• جستجوی مستقیم در اسپاتیفای و ساندکلاد 🔍",
+            reply_markup=kb.as_markup(),
         )
     await query.answer()
 

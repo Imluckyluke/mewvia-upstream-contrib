@@ -35,6 +35,7 @@ log = get_logger(__name__)
 
 PRIVATE_BOT_COMMANDS = [
     BotCommand(command="start", description="شروع"),
+    BotCommand(command="music", description="جستجوی مستقیم موزیک (اسپاتیفای و ساندکلاد)"),
     BotCommand(command="help", description="راهنما"),
     BotCommand(command="ping", description="بررسی زنده بودن ربات"),
 ]

@@ -13,6 +13,7 @@ from app.callbacks.convert import ConvertCB
 from app.callbacks.downloader import DownloaderCB
 from app.callbacks.filter import FilterCB
 from app.callbacks.image import ImageToolCB
+from app.callbacks.music_search import MusicSearchCB
 from app.callbacks.nav import DemoCB, MenuCB, NoopCB, PageCB
 from app.callbacks.text_overlay import TextOverlayCB
 from app.callbacks.video import VideoToolCB
@@ -27,6 +28,7 @@ __all__ = [
     "FilterCB",
     "ImageToolCB",
     "MenuCB",
+    "MusicSearchCB",
     "NoopCB",
     "PageCB",
     "TextOverlayCB",

@@ -29,6 +29,7 @@ def load_features() -> list[Feature]:
             fallback,
             filters,
             group_media,
+            music_search,
             sponsor_leavewatch,
             stickerpack,
             tag_editor,

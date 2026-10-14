@@ -54,6 +54,7 @@ _FA: dict[str, str] = {
     "menu.stickerpack": "استیکرپک‌های من",
     "menu.videotools": "ابزارهای ویدیو",
     "menu.audio": "ابزارهای صدا",
+    "menu.music_search": "جستجوی موزیک",
     "menu.imagetools": "ابزارهای عکس",
     # ---- stickerpack ----
     "spack.title": "<b>استیکرپک‌های من</b>",
