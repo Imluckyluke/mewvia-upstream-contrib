@@ -55,7 +55,6 @@ from app.media.downloader import (
 from app.media.jobs import run_media_job
 from app.media.lyrics import (
     build_full_lyrics_message,
-    build_lyrics_caption_block,
     embed_lyrics_to_mp3,
     fetch_lyrics,
 )
@@ -202,14 +201,9 @@ async def _perform_download(
                 if lyrics:
                     embed_lyrics_to_mp3(downloaded_file, lyrics)
 
-                lyrics_block, is_truncated = (
-                    build_lyrics_caption_block(lyrics, registry) if lyrics else ("", False)
-                )
-
                 caption = (
                     f"{registry.text('audio')} <b>{html.quote(title)}</b>\n"
-                    f"{registry.text('user')} <b>خواننده / سازنده:</b> {html.quote(str(uploader))}"
-                    f"{lyrics_block}\n\n"
+                    f"{registry.text('user')} <b>سازنده:</b> {html.quote(str(uploader))}\n\n"
                     f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
                 sent_audio = await bot.send_audio(
@@ -221,18 +215,17 @@ async def _perform_download(
                     reply_to_message_id=reply_to_id,
                 )
 
-                if is_truncated and lyrics and sent_audio:
-                    full_lyrics_msg = build_full_lyrics_message(
-                        title, str(uploader), lyrics, registry
-                    )
+                # Send lyrics in follow-up reply message if available
+                if lyrics and sent_audio:
+                    lyrics_msg = build_full_lyrics_message(title, str(uploader), lyrics, registry)
                     try:
                         await bot.send_message(
                             chat_id=chat_id,
-                            text=full_lyrics_msg,
+                            text=lyrics_msg,
                             reply_to_message_id=sent_audio.message_id,
                         )
                     except Exception as l_exc:
-                        log.warning("send_full_lyrics_failed", error=str(l_exc))
+                        log.warning("send_lyrics_reply_failed", error=str(l_exc))
 
             elif action == "gallery":
 
@@ -328,14 +321,9 @@ async def _perform_download(
                 if lyrics:
                     embed_lyrics_to_mp3(downloaded_file, lyrics)
 
-                lyrics_block, is_truncated = (
-                    build_lyrics_caption_block(lyrics, registry) if lyrics else ("", False)
-                )
-
                 caption = (
                     f"{registry.text('spotify')} <b>{html.quote(title)}</b>\n"
-                    f"{registry.text('user')} <b>خواننده:</b> {html.quote(str(uploader))}"
-                    f"{lyrics_block}\n\n"
+                    f"{registry.text('user')} <b>خواننده:</b> {html.quote(str(uploader))}\n\n"
                     f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
                 sent_audio = await bot.send_audio(
@@ -347,18 +335,17 @@ async def _perform_download(
                     reply_to_message_id=reply_to_id,
                 )
 
-                if is_truncated and lyrics and sent_audio:
-                    full_lyrics_msg = build_full_lyrics_message(
-                        title, str(uploader), lyrics, registry
-                    )
+                # Send lyrics in follow-up reply message if available
+                if lyrics and sent_audio:
+                    lyrics_msg = build_full_lyrics_message(title, str(uploader), lyrics, registry)
                     try:
                         await bot.send_message(
                             chat_id=chat_id,
-                            text=full_lyrics_msg,
+                            text=lyrics_msg,
                             reply_to_message_id=sent_audio.message_id,
                         )
                     except Exception as l_exc:
-                        log.warning("send_full_lyrics_failed", error=str(l_exc))
+                        log.warning("send_lyrics_reply_failed", error=str(l_exc))
 
             elif action in ("pl_zip", "pl_audio_all", "pl_audio_first5", "pl_video_all"):
                 items = list(ctx.get("playlist_items") or [])

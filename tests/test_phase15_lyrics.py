@@ -7,8 +7,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mutagen.id3 import ID3
-
 from app.media.lyrics import (
     build_full_lyrics_message,
     build_lyrics_caption_block,
@@ -17,6 +15,7 @@ from app.media.lyrics import (
     embed_lyrics_to_mp3,
     fetch_lyrics,
 )
+from mutagen.id3 import ID3
 
 
 class DummyRegistry:
@@ -59,7 +58,9 @@ def test_build_lyrics_caption_block_truncated() -> None:
 
 def test_build_full_lyrics_message() -> None:
     registry = DummyRegistry()
-    msg = build_full_lyrics_message("Behet Ghol Midam", "Mohsen Yeganeh", "خودت میخای بری...", registry)
+    msg = build_full_lyrics_message(
+        "Behet Ghol Midam", "Mohsen Yeganeh", "خودت میخای بری...", registry
+    )
 
     assert "Behet Ghol Midam" in msg
     assert "Mohsen Yeganeh" in msg
