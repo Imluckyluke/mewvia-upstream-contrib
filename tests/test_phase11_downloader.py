@@ -13,10 +13,12 @@ from app.callbacks.downloader import DownloaderCB
 from app.db.repo import ConversionRepo, UserRepo
 from app.media.downloader import (
     DownloadInfo,
+    clean_instagram_url,
     create_token,
     detect_platform,
     extract_first_url,
     get_download_context,
+    is_instagram_video_url,
     store_download_context,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -355,3 +357,23 @@ async def test_downloader_respects_quota(app_dispatcher: Dispatcher, session: As
         assert "سهمیه" in str(answers[0].text)
     finally:
         await get_settings_store().set("daily_quota", "0")
+
+
+def test_clean_instagram_url_and_type_detection() -> None:
+    """Verify Instagram tracking stripping and video detection."""
+    url1 = "https://www.instagram.com/reel/DeO_JgKIVYt/?obrf=a2d0NG1ieTNoaGt2"
+    assert clean_instagram_url(url1) == "https://www.instagram.com/reel/DeO_JgKIVYt/"
+    assert is_instagram_video_url(url1) is True
+
+    url2 = "https://www.instagram.com/p/DdebKXyxsmG/?exln=OWs5NGR0cmd3NGtn"
+    assert clean_instagram_url(url2) == "https://www.instagram.com/p/DdebKXyxsmG/"
+    assert is_instagram_video_url(url2) is False
+
+    url3 = "https://www.instagram.com/reels/ABCxyz123/?igsh=test1234"
+    assert clean_instagram_url(url3) == "https://www.instagram.com/reel/ABCxyz123/"
+    assert is_instagram_video_url(url3) is True
+
+    extracted = extract_first_url(
+        "ببین این ریلز رو: https://www.instagram.com/reel/DeO_JgKIVYt/?stkn=xyz خیلی باحاله"
+    )
+    assert extracted == "https://www.instagram.com/reel/DeO_JgKIVYt/"

@@ -136,12 +136,34 @@ def detect_platform(url: str) -> tuple[str, str, str]:
     return key, name, icon
 
 
+def clean_instagram_url(url: str) -> str:
+    """Normalize and strip tracking query parameters from Instagram URLs."""
+    m = re.match(r"https?://(?:www\.)?instagram\.com/(p|reel|reels|tv)/([^/?#&]+)", url)
+    if m:
+        kind = m.group(1)
+        code = m.group(2)
+        if kind == "reels":
+            kind = "reel"
+        return f"https://www.instagram.com/{kind}/{code}/"
+    return url
+
+
+def is_instagram_video_url(url: str) -> bool:
+    """Check if the Instagram URL is guaranteed to be a reel or video."""
+    return bool(re.search(r"/(reel|reels|tv)/", url))
+
+
 def extract_first_url(text: str) -> str | None:
     """Find the first HTTP(S) URL in the message text."""
     if not text:
         return None
     match = URL_REGEX.search(text.strip())
-    return match.group(0) if match else None
+    if not match:
+        return None
+    raw_url = match.group(0)
+    if "instagram.com" in raw_url:
+        return clean_instagram_url(raw_url)
+    return raw_url
 
 
 async def store_download_context(token: str, payload: dict[str, Any]) -> None:
@@ -421,6 +443,10 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
             playlist_items=tuple(tracks),
         )
 
+    if platform_key == "instagram":
+        url = clean_instagram_url(url)
+    is_ig_video = platform_key == "instagram" and is_instagram_video_url(url)
+
     # 2. General yt-dlp extraction
     opts = _build_ytdlp_opts(
         download=False,
@@ -437,20 +463,23 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
     except Exception as exc:
         probe_error = str(exc)
         log.warning("ytdlp_probe_failed", url=url, error=probe_error[:300])
-        # If Instagram photo post raised 'There is no video in this post', extract photo metadata!
-        if platform_key == "instagram" and "no video in this post" in probe_error.lower():
+        # If Instagram, retry with Instagram InfoExtractor directly to bypass
+        # transient JSON / checkpoint errors
+        if platform_key == "instagram":
             try:
-                with _make_ydl(opts) as ydl_photo:
-                    ie = ydl_photo.get_info_extractor("Instagram")
+                with _make_ydl(opts) as ydl_retry:
+                    ie = ydl_retry.get_info_extractor("Instagram")
                     ie.initialize()
                     ie.raise_no_formats = lambda *a, **kw: None
                     info = ie.extract(url)
-            except Exception as photo_exc:
-                log.warning("instagram_photo_probe_failed", error=str(photo_exc))
+            except Exception as retry_exc:
+                log.warning("instagram_retry_probe_failed", error=str(retry_exc))
 
     # 3. Check gallery-dl compatibility if yt-dlp failed or gave no media
     is_gallery = False
-    if not info or (info.get("_type") == "playlist" and not info.get("entries")):
+    if not is_ig_video and (
+        not info or (info.get("_type") == "playlist" and not info.get("entries"))
+    ):
         try:
             from gallery_dl import extractor
 
@@ -520,9 +549,16 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
 
     formats = info.get("formats", [])
     has_video = any(f.get("vcodec") and f.get("vcodec") != "none" for f in formats)
-    is_audio_only = platform_key in ("soundcloud", "spotify") or (not has_video and bool(formats))
-    if not has_video and not is_audio_only:
-        is_gallery = True
+    if is_ig_video:
+        has_video = True
+        is_gallery = False
+        is_audio_only = False
+    else:
+        is_audio_only = platform_key in ("soundcloud", "spotify") or (
+            not has_video and bool(formats)
+        )
+        if not has_video and not is_audio_only:
+            is_gallery = True
 
     return DownloadInfo(
         url=url,
@@ -555,6 +591,8 @@ def _download_video_sync(
     max_bytes: int | None = None,
     cookie_file: str | None = None,
 ) -> Path:
+    if "instagram.com" in url:
+        url = clean_instagram_url(url)
     outtmpl = str(work_dir / "media.%(ext)s")
 
     if max_height:
@@ -687,6 +725,8 @@ def _download_gallery_sync(
     cookie_file: str | None = None,
 ) -> list[Path]:
     """Download images/galleries using gallery-dl CLI."""
+    if "instagram.com" in url:
+        url = clean_instagram_url(url)
     dest_dir = work_dir / "gallery"
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -760,10 +800,11 @@ def _download_gallery_sync(
 
 
 def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]:
-    """Extract and download Instagram images via Chrome TLS-impersonated yt-dlp CDN URLs."""
+    """Extract and download Instagram media via Chrome TLS-impersonated yt-dlp CDN URLs."""
     import requests
     from yt_dlp.networking.impersonate import ImpersonateTarget
 
+    clean_url = clean_instagram_url(url)
     opts: dict[str, Any] = {
         "quiet": True,
         "proxy": "socks5h://warp:1080",
@@ -774,18 +815,38 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
             ie = ydl.get_info_extractor("Instagram")
             ie.initialize()
             ie.raise_no_formats = lambda *args, **kwargs: None
-            info = ie.extract(url)
+            info = ie.extract(clean_url)
         entries = info.get("entries") or [info]
         results: list[Path] = []
         for idx, e in enumerate(entries, 1):
-            thumbs = e.get("thumbnails") or []
-            if thumbs:
-                img_url = thumbs[-1]["url"]
-                resp = requests.get(img_url, proxies={"https": "socks5h://warp:1080"}, timeout=15)
-                if resp.status_code == 200 and resp.content:
-                    out = dest_dir / f"instagram_photo_{idx}.jpg"
-                    out.write_bytes(resp.content)
+            formats = e.get("formats") or []
+            v_fmts = [
+                f for f in formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("url")
+            ]
+            if v_fmts:
+                # Video item in post/carousel! Download real MP4 video, never thumbnail
+                v_url = v_fmts[-1]["url"]
+                resp = requests.get(
+                    v_url, proxies={"https": "socks5h://warp:1080"}, stream=True, timeout=30
+                )
+                if resp.status_code == 200:
+                    out = dest_dir / f"instagram_media_{idx:02d}.mp4"
+                    with open(out, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=65536):
+                            f.write(chunk)
                     results.append(out)
+            else:
+                # Photo item! Download full-res image
+                thumbs = e.get("thumbnails") or []
+                if thumbs:
+                    img_url = thumbs[-1]["url"]
+                    resp = requests.get(
+                        img_url, proxies={"https": "socks5h://warp:1080"}, timeout=15
+                    )
+                    if resp.status_code == 200 and resp.content:
+                        out = dest_dir / f"instagram_media_{idx:02d}.jpg"
+                        out.write_bytes(resp.content)
+                        results.append(out)
         return results
     except Exception as exc:
         log.warning("instagram_photo_fallback_failed", error=str(exc))
