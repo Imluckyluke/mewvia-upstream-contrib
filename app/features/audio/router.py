@@ -84,6 +84,15 @@ async def handle_incoming_audio(message: Message) -> None:
                 registry=registry,
             ),
         )
+        kb.row(
+            inline_button(
+                "🔍 این چه آهنگیه؟ (Shazam)",
+                callback_data=AudioToolCB(action="shazam").pack(),
+                style=Style.PRIMARY,
+                emoji_slot="shazam",
+                registry=registry,
+            )
+        )
     else:
         kb.row(
             inline_button(
@@ -108,7 +117,14 @@ async def handle_incoming_audio(message: Message) -> None:
                 style=Style.CONFIRM,
                 emoji_slot="edit",
                 registry=registry,
-            )
+            ),
+            inline_button(
+                "🔍 این چه آهنگیه؟ (Shazam)",
+                callback_data=AudioToolCB(action="shazam").pack(),
+                style=Style.PRIMARY,
+                emoji_slot="shazam",
+                registry=registry,
+            ),
         )
 
     kb.row(
@@ -241,6 +257,12 @@ async def process_audio_tool(
         return
 
     await query.answer()
+
+    if action == "shazam":
+        from app.features.shazam.router import execute_shazam_flow
+
+        await execute_shazam_flow(msg, file_id, reply_to_id, bot, session, settings)
+        return
 
     stage_desc = {
         "to_voice": "در حال تبدیل به ویس تلگرام…",

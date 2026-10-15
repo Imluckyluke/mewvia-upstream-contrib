@@ -83,7 +83,14 @@ async def start_vtool_menu(query: CallbackQuery) -> None:
             style=Style.CONFIRM,
             emoji_slot="audio",
             registry=registry,
-        )
+        ),
+        inline_button(
+            "🔍 تشخیص موزیک (Shazam)",
+            callback_data=VideoToolCB(action="shazam").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="shazam",
+            registry=registry,
+        ),
     )
     kb.row(
         inline_button(
@@ -224,6 +231,12 @@ async def process_video_tool(
         return
 
     await query.answer()
+
+    if action == "shazam":
+        from app.features.shazam.router import execute_shazam_flow
+
+        await execute_shazam_flow(msg, file_id, reply_to_id, bot, session, settings)
+        return
 
     stage_desc = {
         "note": "در حال ساخت ویدیومسیج گرد…",

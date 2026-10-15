@@ -94,6 +94,7 @@ EMOJI_SLOTS: tuple[SlotDef, ...] = (
     SlotDef("track_num", "شماره ترک", "🔢", 306),
     SlotDef("cover", "کاور موزیک", "🖼️", 307),
     SlotDef("lyrics", "متن ترانه", "📜", 308),
+    SlotDef("shazam", "تشخیص آهنگ (شزم)", "🔍", 309),
     # Downloader & Platforms
     SlotDef("zip", "فایل فشرده (ZIP)", "📦", 310),
     SlotDef("quality_hd", "کیفیت HD (720p)", "📱", 311),

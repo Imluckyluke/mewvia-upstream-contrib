@@ -37,3 +37,4 @@ bgutil-ytdlp-pot-provider>=2.0.2
 
 # Misc
 orjson==3.11.9
+shazamio>=0.8.0

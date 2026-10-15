@@ -15,6 +15,7 @@ from app.callbacks.filter import FilterCB
 from app.callbacks.image import ImageToolCB
 from app.callbacks.music_search import MusicSearchCB
 from app.callbacks.nav import DemoCB, MenuCB, NoopCB, PageCB
+from app.callbacks.shazam import ShazamCB
 from app.callbacks.text_overlay import TextOverlayCB
 from app.callbacks.video import VideoToolCB
 from app.callbacks.wide import WideCB
@@ -31,6 +32,7 @@ __all__ = [
     "MusicSearchCB",
     "NoopCB",
     "PageCB",
+    "ShazamCB",
     "TextOverlayCB",
     "VideoToolCB",
     "WideCB",

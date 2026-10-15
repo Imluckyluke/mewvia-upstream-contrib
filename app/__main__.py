@@ -36,6 +36,7 @@ log = get_logger(__name__)
 PRIVATE_BOT_COMMANDS = [
     BotCommand(command="start", description="شروع مجدد و منوی اصلی"),
     BotCommand(command="cancel", description="انصراف و لغو عملیات جاری"),
+    BotCommand(command="shazam", description="تشخیص آهنگ با ویس، ویدیو یا فایل"),
     BotCommand(command="music", description="جستجوی مستقیم موزیک (اسپاتیفای و ساندکلاد)"),
     BotCommand(command="help", description="راهنما"),
     BotCommand(command="ping", description="بررسی زنده بودن ربات"),
@@ -43,6 +44,7 @@ PRIVATE_BOT_COMMANDS = [
 
 GROUP_BOT_COMMANDS = [
     BotCommand(command="media", description="دستیار مدیا (ریپلای روی فایل)"),
+    BotCommand(command="shazam", description="تشخیص آهنگ (ریپلای روی ویس یا ویدیو)"),
 ]
 
 

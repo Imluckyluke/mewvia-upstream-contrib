@@ -80,6 +80,15 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
                     registry=registry,
                 ),
             )
+            kb.row(
+                inline_button(
+                    "🔍 این چه آهنگیه؟ (Shazam)",
+                    callback_data=AudioToolCB(action="shazam").pack(),
+                    style=Style.PRIMARY,
+                    emoji_slot="shazam",
+                    registry=registry,
+                )
+            )
         else:  # AUDIO
             kb.row(
                 inline_button(
@@ -104,7 +113,14 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
                     style=Style.CONFIRM,
                     emoji_slot="edit",
                     registry=registry,
-                )
+                ),
+                inline_button(
+                    "🔍 این چه آهنگیه؟ (Shazam)",
+                    callback_data=AudioToolCB(action="shazam").pack(),
+                    style=Style.PRIMARY,
+                    emoji_slot="shazam",
+                    registry=registry,
+                ),
             )
 
     # 2. Regular conversion targets

@@ -30,6 +30,7 @@ def load_features() -> list[Feature]:
             filters,
             group_media,
             music_search,
+            shazam,
             sponsor_leavewatch,
             stickerpack,
             tag_editor,
