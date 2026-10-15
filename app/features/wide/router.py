@@ -14,7 +14,7 @@ from app.callbacks import WideCB
 from app.config import Settings
 from app.core.logging import get_logger
 from app.db.repo import ConversionRepo
-from app.media.kinds import MediaKind, resolve_panel_media
+from app.media.kinds import MediaKind, resolve_panel_media, send_processing_status
 from app.media.pipeline import _convert_from_tgs
 from app.media.specs import TARGET_MP4
 from app.media.wide import make_image_wide, make_video_wide
@@ -47,7 +47,7 @@ async def process_wide_media(
     user_id = query.from_user.id if query.from_user else 0
     await query.answer()
 
-    status_msg = await msg.edit_text(t("common.processing"))
+    status_msg = await send_processing_status(msg, t("common.processing"))
 
     settings.tmp_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.tmp_dir) as tmp_dir_str:

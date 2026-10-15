@@ -15,7 +15,7 @@ from app.config import Settings
 from app.core.logging import get_logger
 from app.db.repo import ConversionRepo
 from app.media.filters import FILTER_MAP, apply_filter_to_image, apply_filter_to_video
-from app.media.kinds import MediaKind, resolve_panel_media
+from app.media.kinds import MediaKind, resolve_panel_media, send_processing_status
 from app.media.pipeline import _convert_from_tgs
 from app.media.specs import TARGET_MP4
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
@@ -73,10 +73,35 @@ async def show_filters_menu(
     )
 
     await query.answer()
-    await query.message.edit_text(
-        f"{registry.text('filter')} <b>فیلتر مورد نظر خود را انتخاب کنید:</b>",
-        reply_markup=kb.as_markup(),
-    )
+    if isinstance(query.message, Message):
+        flt_prompt = f"{registry.text('filter')} <b>فیلتر مورد نظر خود را انتخاب کنید:</b>"
+        if query.message.text is not None:
+            await query.message.edit_text(
+                flt_prompt,
+                reply_markup=kb.as_markup(),
+            )
+        else:
+            sent_p = await query.message.reply(
+                flt_prompt,
+                reply_markup=kb.as_markup(),
+            )
+            resolved = await resolve_panel_media(query)
+            if resolved and sent_p:
+                kind, file_id, file_size, reply_to_id = resolved
+                user_id = query.from_user.id if query.from_user else 0
+                user_name = query.from_user.first_name if query.from_user else "کاربر"
+                from app.middlewares.group_guard import store_panel
+
+                await store_panel(
+                    query.message.chat.id,
+                    sent_p.message_id,
+                    owner_id=user_id,
+                    owner_name=user_name,
+                    reply_to_message_id=reply_to_id,
+                    kind=kind.value,
+                    file_id=file_id,
+                    file_size=file_size,
+                )
 
 
 @router.callback_query(FilterCB.filter(F.action == "apply"))
@@ -102,7 +127,7 @@ async def process_filter_apply(
     user_id = query.from_user.id if query.from_user else 0
     await query.answer()
 
-    status_msg = await msg.edit_text(t("common.processing"))
+    status_msg = await send_processing_status(msg, t("common.processing"))
     filter_id = callback_data.filter_id
 
     settings.tmp_dir.mkdir(parents=True, exist_ok=True)

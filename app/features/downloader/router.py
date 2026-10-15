@@ -39,6 +39,11 @@ from app.core.logging import get_logger
 from app.core.quota import check_daily_quota
 from app.core.units import fa_digits, human_bytes
 from app.db.repo import ConversionRepo, InstagramCookieRepo
+from app.features.downloader.action_keyboards import (
+    build_audio_actions_kb,
+    build_photo_actions_kb,
+    build_video_actions_kb,
+)
 from app.features.registry import Feature, register
 from app.filters import IsAdmin
 from app.media.downloader import (
@@ -54,11 +59,13 @@ from app.media.downloader import (
     store_download_context,
 )
 from app.media.jobs import run_media_job
+from app.media.kinds import MediaKind
 from app.media.lyrics import (
     build_full_lyrics_message,
     embed_lyrics_to_mp3,
     fetch_lyrics,
 )
+from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
@@ -165,12 +172,26 @@ async def _perform_download(
                 )
                 caption = "\n\n".join(caption_lines)
 
-                await bot.send_video(
+                video_kb = build_video_actions_kb(registry)
+                sent_video = await bot.send_video(
                     chat_id=chat_id,
                     video=FSInputFile(downloaded_file),
                     caption=caption[:1024],
                     reply_to_message_id=reply_to_id,
+                    reply_markup=video_kb.as_markup(),
                 )
+
+                if sent_video and sent_video.video:
+                    await store_panel(
+                        chat_id=chat_id,
+                        message_id=sent_video.message_id,
+                        owner_id=user_id,
+                        owner_name=str(ctx.get("user_name", "کاربر")),
+                        reply_to_message_id=reply_to_id,
+                        kind=MediaKind.VIDEO.value,
+                        file_id=sent_video.video.file_id,
+                        file_size=sent_video.video.file_size or 0,
+                    )
 
             elif action == "audio":
 
@@ -225,6 +246,7 @@ async def _perform_download(
                 )
                 caption = "\n\n".join(audio_caption_lines)
 
+                audio_kb = build_audio_actions_kb(registry)
                 sent_audio = await bot.send_audio(
                     chat_id=chat_id,
                     audio=FSInputFile(downloaded_file),
@@ -232,7 +254,20 @@ async def _perform_download(
                     performer=str(uploader)[:64],
                     caption=caption[:1024],
                     reply_to_message_id=reply_to_id,
+                    reply_markup=audio_kb.as_markup(),
                 )
+
+                if sent_audio and sent_audio.audio:
+                    await store_panel(
+                        chat_id=chat_id,
+                        message_id=sent_audio.message_id,
+                        owner_id=user_id,
+                        owner_name=str(ctx.get("user_name", "کاربر")),
+                        reply_to_message_id=reply_to_id,
+                        kind=MediaKind.AUDIO.value,
+                        file_id=sent_audio.audio.file_id,
+                        file_size=sent_audio.audio.file_size or 0,
+                    )
 
                 # Send lyrics in follow-up reply message if available
                 if lyrics and sent_audio:
@@ -273,19 +308,45 @@ async def _perform_download(
                 if len(gallery_files) == 1:
                     single_file = gallery_files[0]
                     if single_file.suffix.lower() == ".mp4":
-                        await bot.send_video(
+                        video_kb = build_video_actions_kb(registry)
+                        sent_v = await bot.send_video(
                             chat_id=chat_id,
                             video=FSInputFile(single_file),
                             caption=gallery_caption[:1024],
                             reply_to_message_id=reply_to_id,
+                            reply_markup=video_kb.as_markup(),
                         )
+                        if sent_v and sent_v.video:
+                            await store_panel(
+                                chat_id=chat_id,
+                                message_id=sent_v.message_id,
+                                owner_id=user_id,
+                                owner_name=str(ctx.get("user_name", "کاربر")),
+                                reply_to_message_id=reply_to_id,
+                                kind=MediaKind.VIDEO.value,
+                                file_id=sent_v.video.file_id,
+                                file_size=sent_v.video.file_size or 0,
+                            )
                     else:
-                        await bot.send_photo(
+                        photo_kb = build_photo_actions_kb(registry)
+                        sent_p = await bot.send_photo(
                             chat_id=chat_id,
                             photo=FSInputFile(single_file),
                             caption=gallery_caption[:1024],
                             reply_to_message_id=reply_to_id,
+                            reply_markup=photo_kb.as_markup(),
                         )
+                        if sent_p and sent_p.photo:
+                            await store_panel(
+                                chat_id=chat_id,
+                                message_id=sent_p.message_id,
+                                owner_id=user_id,
+                                owner_name=str(ctx.get("user_name", "کاربر")),
+                                reply_to_message_id=reply_to_id,
+                                kind=MediaKind.PHOTO.value,
+                                file_id=sent_p.photo[-1].file_id,
+                                file_size=sent_p.photo[-1].file_size or 0,
+                            )
                 else:
                     for chunk_idx in range(0, len(gallery_files), 10):
                         chunk = gallery_files[chunk_idx : chunk_idx + 10]
@@ -350,6 +411,7 @@ async def _perform_download(
                     f"{registry.text('user')} <b>خواننده:</b> {html.quote(str(uploader))}\n\n"
                     f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
+                audio_kb = build_audio_actions_kb(registry)
                 sent_audio = await bot.send_audio(
                     chat_id=chat_id,
                     audio=FSInputFile(downloaded_file),
@@ -357,7 +419,20 @@ async def _perform_download(
                     performer=str(uploader)[:64],
                     caption=caption[:1024],
                     reply_to_message_id=reply_to_id,
+                    reply_markup=audio_kb.as_markup(),
                 )
+
+                if sent_audio and sent_audio.audio:
+                    await store_panel(
+                        chat_id=chat_id,
+                        message_id=sent_audio.message_id,
+                        owner_id=user_id,
+                        owner_name=str(ctx.get("user_name", "کاربر")),
+                        reply_to_message_id=reply_to_id,
+                        kind=MediaKind.AUDIO.value,
+                        file_id=sent_audio.audio.file_id,
+                        file_size=sent_audio.audio.file_size or 0,
+                    )
 
                 # Send lyrics in follow-up reply message if available
                 if lyrics and sent_audio:

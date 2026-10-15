@@ -37,7 +37,7 @@ from app.core.logging import get_logger
 from app.core.units import fa_digits, fa_to_en_digits
 from app.db.repo import ConversionRepo
 from app.features.registry import Feature, register
-from app.media.kinds import MediaKind, resolve_panel_media
+from app.media.kinds import MediaKind, resolve_panel_media, send_processing_status
 from app.media.tag_editor import (
     MAX_ALBUM_LEN,
     MAX_ARTIST_LEN,
@@ -232,8 +232,9 @@ async def open_tag_editor(
         return
 
     await query.answer()
-    status = await msg.edit_text("⏳ <b>در حال خواندن تگ‌های فایل…</b>", reply_markup=None)
-    status_msg: Message | None = status if isinstance(status, Message) else None
+    status_msg: Message | None = await send_processing_status(
+        msg, "⏳ <b>در حال خواندن تگ‌های فایل…</b>"
+    )
 
     settings.tmp_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.tmp_dir) as tmp_dir:

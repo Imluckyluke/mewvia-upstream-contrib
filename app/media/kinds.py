@@ -147,3 +147,23 @@ async def resolve_panel_media(
         return kind, file_id, file_size, reply_to_id
 
     return None
+
+
+async def send_processing_status(msg: Message, text: str) -> Message | None:
+    """Safely show a processing indicator on either a text menu or media message."""
+    if msg.text is not None:
+        try:
+            res = await msg.edit_text(text, reply_markup=None)
+            if isinstance(res, Message):
+                return res
+        except Exception:
+            pass
+        return None
+
+    try:
+        res = await msg.reply(text)
+        if isinstance(res, Message):
+            return res
+    except Exception:
+        pass
+    return None

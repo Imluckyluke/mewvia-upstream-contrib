@@ -18,7 +18,7 @@ from app.core.quota import check_daily_quota
 from app.db.repo import ConversionRepo
 from app.features.registry import Feature, register
 from app.media.audio_tools import extract_audio_from_video
-from app.media.kinds import resolve_panel_media
+from app.media.kinds import resolve_panel_media, send_processing_status
 from app.media.probe import probe
 from app.media.video_tools import compress_video, make_video_note, mute_video, reverse_video
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
@@ -99,10 +99,33 @@ async def start_vtool_menu(query: CallbackQuery) -> None:
             f"{registry.text('video')} <b>ابزارهای ویدیو</b>\n\n"
             "عملیات مورد نظر را روی ویدیو انتخاب کن:"
         )
-        await query.message.edit_text(
-            prompt_v_text,
-            reply_markup=kb.as_markup(),
-        )
+        if query.message.text is not None:
+            await query.message.edit_text(
+                prompt_v_text,
+                reply_markup=kb.as_markup(),
+            )
+        else:
+            sent_p = await query.message.reply(
+                prompt_v_text,
+                reply_markup=kb.as_markup(),
+            )
+            resolved = await resolve_panel_media(query)
+            if resolved and sent_p:
+                kind, file_id, file_size, reply_to_id = resolved
+                user_id = query.from_user.id if query.from_user else 0
+                user_name = query.from_user.first_name if query.from_user else "کاربر"
+                from app.middlewares.group_guard import store_panel
+
+                await store_panel(
+                    query.message.chat.id,
+                    sent_p.message_id,
+                    owner_id=user_id,
+                    owner_name=user_name,
+                    reply_to_message_id=reply_to_id,
+                    kind=kind.value,
+                    file_id=file_id,
+                    file_size=file_size,
+                )
     await query.answer()
 
 
@@ -142,9 +165,34 @@ async def compress_level_menu(query: CallbackQuery) -> None:
     )
 
     if isinstance(query.message, Message):
-        await query.message.edit_text(
-            "<b>📉 میزان فشرده‌سازی را انتخاب کن:</b>", reply_markup=kb.as_markup()
-        )
+        lvl_prompt = f"{registry.text('compress')} <b>میزان فشرده‌سازی را انتخاب کن:</b>"
+        if query.message.text is not None:
+            await query.message.edit_text(
+                lvl_prompt,
+                reply_markup=kb.as_markup(),
+            )
+        else:
+            sent_p = await query.message.reply(
+                lvl_prompt,
+                reply_markup=kb.as_markup(),
+            )
+            resolved = await resolve_panel_media(query)
+            if resolved and sent_p:
+                kind, file_id, file_size, reply_to_id = resolved
+                user_id = query.from_user.id if query.from_user else 0
+                user_name = query.from_user.first_name if query.from_user else "کاربر"
+                from app.middlewares.group_guard import store_panel
+
+                await store_panel(
+                    query.message.chat.id,
+                    sent_p.message_id,
+                    owner_id=user_id,
+                    owner_name=user_name,
+                    reply_to_message_id=reply_to_id,
+                    kind=kind.value,
+                    file_id=file_id,
+                    file_size=file_size,
+                )
     await query.answer()
 
 
@@ -176,8 +224,7 @@ async def process_video_tool(
 
     await query.answer()
 
-    status_edited = await msg.edit_text(t("common.processing"), reply_markup=None)
-    status_msg: Message | None = status_edited if isinstance(status_edited, Message) else None
+    status_msg: Message | None = await send_processing_status(msg, t("common.processing"))
 
     start_time = time.perf_counter()
     conv_repo = ConversionRepo(session)

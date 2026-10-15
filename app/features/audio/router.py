@@ -27,6 +27,7 @@ from app.media.kinds import (
     MediaKind,
     detect_media_kind,
     resolve_panel_media,
+    send_processing_status,
 )
 from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
@@ -171,10 +172,32 @@ async def audio_speed_menu(query: CallbackQuery) -> None:
     )
 
     if isinstance(query.message, Message):
-        await query.message.edit_text(
-            f"{registry.text('clock')} <b>سرعت مورد نظر را انتخاب کن:</b>",
-            reply_markup=kb.as_markup(),
-        )
+        speed_prompt = f"{registry.text('clock')} <b>سرعت مورد نظر را انتخاب کن:</b>"
+        if query.message.text is not None:
+            await query.message.edit_text(
+                speed_prompt,
+                reply_markup=kb.as_markup(),
+            )
+        else:
+            sent_p = await query.message.reply(
+                speed_prompt,
+                reply_markup=kb.as_markup(),
+            )
+            resolved = await resolve_panel_media(query)
+            if resolved and sent_p:
+                kind, file_id, file_size, reply_to_id = resolved
+                user_id = query.from_user.id if query.from_user else 0
+                user_name = query.from_user.first_name if query.from_user else "کاربر"
+                await store_panel(
+                    query.message.chat.id,
+                    sent_p.message_id,
+                    owner_id=user_id,
+                    owner_name=user_name,
+                    reply_to_message_id=reply_to_id,
+                    kind=kind.value,
+                    file_id=file_id,
+                    file_size=file_size,
+                )
     await query.answer()
 
 
@@ -206,8 +229,7 @@ async def process_audio_tool(
 
     await query.answer()
 
-    status_edited = await msg.edit_text(t("common.processing"), reply_markup=None)
-    status_msg: Message | None = status_edited if isinstance(status_edited, Message) else None
+    status_msg: Message | None = await send_processing_status(msg, t("common.processing"))
 
     start_time = time.perf_counter()
     conv_repo = ConversionRepo(session)

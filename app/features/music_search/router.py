@@ -20,9 +20,11 @@ from app.core.logging import get_logger
 from app.core.quota import check_daily_quota
 from app.core.units import fa_digits, human_bytes
 from app.db.repo import ConversionRepo
+from app.features.downloader.action_keyboards import build_audio_actions_kb
 from app.features.registry import Feature, register
 from app.media.downloader import download_audio, download_spotify_track
 from app.media.jobs import run_media_job
+from app.media.kinds import MediaKind
 from app.media.lyrics import (
     build_full_lyrics_message,
     embed_lyrics_to_mp3,
@@ -36,6 +38,7 @@ from app.media.music_search import (
     search_spotify,
     store_search_session,
 )
+from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
@@ -428,6 +431,7 @@ async def select_and_download_track(
                 f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
             )
 
+            audio_kb = build_audio_actions_kb(registry)
             sent_audio = await bot.send_audio(
                 chat_id=query.message.chat.id,
                 audio=FSInputFile(downloaded_file),
@@ -435,7 +439,21 @@ async def select_and_download_track(
                 performer=track.artist[:64],
                 caption=caption[:1024],
                 reply_to_message_id=reply_to_id,
+                reply_markup=audio_kb.as_markup(),
             )
+
+            if sent_audio and sent_audio.audio:
+                user_name = query.from_user.first_name if query.from_user else "کاربر"
+                await store_panel(
+                    chat_id=query.message.chat.id,
+                    message_id=sent_audio.message_id,
+                    owner_id=user_id,
+                    owner_name=user_name,
+                    reply_to_message_id=reply_to_id,
+                    kind=MediaKind.AUDIO.value,
+                    file_id=sent_audio.audio.file_id,
+                    file_size=sent_audio.audio.file_size or 0,
+                )
 
             # Send lyrics in follow-up reply message if available
             if lyrics and sent_audio:
