@@ -363,9 +363,9 @@ def _download_spotify_track_sync(
     query_parts = [artist, title, "audio"] if artist else [title, "audio"]
     clean_q = " ".join(p for p in query_parts if p)
     yt_query = f"ytsearch1:{clean_q}"
-    sc_query = f"scsearch1:{artist} {title}" if artist else f"scsearch1:{title}"
+    sc_query = f"scsearch5:{artist} {title}" if artist else f"scsearch5:{title}"
 
-    # Try YouTube first; on bot verification or failure, fallback to SoundCloud immediately
+    # Try YouTube first; on bot verification or failure, fallback to SoundCloud with DRM skip
     mp3_file: Path | None = None
     try:
         mp3_file = _download_audio_sync(yt_query, work_dir, max_bytes=max_bytes)
@@ -376,15 +376,23 @@ def _download_spotify_track_sync(
             error=str(exc)[:150],
         )
         try:
-            mp3_file = _download_audio_sync(sc_query, work_dir, max_bytes=max_bytes)
+            mp3_file = _download_audio_sync(
+                sc_query, work_dir, max_bytes=max_bytes, ignore_errors=True
+            )
         except Exception as sc_exc:
             log.warning("spotify_sc_fallback_failed", query=sc_query, error=str(sc_exc)[:150])
-            err_lower = str(exc).lower()
-            if "bot" in err_lower or "sign in" in err_lower:
-                raise ConversionError(
-                    "⚠️ یوتیوب برای این قطعه درخواست تأیید هویت داده و در ساندکلاد نیز یافت نشد."
-                ) from exc
-            raise ConversionError(f"خطا در دانلود ترک صوتی: {str(exc)[:100]}") from exc
+
+    if not mp3_file or not mp3_file.is_file():
+        # Title only fallback on SoundCloud
+        try:
+            mp3_file = _download_audio_sync(
+                f"scsearch5:{title}", work_dir, max_bytes=max_bytes, ignore_errors=True
+            )
+        except Exception as t_exc:
+            log.warning("spotify_title_fallback_failed", title=title, error=str(t_exc)[:150])
+
+    if not mp3_file or not mp3_file.is_file():
+        raise ConversionError(f"امکان دانلود قطعه «{title}» از یوتیوب یا ساندکلاد وجود نداشت.")
 
     # Embed original Spotify cover and ID3 tags using Mutagen
     try:
@@ -700,6 +708,7 @@ def _download_audio_sync(
     work_dir: Path,
     max_bytes: int | None = None,
     cookie_file: str | None = None,
+    ignore_errors: bool = False,
 ) -> Path:
     outtmpl = str(work_dir / "audio.%(ext)s")
     postprocessors = [
@@ -719,6 +728,8 @@ def _download_audio_sync(
         max_filesize=max_bytes,
         cookie_file=cookie_file,
     )
+    if ignore_errors:
+        opts["ignoreerrors"] = True
 
     try:
         with _make_ydl(opts) as ydl:
