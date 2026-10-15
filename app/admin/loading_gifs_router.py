@@ -243,30 +243,73 @@ async def prompt_add_loading_gif(query: CallbackQuery, state: FSMContext) -> Non
     await query.answer()
 
 
+def extract_media_file_id(message: Message) -> tuple[str | None, str]:
+    """Extract file_id and file_unique_id from any message or reply."""
+    reply = getattr(message, "reply_to_message", None)
+    target = reply if reply else message
+
+    anim = getattr(target, "animation", None)
+    if anim is not None:
+        return anim.file_id, getattr(anim, "file_unique_id", "")
+    vid = getattr(target, "video", None)
+    if vid is not None:
+        return vid.file_id, getattr(vid, "file_unique_id", "")
+    vn = getattr(target, "video_note", None)
+    if vn is not None:
+        return vn.file_id, getattr(vn, "file_unique_id", "")
+    doc = getattr(target, "document", None)
+    if doc is not None:
+        return doc.file_id, getattr(doc, "file_unique_id", "")
+    st = getattr(target, "sticker", None)
+    if st is not None and (getattr(st, "is_video", False) or getattr(st, "is_animated", False)):
+        return st.file_id, getattr(st, "file_unique_id", "")
+
+    text_content = getattr(target, "text", "") or getattr(target, "caption", "") or ""
+    if text_content.startswith("http://") or text_content.startswith("https://"):
+        return text_content.strip(), ""
+    return None, ""
+
+
+@router.message(
+    F.text.regexp(r"^/(addgif|add_gif)(@\w+)?$") | F.caption.regexp(r"^/(addgif|add_gif)(@\w+)?$"),
+    IsAdmin(),
+)
+async def cmd_add_gif_direct(message: Message, session: AsyncSession) -> None:
+    file_id, file_unique_id = extract_media_file_id(message)
+    if not file_id:
+        await message.reply(
+            "⚠️ لطفاً دستور /addgif را روی یک گیف ریپلای کنید\n"
+            "یا همراه با فایل در کپشن بنویسید /addgif."
+        )
+        return
+
+    current_gifs = await list_loading_gifs(session)
+    label = f"گیف شماره {len(current_gifs) + 1}"
+
+    await add_loading_gif(
+        file_id=file_id,
+        label=label,
+        file_unique_id=file_unique_id,
+        session=session,
+    )
+
+    registry = await ready_registry()
+    _, kb = await render_loading_gifs_dashboard(session, registry)
+    await message.reply(
+        f"✅ <b>گیف جدید «{html.quote(label)}» با موفقیت ثبت شد!</b>",
+        reply_markup=kb.as_markup(),
+    )
+
+
 @router.message(LoadingGifAddSG.waiting_for_gif, IsAdmin())
 async def save_new_loading_gif(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    file_id: str | None = None
-    file_unique_id: str = ""
-
-    if message.animation:
-        file_id = message.animation.file_id
-        file_unique_id = message.animation.file_unique_id
-    elif message.video:
-        file_id = message.video.file_id
-        file_unique_id = message.video.file_unique_id
-    elif message.document and (message.document.mime_type or "").startswith(
-        ("image/gif", "video/")
-    ):
-        file_id = message.document.file_id
-        file_unique_id = message.document.file_unique_id
-    elif message.text and (
-        message.text.startswith("http://") or message.text.startswith("https://")
-    ):
-        file_id = message.text.strip()
-        file_unique_id = ""
+    file_id, file_unique_id = extract_media_file_id(message)
 
     if not file_id:
-        await message.reply("⚠️ لطفاً یک فایل انیمیشن/گیف، ویدیوی کوتاه یا لینک معتبر ارسال کنید.")
+        await message.reply(
+            "⚠️ فایلی که فرستادید شناسایی نشد.\n"
+            "لطفاً یک فایل انیمیشن/گیف تلگرام یا ویدیوی کوتاه بفرستید."
+        )
         return
 
     await state.clear()

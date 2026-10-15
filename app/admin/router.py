@@ -1089,6 +1089,6 @@ feature = register(
         menu_emoji_slot="admin",
         menu_style=Style.DESTRUCTIVE,
         menu_admin_only=True,
-        order=950,
+        order=10,
     )
 )

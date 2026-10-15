@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from aiogram import Bot, F, Router
+from aiogram.filters import StateFilter
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +53,7 @@ async def ready_registry() -> EmojiRegistry:
 
 @router.message(
     F.chat.type == "private",
+    StateFilter(None),
     F.sticker | F.animation | F.video_note | F.video | F.photo | F.document,
 )
 async def handle_incoming_media(message: Message, settings: Settings) -> None:

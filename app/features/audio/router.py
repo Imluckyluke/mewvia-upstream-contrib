@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from aiogram import Bot, F, Router
+from aiogram.filters import StateFilter
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +49,7 @@ async def ready_registry() -> EmojiRegistry:
     return registry
 
 
-@router.message(F.chat.type == "private", F.voice | F.audio)
+@router.message(F.chat.type == "private", StateFilter(None), F.voice | F.audio)
 async def handle_incoming_audio(message: Message) -> None:
     registry = await ready_registry()
     kb = KB(registry)
