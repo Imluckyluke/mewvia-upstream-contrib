@@ -31,7 +31,7 @@ async def make_video_note(
         "-c:v",
         "libx264",
         "-preset",
-        "fast",
+        "veryfast",
         "-crf",
         "26",
         "-vf",
@@ -58,7 +58,7 @@ async def make_video_note(
             "-c:v",
             "libx264",
             "-preset",
-            "fast",
+            "veryfast",
             "-crf",
             "26",
             "-vf",
@@ -101,7 +101,7 @@ async def compress_video(
         "-crf",
         crf,
         "-preset",
-        "fast",
+        "veryfast",
         *vf_arg,
         "-pix_fmt",
         "yuv420p",
@@ -136,9 +136,9 @@ async def mute_video(input_file: Path, output_file: Path) -> MediaInfo:
 
 async def reverse_video(input_file: Path, output_file: Path, info: MediaInfo) -> MediaInfo:
     """Reverse video (and audio if present)."""
-    if info.duration and info.duration > 90.0:
+    if info.duration and info.duration > 20.0:
         raise ConversionError(
-            "معکوس کردن ویدیو فقط برای ویدیوهای تا ۹۰ ثانیه امکان‌پذیر است تا حافظه سرور اشباع نشود."
+            "معکوس کردن ویدیو فقط برای ویدیوهای تا ۲۰ ثانیه امکان‌پذیر است تا حافظه سرور اشباع نشود."
         )
 
     if info.has_audio:
@@ -149,8 +149,16 @@ async def reverse_video(input_file: Path, output_file: Path, info: MediaInfo) ->
     args = [
         "-i",
         str(input_file),
+        "-t",
+        "20",
         "-c:v",
         "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "28",
+        "-threads",
+        "2",
         "-pix_fmt",
         "yuv420p",
         *vf_args,
