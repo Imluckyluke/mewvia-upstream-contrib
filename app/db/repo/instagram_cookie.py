@@ -46,13 +46,21 @@ class InstagramCookieRepo:
         return (await self.session.execute(stmt)).scalars().all()
 
     async def get_next_cookie(self) -> InstagramCookie | None:
-        """Select next available cookie using round-robin (least recently used)."""
+        """Select next available cookie using round-robin (least recently used).
+
+        Only returns cookies that are active and not marked as permanently invalid.
+        If no valid active cookie exists, returns None so callers can use
+        anonymous Chrome-impersonated extraction.
+        """
         candidates = await self.get_active_valid_cookies()
         if not candidates:
-            # Fall back to any active cookie even if untested
+            # Check for untested active cookies (never return "invalid" ones)
             stmt = (
                 select(InstagramCookie)
-                .where(InstagramCookie.is_active.is_(True))
+                .where(
+                    InstagramCookie.is_active.is_(True),
+                    InstagramCookie.status != "invalid",
+                )
                 .order_by(
                     InstagramCookie.last_used_at.asc().nulls_first(),
                     InstagramCookie.use_count.asc(),

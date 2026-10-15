@@ -96,11 +96,15 @@ def _sync_cookie_file_sync(text: str | None) -> None:
     cookie_dir = Path("/data/cookies")
     cookie_dir.mkdir(parents=True, exist_ok=True)
     target = cookie_dir / "instagram.txt"
-    if text:
+    legacy = Path("/data/cookies.txt")
+    if text and text.strip():
         target.write_text(text, encoding="utf-8")
-        Path("/data/cookies.txt").write_text(text, encoding="utf-8")
-    elif not target.exists():
-        target.touch()
+        legacy.write_text(text, encoding="utf-8")
+    else:
+        if target.exists():
+            target.unlink(missing_ok=True)
+        if legacy.exists():
+            legacy.unlink(missing_ok=True)
 
 
 async def sync_active_cookie_to_disk(session: AsyncSession) -> None:

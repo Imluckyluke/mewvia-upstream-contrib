@@ -113,7 +113,12 @@ async def _perform_download(
         repo_cookie = InstagramCookieRepo(session)
         if platform_key == "instagram":
             cookie_record = await repo_cookie.get_next_cookie()
-            if cookie_record and cookie_record.cookie_text:
+            if (
+                cookie_record
+                and cookie_record.cookie_text
+                and cookie_record.is_active
+                and cookie_record.status != "invalid"
+            ):
                 ig_cookie_path = work_dir / "ig_session.txt"
                 ig_cookie_path.write_text(cookie_record.cookie_text, encoding="utf-8")
                 cookie_file_str = str(ig_cookie_path)

@@ -204,6 +204,14 @@ def _build_ytdlp_opts(
         },
     }
 
+    # Enable browser TLS fingerprint impersonation (bypasses Instagram/Cloudflare bot gating)
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+
+        opts["impersonate"] = ImpersonateTarget.from_str("chrome")
+    except Exception as exc:
+        log.debug("ytdlp_impersonate_setup_failed", error=str(exc))
+
     if cookie_file:
         opts["cookiefile"] = str(cookie_file)
     else:
@@ -544,16 +552,40 @@ def _download_video_sync(
             ydl.download([url])
     except Exception as exc:
         err_str = str(exc).lower()
-        if "login" in err_str or "empty media" in err_str or "redirect to login" in err_str:
-            raise ConversionError(
-                "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین یا کوکی دارد.\n\n"
-                "علت: این پست ممکن است خصوصی باشد، یا اینستاگرام برای آی‌پی سرور محدودیت گذاشته است."
-            ) from None
-        if "sign in to confirm" in err_str:
-            raise ConversionError(
-                "⚠️ یوتیوب برای این ویدیو درخواست تأیید هویت (Bot Verification) داده است."
-            ) from None
-        raise
+        if cookie_file:
+            log.warning(
+                "video_download_failed_with_cookie_retrying_anonymous",
+                url=url,
+                error=str(exc),
+            )
+            opts_no_cookie = dict(opts)
+            opts_no_cookie.pop("cookiefile", None)
+            try:
+                with _make_ydl(opts_no_cookie) as ydl_retry:
+                    ydl_retry.download([url])
+            except Exception as retry_exc:
+                retry_err = str(retry_exc).lower()
+                if (
+                    "login" in retry_err
+                    or "empty media" in retry_err
+                    or "redirect to login" in retry_err
+                ):
+                    raise ConversionError(
+                        "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین دارد.\n\n"
+                        "علت: این پست احتمالاً در یک پیج خصوصی (Private) قرار دارد."
+                    ) from retry_exc
+                raise ConversionError(f"خطا در دانلود ویدیو: {str(retry_exc)[:150]}") from retry_exc
+        else:
+            if "login" in err_str or "empty media" in err_str or "redirect to login" in err_str:
+                raise ConversionError(
+                    "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین دارد.\n\n"
+                    "علت: این پست احتمالاً در یک پیج خصوصی (Private) قرار دارد."
+                ) from None
+            if "sign in to confirm" in err_str:
+                raise ConversionError(
+                    "⚠️ یوتیوب برای این ویدیو درخواست تأیید هویت (Bot Verification) داده است."
+                ) from None
+            raise
 
     # Find the output file
     candidates = list(work_dir.glob("media.*"))
@@ -679,15 +711,53 @@ def _download_gallery_sync(
     if not results:
         err = proc.stderr.decode(errors="replace").strip()
         log.warning("gallery_dl_failed", error=err[:300])
+
+        # Modern 2026 fallback: download Instagram photos via TLS-impersonated yt-dlp CDN thumbnails
+        if platform_key == "instagram":
+            log.info("trying_instagram_photo_fallback_via_ytdlp", url=url)
+            fallback_photos = _download_instagram_photos_via_ytdlp(url, dest_dir)
+            if fallback_photos:
+                return sorted(fallback_photos)
+
         err_lower = err.lower()
         if "login" in err_lower or "redirect to login" in err_lower:
             raise ConversionError(
-                "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین یا کوکی دارد.\n\n"
-                "علت: این پست ممکن است خصوصی باشد، یا اینستاگرام برای سرور دسترسی را بسته است."
+                "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین دارد.\n\n"
+                "علت: این پست ممکن است در یک پیج خصوصی باشد."
             )
         raise ConversionError("فایلی در گالری یافت نشد یا دسترسی به آن محدود است.")
 
     return sorted(results)
+
+
+def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]:
+    """Extract and download Instagram images via Chrome TLS-impersonated yt-dlp CDN URLs."""
+    import requests
+    from yt_dlp.networking.impersonate import ImpersonateTarget
+
+    opts: dict[str, Any] = {
+        "quiet": True,
+        "proxy": "socks5h://warp:1080",
+        "impersonate": ImpersonateTarget.from_str("chrome"),
+    }
+    try:
+        with _make_ydl(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        entries = info.get("entries") or [info]
+        results: list[Path] = []
+        for idx, e in enumerate(entries, 1):
+            thumbs = e.get("thumbnails") or []
+            if thumbs:
+                img_url = thumbs[-1]["url"]
+                resp = requests.get(img_url, proxies={"https": "socks5h://warp:1080"}, timeout=15)
+                if resp.status_code == 200 and resp.content:
+                    out = dest_dir / f"instagram_photo_{idx}.jpg"
+                    out.write_bytes(resp.content)
+                    results.append(out)
+        return results
+    except Exception as exc:
+        log.warning("instagram_photo_fallback_failed", error=str(exc))
+        return []
 
 
 async def download_video(
