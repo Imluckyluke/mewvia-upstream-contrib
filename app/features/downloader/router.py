@@ -78,7 +78,7 @@ router = Router(name="downloader")
 
 
 def _add_to_zip(zip_path: Path, file_path: Path, arcname: str) -> None:
-    with zipfile.ZipFile(zip_path, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(zip_path, "a", compression=zipfile.ZIP_STORED) as zf:
         zf.write(file_path, arcname=arcname)
 
 
@@ -463,14 +463,12 @@ async def _perform_download(
                 clean_title = re.sub(r'[\\/*?:"<>|]', "", title)[:30].strip() or "album"
                 zip_path = work_dir / f"{clean_title}.zip"
 
-                # Concurrent worker semaphore (5 workers in parallel for speed)
-                sem = asyncio.Semaphore(5)
+                # Concurrent worker semaphore (6 parallel workers for blazing throughput)
+                sem = asyncio.Semaphore(6)
 
                 async def _worker(
                     idx: int, it: dict[str, Any]
                 ) -> tuple[int, dict[str, Any], Path | None]:
-                    # Stagger requests slightly to avoid triggering YouTube instant burst limits
-                    await asyncio.sleep(0.15 * ((idx - 1) % 5))
                     it_title = str(it.get("title") or f"Track {idx}")
                     it_artist = str(it.get("artist") or it.get("uploader") or "")
                     it_url = str(it.get("url") or "")

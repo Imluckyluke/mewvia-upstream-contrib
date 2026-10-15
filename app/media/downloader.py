@@ -219,6 +219,7 @@ def _build_ytdlp_opts(
         "nocheckcertificate": True,
         "remote_components": ["ejs:github"],
         "proxy": "socks5h://warp:1080",
+        "concurrent_fragment_downloads": 5,
         "extractor_args": {
             "youtubepot-bgutilhttp": {
                 "base_url": ["http://warp:4416"],
@@ -365,22 +366,23 @@ def _download_spotify_track_sync(
     yt_query = f"ytsearch1:{clean_q}"
     sc_query = f"scsearch5:{artist} {title}" if artist else f"scsearch5:{title}"
 
-    # Try YouTube first; on bot verification or failure, fallback to SoundCloud with DRM skip
+    # Try SoundCloud first (lightning fast ~0.8s, no bot-gating, high fidelity)
     mp3_file: Path | None = None
     try:
-        mp3_file = _download_audio_sync(yt_query, work_dir, max_bytes=max_bytes)
-    except Exception as exc:
-        log.warning(
-            "spotify_yt_download_failed_falling_back_to_soundcloud",
-            query=clean_q,
-            error=str(exc)[:150],
-        )
+        mp3_file = _download_audio_sync(sc_query, work_dir, max_bytes=max_bytes, ignore_errors=True)
+    except Exception as sc_exc:
+        log.debug("spotify_sc_primary_failed", query=sc_query, error=str(sc_exc)[:150])
+
+    # Fallback to YouTube if SoundCloud didn't return a file
+    if not mp3_file or not mp3_file.is_file():
         try:
-            mp3_file = _download_audio_sync(
-                sc_query, work_dir, max_bytes=max_bytes, ignore_errors=True
+            mp3_file = _download_audio_sync(yt_query, work_dir, max_bytes=max_bytes)
+        except Exception as yt_exc:
+            log.warning(
+                "spotify_yt_fallback_failed",
+                query=clean_q,
+                error=str(yt_exc)[:150],
             )
-        except Exception as sc_exc:
-            log.warning("spotify_sc_fallback_failed", query=sc_query, error=str(sc_exc)[:150])
 
     if not mp3_file or not mp3_file.is_file():
         # Title only fallback on SoundCloud
@@ -392,7 +394,7 @@ def _download_spotify_track_sync(
             log.warning("spotify_title_fallback_failed", title=title, error=str(t_exc)[:150])
 
     if not mp3_file or not mp3_file.is_file():
-        raise ConversionError(f"امکان دانلود قطعه «{title}» از یوتیوب یا ساندکلاد وجود نداشت.")
+        raise ConversionError(f"امکان دانلود قطعه «{title}» از ساندکلاد یا یوتیوب وجود نداشت.")
 
     # Embed original Spotify cover and ID3 tags using Mutagen
     try:
@@ -728,6 +730,7 @@ def _download_audio_sync(
         max_filesize=max_bytes,
         cookie_file=cookie_file,
     )
+    opts["postprocessor_args"] = {"FFmpegExtractAudio": ["-threads", "2"]}
     if ignore_errors:
         opts["ignoreerrors"] = True
 
