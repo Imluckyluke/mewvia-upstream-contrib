@@ -49,7 +49,20 @@ async def ready_registry() -> EmojiRegistry:
     return registry
 
 
-@router.message(F.chat.type == "private", StateFilter(None), F.voice | F.audio)
+def is_audio_input(message: Message) -> bool:
+    """Match voice messages, audio tracks, or documents with audio MIME/extension."""
+    if message.voice or message.audio:
+        return True
+    if message.document:
+        mime = (message.document.mime_type or "").lower()
+        fname = (message.document.file_name or "").lower()
+        return mime.startswith("audio/") or fname.endswith(
+            (".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".opus")
+        )
+    return False
+
+
+@router.message(F.chat.type == "private", StateFilter(None), is_audio_input)
 async def handle_incoming_audio(message: Message) -> None:
     registry = await ready_registry()
     kb = KB(registry)
@@ -71,7 +84,7 @@ async def handle_incoming_audio(message: Message) -> None:
                 registry=registry,
             ),
         )
-    elif message.audio:
+    else:
         kb.row(
             inline_button(
                 "تبدیل موزیک به ویس (Voice)",
@@ -88,8 +101,6 @@ async def handle_incoming_audio(message: Message) -> None:
                 registry=registry,
             ),
         )
-
-    if message.audio:
         kb.row(
             inline_button(
                 "ویرایش تگ و کاور",

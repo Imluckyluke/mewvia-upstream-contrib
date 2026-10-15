@@ -61,6 +61,8 @@ LIMITS_CUSTOM_EMOJI = TargetLimits(
     format_type="video",
 )
 
+NON_AUDIO_KINDS = frozenset(k for k in MediaKind if k not in (MediaKind.AUDIO, MediaKind.VOICE))
+
 # Defined targets
 TARGET_PNG = TargetSpec(
     id="png",
@@ -69,7 +71,7 @@ TARGET_PNG = TargetSpec(
     style=Style.PRIMARY,
     extension="png",
     mime_type="image/png",
-    accepts=frozenset(MediaKind),
+    accepts=NON_AUDIO_KINDS,
     limits=None,
 )
 
@@ -80,7 +82,7 @@ TARGET_WEBP = TargetSpec(
     style=Style.PRIMARY,
     extension="webp",
     mime_type="image/webp",
-    accepts=frozenset(MediaKind),
+    accepts=NON_AUDIO_KINDS,
     limits=LIMITS_STATIC_STICKER,
 )
 

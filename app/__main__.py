@@ -34,7 +34,8 @@ from app.ui.emoji import init_emoji_registry
 log = get_logger(__name__)
 
 PRIVATE_BOT_COMMANDS = [
-    BotCommand(command="start", description="شروع"),
+    BotCommand(command="start", description="شروع مجدد و منوی اصلی"),
+    BotCommand(command="cancel", description="انصراف و لغو عملیات جاری"),
     BotCommand(command="music", description="جستجوی مستقیم موزیک (اسپاتیفای و ساندکلاد)"),
     BotCommand(command="help", description="راهنما"),
     BotCommand(command="ping", description="بررسی زنده بودن ربات"),

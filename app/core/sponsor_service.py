@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from aiogram import Bot
@@ -23,10 +24,13 @@ log = get_logger(__name__)
 # per active sponsor channel. Without this a burst of updates (or a slow API)
 # multiplies Telegram calls and invites FloodWait. Entries expire after 30s
 # so leaves/joins are picked up quickly. Tests reset it via
-# clear_membership_cache() (autouse fixture in tests/test_sponsor.py).
+# Tests reset it via clear_membership_cache() (autouse fixture in tests/test_sponsor.py).
 _MEMBERSHIP_CACHE: dict[tuple[int, int], tuple[bool, float]] = {}
 _MEMBERSHIP_TTL = 30.0
 _MEMBERSHIP_CACHE_CAP = 4096
+
+_ACTIVE_CHANNELS_CACHE: tuple[Sequence[SponsorChannel], float] | None = None
+_ACTIVE_CHANNELS_TTL = 30.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +48,9 @@ _RECENT_LEAVES_CAP = 1024
 
 
 def clear_membership_cache() -> None:
-    """Drop cached membership results and pending leave events (test isolation)."""
+    """Drop cached membership results, active channels cache, and pending leave events."""
+    global _ACTIVE_CHANNELS_CACHE
+    _ACTIVE_CHANNELS_CACHE = None
     _MEMBERSHIP_CACHE.clear()
     _RECENT_LEAVES.clear()
 
@@ -149,17 +155,25 @@ async def get_missing_sponsors(
     button): the 30s membership cache is bypassed so a just-completed join is
     seen immediately. Automatic per-update gate checks stay cached (rate-limit).
     """
-    try:
-        repo = SponsorRepo(session)
-        active_channels = await repo.get_active_channels()
-    except Exception as exc:
-        log.warning("sponsor_table_unavailable_fail_open", error=str(exc))
-        return []
+    global _ACTIVE_CHANNELS_CACHE
+    now = time.monotonic()
+    if (
+        not fresh
+        and _ACTIVE_CHANNELS_CACHE is not None
+        and (now - _ACTIVE_CHANNELS_CACHE[1] < _ACTIVE_CHANNELS_TTL)
+    ):
+        active_channels = _ACTIVE_CHANNELS_CACHE[0]
+    else:
+        try:
+            repo = SponsorRepo(session)
+            active_channels = await repo.get_active_channels()
+            _ACTIVE_CHANNELS_CACHE = (active_channels, now)
+        except Exception as exc:
+            log.warning("sponsor_table_unavailable_fail_open", error=str(exc))
+            return []
 
     if not active_channels:
         return []
-
-    now = time.monotonic()
     missing = []
     for channel in active_channels:
         key = (channel.channel_id, user_id)

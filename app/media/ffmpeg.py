@@ -69,6 +69,7 @@ async def run_ffmpeg(
     # The semaphore bounds total ffmpeg concurrency process-wide: extra jobs
     # wait here instead of OOMing the container under burst load.
     async with slots:
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -82,10 +83,24 @@ async def run_ffmpeg(
         try:
             _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except TimeoutError:
-            proc.kill()
-            await proc.wait()
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
             log.warning("ffmpeg_timeout", timeout=timeout, cmd=" ".join(cmd[:10]))
             raise ConversionTimeoutError(f"ffmpeg conversion timed out after {timeout}s") from None
+        except asyncio.CancelledError:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+            log.warning("ffmpeg_cancelled", cmd=" ".join(cmd[:10]))
+            raise
+        finally:
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
 
     if proc.returncode != 0:
         err_text = stderr.decode("utf-8", errors="replace").strip()

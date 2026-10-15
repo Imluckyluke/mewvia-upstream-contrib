@@ -263,6 +263,31 @@ class ProgressController:
                 log.debug("progress_delete_failed", error=str(exc))
             self.message_id = 0
 
+    async def complete_with_text(self, text: str) -> None:
+        """Finish operation and display final completion text without ticker or progress bar."""
+        self._completed = True
+        if self._tick_task and not self._tick_task.done():
+            self._tick_task.cancel()
+        if not self.message_id:
+            return
+        try:
+            if self.is_animation:
+                await self.bot.edit_message_caption(
+                    chat_id=self.chat_id,
+                    message_id=self.message_id,
+                    caption=text,
+                    parse_mode="HTML",
+                )
+            else:
+                await self.bot.edit_message_text(
+                    chat_id=self.chat_id,
+                    message_id=self.message_id,
+                    text=text,
+                    parse_mode="HTML",
+                )
+        except Exception as exc:
+            log.debug("complete_with_text_failed", error=str(exc))
+
     async def fail(self, error_message: str) -> None:
         """Show an error message and cleanup."""
         self._completed = True
@@ -295,8 +320,10 @@ class ProgressController:
 
     # Duck-typing methods for compatibility with code that treats status_msg as a Message
     async def edit_text(self, text: str, **kwargs: Any) -> Any:
-        if "❌" in text or "خطا" in text or "ناموفق" in text or "نیاز به" in text:
+        if any(w in text for w in ("❌", "خطا", "ناموفق", "نیاز به")):
             await self.fail(text)
+        elif any(w in text for w in ("پایان رسید", "با موفقیت", "آماده شد")):
+            await self.complete_with_text(text)
         else:
             await self.update_stage(text, force=True)
         return self

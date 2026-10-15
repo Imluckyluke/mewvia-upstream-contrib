@@ -11,6 +11,7 @@ from aiogram import Bot, F, Router, html
 from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,7 +78,14 @@ async def send_start(message: Message, is_admin: bool) -> None:
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, command: CommandObject, is_admin: bool) -> None:
+async def cmd_start(
+    message: Message,
+    command: CommandObject,
+    is_admin: bool,
+    state: FSMContext | None = None,
+) -> None:
+    if state is not None:
+        await state.clear()
     args = (command.args or "").strip()
     if args == "convert":
         await message.answer(t("start.deeplink_convert"))
@@ -93,8 +101,30 @@ async def cmd_start(message: Message, command: CommandObject, is_admin: bool) ->
     await send_start(message, is_admin)
 
 
+@router.message(Command("cancel"))
+async def cmd_cancel(
+    message: Message,
+    is_admin: bool,
+    state: FSMContext | None = None,
+) -> None:
+    """Universal state cancel handler."""
+    if state is not None:
+        await state.clear()
+    registry = await ready_registry()
+    await message.reply(
+        "❌ <b>عملیات لغو شد.</b>\nبه منوی اصلی بازگشتید:",
+        reply_markup=await main_menu(registry, is_admin=is_admin),
+    )
+
+
 @router.message(ReplyTextFilter(lambda: t("menu.start_over")))
-async def reply_start_over(message: Message, is_admin: bool) -> None:
+async def reply_start_over(
+    message: Message,
+    is_admin: bool,
+    state: FSMContext | None = None,
+) -> None:
+    if state is not None:
+        await state.clear()
     await send_start(message, is_admin)
 
 
@@ -104,7 +134,13 @@ async def reply_start_over(message: Message, is_admin: bool) -> None:
 
 
 @router.callback_query(MenuCB.filter(F.target == "root"))
-async def menu_root(query: CallbackQuery, is_admin: bool) -> None:
+async def menu_root(
+    query: CallbackQuery,
+    is_admin: bool,
+    state: FSMContext | None = None,
+) -> None:
+    if state is not None:
+        await state.clear()
     registry = await ready_registry()
     if isinstance(query.message, Message):
         await query.message.edit_text(
@@ -116,7 +152,9 @@ async def menu_root(query: CallbackQuery, is_admin: bool) -> None:
 
 @router.message(Command("help"))
 @router.message(ReplyTextFilter(lambda: t("menu.help")))
-async def cmd_help(message: Message) -> None:
+async def cmd_help(message: Message, state: FSMContext | None = None) -> None:
+    if state is not None:
+        await state.clear()
     registry = await ready_registry()
     await message.answer(get_help_body(registry), reply_markup=back_to_menu(registry).as_markup())
 

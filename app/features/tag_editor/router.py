@@ -385,6 +385,8 @@ async def receive_tag_value(message: Message, state: FSMContext) -> None:
         return
 
     raw = (message.text or "").strip()
+    if raw.startswith("/"):
+        return
     if not raw:
         await message.reply("لطفاً یک متن بفرست (متن خالی قبول نیست).")
         return
@@ -531,6 +533,8 @@ async def receive_tag_cover(message: Message, bot: Bot, state: FSMContext) -> No
 @router.message(TagEditFSM.waiting_for_cover)
 async def receive_tag_cover_invalid(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
+    if raw.startswith("/"):
+        return
     if raw in ("حذف", "delete", "clear", "-"):
         await state.update_data(cover_file_id="__CLEAR__")
         await state.set_state(None)

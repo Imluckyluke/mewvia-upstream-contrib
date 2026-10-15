@@ -18,7 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.sponsor_link import parse_sponsor_input
-from app.core.sponsor_service import resolve_channel, verify_bot_is_admin
+from app.core.sponsor_service import (
+    clear_membership_cache,
+    resolve_channel,
+    verify_bot_is_admin,
+)
 from app.core.units import fa_digits
 from app.db.models.sponsor_seen import SponsorSeenMember
 from app.db.repo import SponsorRepo
@@ -167,6 +171,7 @@ async def toggle_sponsor(query: CallbackQuery, session: AsyncSession) -> None:
 
     await repo.set_active(channel_db_id, not channel.is_active)
     await session.flush()
+    clear_membership_cache()
     await query.answer("وضعیت کانال تغییر کرد.")
     await _show_panel(query, session)
 
@@ -177,6 +182,7 @@ async def delete_sponsor(query: CallbackQuery, session: AsyncSession) -> None:
     repo = SponsorRepo(session)
     deleted = await repo.delete(channel_db_id)
     await session.flush()
+    clear_membership_cache()
     await query.answer("کانال حذف شد." if deleted else "کانال یافت نشد.", show_alert=True)
     await _show_panel(query, session)
 
@@ -322,6 +328,7 @@ async def process_sponsor_input(
         is_active=True,
     )
     await session.flush()
+    clear_membership_cache()
     await state.clear()
 
     text, kb = await render_sponsor_panel(session, registry)

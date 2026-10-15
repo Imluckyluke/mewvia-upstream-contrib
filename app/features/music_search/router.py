@@ -225,6 +225,9 @@ async def prompt_music_search(query: CallbackQuery, state: FSMContext) -> None:
 @router.message(MusicSearchSG.waiting_for_query, F.text)
 async def process_search_query_input(message: Message, state: FSMContext) -> None:
     query = (message.text or "").strip()
+    if query.startswith("/"):
+        # Let command handlers take over cleanly (e.g. /cancel, /start, /help)
+        return
     if not query:
         await message.reply("لطفاً یک عنوان معتبر بفرستید.")
         return

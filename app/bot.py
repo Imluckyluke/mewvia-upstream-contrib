@@ -11,9 +11,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.types import ErrorEvent
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
@@ -65,16 +67,45 @@ def build_storage(settings: Settings) -> BaseStorage:
     return MemoryStorage()
 
 
+async def _global_error_handler(event: ErrorEvent) -> bool:
+    """Fallback error catcher for unhandled exceptions across the application."""
+    exc = event.exception
+    if isinstance(exc, TelegramAPIError):
+        # Let Telegram API errors bubble up so session middlewares and tests can handle them
+        raise exc
+
+    log.error("unhandled_dispatcher_error", error=str(exc), exc_info=exc)
+    update = event.update
+    if update.callback_query:
+        try:
+            await update.callback_query.answer(
+                "⚠️ متأسفانه خطایی در پردازش رخ داد. لطفاً دوباره تلاش کنید.",
+                show_alert=True,
+            )
+        except Exception:
+            pass
+    elif update.message:
+        try:
+            await update.message.reply(
+                "⚠️ متأسفانه در انجام این درخواست خطایی رخ داد. لطفاً چند لحظه بعد مجدداً تلاش کنید."
+            )
+        except Exception:
+            pass
+    return True
+
+
 def build_dispatcher(
     settings: Settings,
     sessionmaker: async_sessionmaker[AsyncSession] | None = None,
 ) -> Dispatcher:
-    """Wire storage, middlewares and every registered feature router.
+    """Wire storage, middlewares, global error handler and every registered feature router.
 
     `sessionmaker` is optional so tests can build a dispatcher without a
     database; middlewares that need one are then skipped.
     """
     dp = Dispatcher(storage=build_storage(settings), settings=settings)
+
+    dp.errors.register(_global_error_handler)
 
     if sessionmaker is not None:
         setup_middlewares(dp, settings, sessionmaker)

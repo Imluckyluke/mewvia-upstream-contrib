@@ -348,7 +348,11 @@ async def process_video_tool(
 
         except MewviaError as exc:
             if status_msg is not None:
-                await status_msg.edit_text(error_text(exc.code))
+                err_msg = str(exc)
+                if any("\u0600" <= c <= "\u06ff" for c in err_msg):
+                    await status_msg.edit_text(f"❌ <b>خطا:</b> {err_msg}")
+                else:
+                    await status_msg.edit_text(error_text(exc.code))
         except Exception as exc:
             log.error("vtool_unexpected_error", error=str(exc))
             if status_msg is not None:

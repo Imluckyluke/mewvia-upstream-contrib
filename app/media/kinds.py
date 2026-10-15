@@ -71,11 +71,16 @@ def detect_media_kind(message: Message) -> tuple[MediaKind, Any, str, int] | Non
         mime = (doc.mime_type or "").lower()
         file_id = doc.file_id
         file_size = doc.file_size or 0
+        file_name = (doc.file_name or "").lower()
 
         if mime.startswith("image/"):
             return MediaKind.DOCUMENT_IMAGE, doc, file_id, file_size
         if mime.startswith("video/"):
             return MediaKind.DOCUMENT_VIDEO, doc, file_id, file_size
+        if mime.startswith("audio/") or file_name.endswith(
+            (".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".opus")
+        ):
+            return MediaKind.AUDIO, doc, file_id, file_size
 
     return None
 

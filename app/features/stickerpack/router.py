@@ -177,6 +177,8 @@ async def prompt_create_pack(query: CallbackQuery, state: FSMContext) -> None:
 @router.message(PackFSM.waiting_for_title)
 async def process_pack_title(message: Message, state: FSMContext, settings: Settings) -> None:
     title = (message.text or "").strip()
+    if title.startswith("/"):
+        return
     if not title or len(title) > 64:
         await message.reply("لطفاً یک عنوان معتبر (حداکثر ۶۴ کاراکتر) بفرست.")
         return
@@ -218,6 +220,8 @@ async def process_pack_emoji_and_build(
     settings: Settings,
 ) -> None:
     raw_text = (message.text or "").strip()
+    if raw_text.startswith("/"):
+        return
     match = EMOJI_PATTERN.search(raw_text)
     emoji = match.group(0) if match else "🎨"
     data = await state.get_data()

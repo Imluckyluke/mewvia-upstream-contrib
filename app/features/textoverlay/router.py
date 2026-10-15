@@ -297,6 +297,8 @@ async def process_user_text_input(
     bot: Bot,
 ) -> None:
     user_text = (message.text or "").strip()
+    if user_text.startswith("/"):
+        return
     if not user_text:
         await message.reply("لطفاً یک متن معتبر وارد کنید.")
         return

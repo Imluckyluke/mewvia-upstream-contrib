@@ -63,6 +63,10 @@ async def handle_incoming_media(message: Message, settings: Settings) -> None:
 
     kind, _media_obj, _file_id, file_size = detected
 
+    # If it's audio (e.g. sent as uncompressed document), delegate to audio router
+    if kind in (MediaKind.AUDIO, MediaKind.VOICE):
+        return
+
     # Enforce API file download limits (20MB public, 2GB local)
     if file_size > settings.download_limit:
         limit_str = human_bytes(settings.download_limit)

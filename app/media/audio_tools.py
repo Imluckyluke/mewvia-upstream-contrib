@@ -52,6 +52,10 @@ async def convert_to_mp3(input_file: Path, output_file: Path, bitrate: str = "19
 
 async def extract_audio_from_video(input_file: Path, output_file: Path) -> MediaInfo:
     """Extract audio stream from video file."""
+    info = await probe(input_file)
+    if not info.has_audio:
+        raise ConversionError("این ویدیو فاقد هرگونه استریم صدا (Audio Track) است.")
+
     args = [
         "-i",
         str(input_file),
