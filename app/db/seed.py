@@ -137,6 +137,8 @@ SETTINGS: tuple[SettingDef, ...] = (
     SettingDef("maintenance_message", "", "پیام حالت تعمیر (خالی = پیام پیش‌فرض)"),
     SettingDef("autobackup_cron", "", "کرون بکاپ خودکار، مثلاً '0 4 * * *' (خالی = خاموش)"),
     SettingDef("daily_quota", "0", "سهمیه تبدیل روزانه هر کاربر (۰ = بی‌نهایت)"),
+    SettingDef("loading_gifs", "[]", "لیست گیف‌های لودینگ برای نوار پیشرفت"),
+    SettingDef("loading_gifs_enabled", "true", "فعال بودن گیف‌های متحرک لودینگ"),
 )
 
 #: Keys whose runtime value must stay in sync with the env-provided default on

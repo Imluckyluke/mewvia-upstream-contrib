@@ -41,6 +41,7 @@ from app.media.music_search import (
 from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
+from app.ui.progress import ProgressController
 from app.ui.styles import Style
 from app.ui.texts import error_text, t
 
@@ -358,16 +359,29 @@ async def select_and_download_track(
 
     await query.answer()
     p_name = "اسپاتیفای" if platform == "spotify" else "ساندکلاد"
-    status_text = (
-        f"⏳ <b>در حال دانلود آهنگ «{html.quote(track.title)}» از {p_name}…</b>\n"
-        "لطفاً چند ثانیه شکیبا باشید 🐾"
-    )
-    status_msg = await query.message.reply(status_text)
-
-    start_time = time.perf_counter()
     reply_to_id = (
         query.message.reply_to_message.message_id if query.message.reply_to_message else None
     )
+
+    progress: ProgressController | Message | None = None
+    try:
+        progress = await ProgressController.start(
+            bot=bot,
+            chat_id=query.message.chat.id,
+            reply_to_id=reply_to_id,
+            initial_stage=f"در حال دانلود آهنگ «{track.title}» از {p_name}…",
+            session=session,
+        )
+    except Exception as p_exc:
+        log.warning("progress_controller_music_start_failed", error=str(p_exc))
+        status_text = (
+            f"⏳ <b>در حال دانلود آهنگ «{html.quote(track.title)}» از {p_name}…</b>\n"
+            "لطفاً چند ثانیه شکیبا باشید 🐾"
+        )
+        progress = await query.message.reply(status_text)
+
+    status_msg = progress
+    start_time = time.perf_counter()
 
     settings.tmp_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.tmp_dir) as tmp_dir:
@@ -406,9 +420,10 @@ async def select_and_download_track(
             if file_size > settings.upload_limit:
                 limit_str = human_bytes(settings.upload_limit)
                 size_str = human_bytes(file_size)
-                await status_msg.edit_text(
-                    f"❌ حجم فایل صوتی ({size_str}) بیشتر از سقف مجاز ({limit_str}) است."
-                )
+                if status_msg is not None:
+                    await status_msg.edit_text(
+                        f"❌ حجم فایل صوتی ({size_str}) بیشتر از سقف مجاز ({limit_str}) است."
+                    )
                 return
 
             registry = await ready_registry()
@@ -468,7 +483,8 @@ async def select_and_download_track(
                     log.warning("send_lyrics_reply_failed", error=str(l_exc))
 
             try:
-                await status_msg.delete()
+                if status_msg is not None:
+                    await status_msg.delete()
             except Exception:
                 pass
 
@@ -493,13 +509,15 @@ async def select_and_download_track(
         except MewviaError as exc:
             err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
             try:
-                await status_msg.edit_text(err)
+                if status_msg is not None:
+                    await status_msg.edit_text(err)
             except Exception:
                 pass
         except Exception as exc:
             log.error("music_search_download_failed", error=str(exc))
             try:
-                await status_msg.edit_text("❌ خطا در دانلود موزیک. لطفاً دوباره تلاش کنید.")
+                if status_msg is not None:
+                    await status_msg.edit_text("❌ خطا در دانلود موزیک. لطفاً دوباره تلاش کنید.")
             except Exception:
                 pass
 

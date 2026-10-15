@@ -23,6 +23,7 @@ from app.media.probe import probe
 from app.media.video_tools import compress_video, make_video_note, mute_video, reverse_video
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
+from app.ui.progress import ProgressController
 from app.ui.styles import Style
 from app.ui.texts import error_text, t
 
@@ -224,7 +225,29 @@ async def process_video_tool(
 
     await query.answer()
 
-    status_msg: Message | None = await send_processing_status(msg, t("common.processing"))
+    stage_desc = {
+        "note": "در حال ساخت ویدیومسیج گرد…",
+        "compress": "در حال فشرده‌سازی ویدیو…",
+        "mute": "در حال حذف صدای ویدیو…",
+        "reverse": "در حال معکوس کردن ویدیو…",
+        "extract": "در حال استخراج صدای ویدیو…",
+    }.get(action, "در حال پردازش ویدیو…")
+
+    progress: ProgressController | Message | None = None
+    try:
+        progress = await ProgressController.start(
+            bot=bot,
+            chat_id=msg.chat.id,
+            reply_to_id=reply_to_id or msg.message_id,
+            initial_stage=stage_desc,
+            session=session,
+            replace_msg=msg if msg.text is not None else None,
+        )
+    except Exception as p_exc:
+        log.warning("progress_controller_video_start_failed", error=str(p_exc))
+        progress = await send_processing_status(msg, t("common.processing"))
+
+    status_msg = progress
 
     start_time = time.perf_counter()
     conv_repo = ConversionRepo(session)
@@ -305,7 +328,7 @@ async def process_video_tool(
             else:
                 return
 
-            if status_msg:
+            if status_msg is not None:
                 try:
                     await status_msg.delete()
                 except Exception:
@@ -324,11 +347,11 @@ async def process_video_tool(
             )
 
         except MewviaError as exc:
-            if status_msg:
+            if status_msg is not None:
                 await status_msg.edit_text(error_text(exc.code))
         except Exception as exc:
             log.error("vtool_unexpected_error", error=str(exc))
-            if status_msg:
+            if status_msg is not None:
                 await status_msg.edit_text(error_text("unknown"))
 
 

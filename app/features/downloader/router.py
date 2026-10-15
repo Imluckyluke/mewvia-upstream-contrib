@@ -68,6 +68,7 @@ from app.media.lyrics import (
 from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
+from app.ui.progress import ProgressController
 from app.ui.styles import Style
 from app.ui.texts import error_text, t
 
@@ -98,7 +99,7 @@ async def _perform_download(
     reply_to_id: int | None,
     action: str,
     ctx: dict[str, Any],
-    status_msg: Message | None,
+    status_msg: Message | ProgressController | None,
     bot: Bot,
     session: AsyncSession,
     settings: Settings,
@@ -619,7 +620,7 @@ async def _perform_download(
 
             # Clean up status message
             try:
-                if isinstance(status_msg, Message):
+                if status_msg is not None:
                     await status_msg.delete()
             except Exception:
                 pass
@@ -640,7 +641,7 @@ async def _perform_download(
             if cookie_record:
                 await repo_cookie.record_usage(cookie_record.id, success=False, error=str(exc))
             err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
-            if isinstance(status_msg, Message):
+            if status_msg is not None:
                 await status_msg.edit_text(err)
             elif fallback_msg:
                 await fallback_msg.reply(err)
@@ -651,7 +652,7 @@ async def _perform_download(
                 await repo_cookie.record_usage(cookie_record.id, success=False, error=str(exc))
             log.error("downloader_error", url=url, error=str(exc))
             err = "❌ خطا در دانلود رسانه. ممکن است لینک منقضی یا نامعتبر باشد."
-            if isinstance(status_msg, Message):
+            if status_msg is not None:
                 await status_msg.edit_text(err)
             elif fallback_msg:
                 await fallback_msg.reply(err)
@@ -884,11 +885,19 @@ async def _handle_url_input(
     else:
         action = "video"
 
-    if status_msg:
-        try:
-            await status_msg.edit_text("⏳ <b>در حال دانلود رسانه از سرور…</b>")
-        except Exception:
-            pass
+    progress: ProgressController | Message | None = None
+    try:
+        progress = await ProgressController.start(
+            bot=bot,
+            chat_id=message.chat.id,
+            reply_to_id=message.message_id,
+            initial_stage=f"در حال دانلود از {info.platform_name}…",
+            session=session,
+            replace_msg=status_msg,
+        )
+    except Exception as p_exc:
+        log.warning("progress_controller_start_failed", error=str(p_exc))
+        progress = status_msg
 
     ctx: dict[str, Any] = {
         "url": url,
@@ -902,6 +911,7 @@ async def _handle_url_input(
         "is_playlist": False,
         "playlist_count": 0,
         "playlist_items": [],
+        "user_name": message.from_user.first_name if message.from_user else "کاربر",
     }
 
     await _perform_download(
@@ -910,7 +920,7 @@ async def _handle_url_input(
         reply_to_id=message.message_id,
         action=action,
         ctx=ctx,
-        status_msg=status_msg,
+        status_msg=progress,
         bot=bot,
         session=session,
         settings=settings,
@@ -1082,8 +1092,20 @@ async def execute_download(
         return
 
     await query.answer()
-    status = await msg.edit_text("⏳ <b>در حال دانلود رسانه از سرور…</b>", reply_markup=None)
-    status_msg: Message | None = status if isinstance(status, Message) else None
+    progress: ProgressController | Message | None = None
+    try:
+        progress = await ProgressController.start(
+            bot=bot,
+            chat_id=msg.chat.id,
+            reply_to_id=ctx.get("reply_to_id"),
+            initial_stage="در حال دانلود رسانه از سرور…",
+            session=session,
+            replace_msg=msg,
+        )
+    except Exception as p_exc:
+        log.warning("progress_controller_start_failed", error=str(p_exc))
+        status = await msg.edit_text("⏳ <b>در حال دانلود رسانه از سرور…</b>", reply_markup=None)
+        progress = status if isinstance(status, Message) else None
 
     await _perform_download(
         chat_id=msg.chat.id,
@@ -1091,7 +1113,7 @@ async def execute_download(
         reply_to_id=ctx.get("reply_to_id"),
         action=action,
         ctx=ctx,
-        status_msg=status_msg,
+        status_msg=progress,
         bot=bot,
         session=session,
         settings=settings,

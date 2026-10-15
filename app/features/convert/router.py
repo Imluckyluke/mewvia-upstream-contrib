@@ -34,6 +34,7 @@ from app.media.specs import (
 from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
+from app.ui.progress import ProgressController
 from app.ui.styles import Style
 from app.ui.texts import error_text, t
 
@@ -217,9 +218,23 @@ async def process_conversion(
 
     await query.answer()
 
-    # Show processing status message
-    status_edited = await msg.edit_text(t("common.processing"), reply_markup=None)
-    status_msg: Message | None = status_edited if isinstance(status_edited, Message) else None
+    # Show processing status message or progress animation
+    progress: ProgressController | Message | None = None
+    try:
+        progress = await ProgressController.start(
+            bot=bot,
+            chat_id=msg.chat.id,
+            reply_to_id=reply_to_id or msg.message_id,
+            initial_stage="در حال تبدیل فرمت مدیا…",
+            session=session,
+            replace_msg=msg if msg.text is not None else None,
+        )
+    except Exception as p_exc:
+        log.warning("progress_controller_convert_start_failed", error=str(p_exc))
+        status_edited = await msg.edit_text(t("common.processing"), reply_markup=None)
+        progress = status_edited if isinstance(status_edited, Message) else None
+
+    status_msg = progress
 
     start_time = time.perf_counter()
     conv_repo = ConversionRepo(session)
@@ -284,7 +299,7 @@ async def process_conversion(
                 )
 
             # Clean up status message
-            if status_msg:
+            if status_msg is not None:
                 try:
                     await status_msg.delete()
                 except Exception:
@@ -311,7 +326,7 @@ async def process_conversion(
         except MewviaError as exc:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             err_msg = error_text(exc.code)
-            if status_msg:
+            if status_msg is not None:
                 await status_msg.edit_text(err_msg)
 
             await conv_repo.log_conversion(
@@ -328,7 +343,7 @@ async def process_conversion(
         except Exception as exc:
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             err_msg = error_text("unknown")
-            if status_msg:
+            if status_msg is not None:
                 await status_msg.edit_text(err_msg)
 
             await conv_repo.log_conversion(
