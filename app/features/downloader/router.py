@@ -1098,15 +1098,18 @@ async def execute_download(
         return
 
     await query.answer()
+    is_pl = action.startswith("pl_")
+    stage_text = "در حال آماده‌سازی و دانلود آلبوم…" if is_pl else "در حال دانلود رسانه از سرور…"
     progress: ProgressController | Message | None = None
     try:
         progress = await ProgressController.start(
             bot=bot,
             chat_id=msg.chat.id,
             reply_to_id=ctx.get("reply_to_id"),
-            initial_stage="در حال دانلود رسانه از سرور…",
+            initial_stage=stage_text,
             session=session,
             replace_msg=msg,
+            auto_tick=not is_pl,
         )
     except Exception as p_exc:
         log.warning("progress_controller_start_failed", error=str(p_exc))

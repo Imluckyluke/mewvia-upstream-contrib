@@ -79,7 +79,7 @@ class ProgressController:
         self.message_id = message_id
         self.is_animation = is_animation
         self.stage_title = stage_title
-        self.percent = 15
+        self.percent = 0 if not auto_tick else 15
         self.registry = registry
         self._completed = False
         self._last_edit_time = time.perf_counter()
@@ -130,7 +130,9 @@ class ProgressController:
         except Exception as exc:
             log.warning("get_random_loading_gif_failed", error=str(exc))
 
-        caption = format_progress_caption(initial_stage, percent=15, registry=registry)
+        caption = format_progress_caption(
+            initial_stage, percent=(0 if not auto_tick else 15), registry=registry
+        )
 
         if replace_msg is not None:
             try:
@@ -193,6 +195,8 @@ class ProgressController:
         self.stage_title = stage_title
         if percent is not None:
             self.percent = max(0, min(100, percent))
+            if self._tick_task and not self._tick_task.done():
+                self._tick_task.cancel()
 
         now = time.perf_counter()
         if not force and (now - self._last_edit_time < 1.4):
