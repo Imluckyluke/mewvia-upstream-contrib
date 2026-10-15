@@ -437,6 +437,16 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
     except Exception as exc:
         probe_error = str(exc)
         log.warning("ytdlp_probe_failed", url=url, error=probe_error[:300])
+        # If Instagram photo post raised 'There is no video in this post', extract photo metadata!
+        if platform_key == "instagram" and "no video in this post" in probe_error.lower():
+            try:
+                with _make_ydl(opts) as ydl_photo:
+                    ie = ydl_photo.get_info_extractor("Instagram")
+                    ie.initialize()
+                    ie.raise_no_formats = lambda *a, **kw: None
+                    info = ie.extract(url)
+            except Exception as photo_exc:
+                log.warning("instagram_photo_probe_failed", error=str(photo_exc))
 
     # 3. Check gallery-dl compatibility if yt-dlp failed or gave no media
     is_gallery = False
@@ -473,7 +483,9 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
     duration_str = human_duration(float(duration_sec)) if duration_sec else "—"
 
     uploader = info.get("uploader") or info.get("channel") or info.get("creator")
-    thumbnail = info.get("thumbnail")
+    thumbnail = info.get("thumbnail") or (
+        info["thumbnails"][-1]["url"] if info.get("thumbnails") else None
+    )
 
     # Detect playlist in yt-dlp response
     is_pl = (info.get("_type") == "playlist") or bool(info.get("entries"))
@@ -494,6 +506,8 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
     formats = info.get("formats", [])
     has_video = any(f.get("vcodec") and f.get("vcodec") != "none" for f in formats)
     is_audio_only = platform_key in ("soundcloud", "spotify") or (not has_video and bool(formats))
+    if not has_video and not is_audio_only:
+        is_gallery = True
 
     return DownloadInfo(
         url=url,
@@ -742,7 +756,10 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
     }
     try:
         with _make_ydl(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            ie = ydl.get_info_extractor("Instagram")
+            ie.initialize()
+            ie.raise_no_formats = lambda *args, **kwargs: None
+            info = ie.extract(url)
         entries = info.get("entries") or [info]
         results: list[Path] = []
         for idx, e in enumerate(entries, 1):
