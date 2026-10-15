@@ -43,10 +43,13 @@ def is_real_interaction(event: TelegramObject) -> bool:
     if isinstance(inner, Message):
         chat_type = getattr(inner.chat, "type", None)
         if chat_type in (ChatType.GROUP, ChatType.SUPERGROUP):
-            # Group chatter is noise; only /commands and media URLs count.
+            # Group chatter is noise; only Mewvia /commands and media URLs count.
             text = (inner.text or inner.caption or "").strip()
             if text.startswith("/"):
-                return True
+                cmd_name = text.split()[0][1:].lower().split("@")[0]
+                if cmd_name in {"media", "mewvia", "dl", "shazam", "findsong", "songid"}:
+                    return True
+                return False
             from app.media.downloader import extract_first_url, is_supported_media_url
 
             url = extract_first_url(text)

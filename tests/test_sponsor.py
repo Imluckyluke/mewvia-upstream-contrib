@@ -1061,6 +1061,42 @@ class TestSponsorGateMiddleware:
         assert len(sends) == 1
         assert "ناشناس" in sends[0].text
 
+    async def test_anonymous_group_admin_regular_chatter_is_ignored(self) -> None:
+        """Admins posting 'as group' on regular messages or non-Mewvia commands must be completely ignored."""
+        from aiogram.types import Chat as TgChat
+
+        dp, _reached = self._make_dispatcher()
+        bot = RecordingBot()
+
+        anon = TgUser(id=1087968824, is_bot=True, first_name="GroupAnonymousBot")
+        # 1. Plain chat from group admin
+        msg1 = Message(
+            message_id=21,
+            date=datetime.datetime.now(datetime.UTC),
+            chat=TgChat(id=-100123456789, type="supergroup"),
+            from_user=anon,
+            sender_chat=TgChat(id=-100123456789, type="supergroup", title="G"),
+            text="سلام بچه‌ها جلسه ساعت چنده؟",
+        )
+        # 2. Non-Mewvia command (e.g. /ban, /pin)
+        msg2 = Message(
+            message_id=22,
+            date=datetime.datetime.now(datetime.UTC),
+            chat=TgChat(id=-100123456789, type="supergroup"),
+            from_user=anon,
+            sender_chat=TgChat(id=-100123456789, type="supergroup", title="G"),
+            text="/ban @bad_user",
+        )
+        try:
+            await dp.feed_update(bot, Update(update_id=21, message=msg1))
+            await dp.feed_update(bot, Update(update_id=22, message=msg2))
+        finally:
+            await bot.session.close()
+
+        assert len(bot.calls) == 0, (
+            "bot must stay 100% silent on regular admin chatter and commands"
+        )
+
     async def test_group_command_enforces_sponsor_gate(self) -> None:
         """Bot commands like /media in groups must enforce sponsor gate."""
         dp, reached = self._make_dispatcher()

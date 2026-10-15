@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
+from aiogram.enums import ChatType
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from app.core.logging import get_logger
@@ -58,5 +59,8 @@ class MaintenanceMiddleware(BaseMiddleware):
         if isinstance(inner, CallbackQuery):
             await inner.answer(notice, show_alert=True)
         elif isinstance(inner, Message):
+            # In groups, stay silent during maintenance so chat is never disturbed
+            if inner.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+                return None
             await inner.answer(notice)
         return None

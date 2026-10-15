@@ -87,55 +87,63 @@ class SponsorGateMiddleware(BaseMiddleware):
 
         # 0. Membership bookkeeping (chat_member updates) feeds the instant
         # leave-watcher — the gate only guards user-initiated actions.
-        inner_for_anon = getattr(event, "event", event)
-        if isinstance(inner_for_anon, ChatMemberUpdated):
+        inner = getattr(event, "event", event)
+        if isinstance(inner, ChatMemberUpdated):
             return await handler(event, data)
 
-        # 1b. Anonymous senders (admins posting "as group/channel"): Telegram
-        # marks these with the GroupAnonymousBot id and/or a sender_chat, and
-        # membership can never be verified — get_chat_member errors out and
-        # the old fail-open path let anonymous /media through unchecked.
-        # Deny with guidance instead. (Narrow: only the anonymous pseudo-user
-        # and sender_chat posts, so no other bot's behavior changes.)
-        sender_chat = getattr(inner_for_anon, "sender_chat", None)
-        if user.id == ANONYMOUS_SENDER_ID or sender_chat is not None:
-            deny_chat_id = getattr(getattr(inner_for_anon, "chat", None), "id", None)
-            log.info(
-                "sponsor_gate_anonymous_denied",
-                user_id=user.id,
-                chat_id=deny_chat_id,
-            )
-            if isinstance(inner_for_anon, CallbackQuery):
-                await inner_for_anon.answer(
-                    "حالت ناشناس روشن است — اول آن را خاموش کنید.", show_alert=True
-                )
-            elif isinstance(inner_for_anon, Message):
-                await inner_for_anon.answer(
-                    "حالت «ارسال ناشناس» روشن است — عضویت شما قابل بررسی نیست.\n"
-                    "لطفاً حالت ارسال به‌نام گروه را خاموش کنید "
-                    "و با اکانت خودتان دوباره تلاش کنید."
-                )
-            return None
-
-        inner = inner_for_anon
-
-        # 2. Group / Supergroup non-command message bypass:
+        # 2. Group / Supergroup non-Mewvia message bypass:
         # Do not check sponsors or prompt in group chats for regular chat
-        # messages, stickers, photos, etc.
-        # BUT if it is a command OR contains a supported media URL, enforce the sponsor gate!
+        # messages, stickers, photos, or commands directed at other bots/admins.
+        # ONLY enforce the sponsor gate if it is a recognized Mewvia command or supported media URL!
         if isinstance(inner, Message) and inner.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
             text = (inner.text or inner.caption or "").strip()
-            is_cmd = text.startswith("/")
+            is_mewvia_cmd = False
+            if text.startswith("/"):
+                cmd_part = text.split()[0][1:].lower()
+                cmd_name = cmd_part.split("@")[0]
+                at_bot = cmd_part.split("@")[1] if "@" in cmd_part else ""
+                settings = get_settings()
+                if (
+                    at_bot
+                    and settings.bot_username
+                    and at_bot != settings.bot_username.lower().lstrip("@")
+                ):
+                    is_mewvia_cmd = False
+                elif cmd_name in {"media", "mewvia", "dl", "shazam", "findsong", "songid"}:
+                    is_mewvia_cmd = True
+
             has_media_url = False
-            if not is_cmd and text:
+            if not is_mewvia_cmd and text:
                 from app.media.downloader import extract_first_url, is_supported_media_url
 
                 found_url = extract_first_url(text)
                 if found_url and is_supported_media_url(found_url):
                     has_media_url = True
 
-            if not is_cmd and not has_media_url:
+            if not is_mewvia_cmd and not has_media_url:
                 return await handler(event, data)
+
+        # 1b. Anonymous senders (admins posting "as group/channel"): Telegram
+        # marks these with the GroupAnonymousBot id and/or a sender_chat, and
+        # membership can never be verified.
+        # Only deny if they actually triggered a Mewvia action!
+        sender_chat = getattr(inner, "sender_chat", None)
+        if user.id == ANONYMOUS_SENDER_ID or sender_chat is not None:
+            deny_chat_id = getattr(getattr(inner, "chat", None), "id", None)
+            log.info(
+                "sponsor_gate_anonymous_denied",
+                user_id=user.id,
+                chat_id=deny_chat_id,
+            )
+            if isinstance(inner, CallbackQuery):
+                await inner.answer("حالت ناشناس روشن است — اول آن را خاموش کنید.", show_alert=True)
+            elif isinstance(inner, Message):
+                await inner.answer(
+                    "حالت «ارسال ناشناس» روشن است — عضویت شما قابل بررسی نیست.\n"
+                    "لطفاً حالت ارسال به‌نام گروه را خاموش کنید "
+                    "و با اکانت خودتان دوباره تلاش کنید."
+                )
+            return None
 
         # 3. Handler Exception: Let "check_sponsors" callback through to its handler
         if isinstance(inner, CallbackQuery) and inner.data == "check_sponsors":

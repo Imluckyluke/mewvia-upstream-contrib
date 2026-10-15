@@ -10,7 +10,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
-from aiogram.enums import ParseMode
+from aiogram.enums import ChatType, ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -85,6 +85,9 @@ async def _global_error_handler(event: ErrorEvent) -> bool:
         except Exception:
             pass
     elif update.message:
+        # In groups/supergroups, stay silent on background errors to avoid spamming the group
+        if update.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+            return True
         try:
             await update.message.reply(
                 "⚠️ متأسفانه در انجام این درخواست خطایی رخ داد. لطفاً چند لحظه بعد مجدداً تلاش کنید."
