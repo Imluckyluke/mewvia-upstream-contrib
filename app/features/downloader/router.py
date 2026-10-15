@@ -68,7 +68,7 @@ from app.media.lyrics import (
 from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
-from app.ui.progress import ProgressController
+from app.ui.progress import ProgressController, render_progress_bar
 from app.ui.styles import Style
 from app.ui.texts import error_text, t
 
@@ -564,19 +564,30 @@ async def _perform_download(
                         last_edit_time = now
                         cur_fa = fa_digits(str(sent_count))
                         tot_fa = fa_digits(str(total_items))
-                        prog_text = (
-                            f"{registry.text('processing')} "
-                            f"<b>در حال پردازش آلبوم ({cur_fa} از {tot_fa})…</b>\n\n"
-                            f"{registry.text('audio')} <b>{html.quote(it_title)}</b>"
-                        )
                         real_pct = int((sent_count / total_items) * 100)
+
+                        header_text = (
+                            f"📥 <b>در حال دانلود آلبوم</b> • <code>{cur_fa}/{tot_fa}</code>"
+                        )
+                        track_text = f"🎵 <b>{html.quote(it_title)}</b>"
+                        artist_text = f"👤 <i>{html.quote(it_artist)}</i>" if it_artist else None
+
                         try:
                             if isinstance(status_msg, ProgressController):
                                 await status_msg.update_stage(
-                                    stage_title=prog_text, percent=real_pct, force=True
+                                    stage_title=header_text,
+                                    percent=real_pct,
+                                    sub_title=track_text,
+                                    extra_line=artist_text,
+                                    detail="در حال آماده‌سازی و ارسال…",
+                                    force=True,
                                 )
                             else:
-                                await status_msg.edit_text(prog_text)
+                                text_lines = [header_text, track_text]
+                                if artist_text:
+                                    text_lines.append(artist_text)
+                                text_lines.append(f"\n<code>{render_progress_bar(real_pct)}</code>")
+                                await status_msg.edit_text("\n".join(text_lines))
                         except Exception:
                             pass
 

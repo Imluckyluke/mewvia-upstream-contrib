@@ -43,16 +43,30 @@ def format_progress_caption(
     percent: int,
     registry: EmojiRegistry | None = None,
     detail: str | None = None,
+    *,
+    sub_title: str | None = None,
+    extra_line: str | None = None,
 ) -> str:
-    """Format sleek progress message or animation caption."""
-    ic_clock = registry.text("clock") if registry else "⏳"
-    ic_lightning = registry.text("lightning") if registry else "⚡"
+    """Format sleek, clean progress message or animation caption."""
     bar_str = render_progress_bar(percent)
 
-    lines = [
-        f"{ic_clock} <b>{html.quote(stage_title)}</b>\n",
-        f"<code>{bar_str}</code>",
-    ]
+    # Avoid double icon or double wrapping if stage_title is already formatted
+    if "<" in stage_title and ">" in stage_title:
+        title_block = stage_title
+    else:
+        ic_clock = registry.text("clock") if registry else "⏳"
+        title_block = f"{ic_clock} <b>{html.quote(stage_title)}</b>"
+
+    lines = [title_block]
+
+    if sub_title:
+        lines.append(sub_title)
+    if extra_line:
+        lines.append(extra_line)
+
+    lines.append(f"\n<code>{bar_str}</code>")
+
+    ic_lightning = registry.text("lightning") if registry else "⚡"
     if detail:
         lines.append(f"{ic_lightning} <i>{html.quote(detail)}</i>")
     else:
@@ -186,6 +200,9 @@ class ProgressController:
         stage_title: str,
         percent: int | None = None,
         detail: str | None = None,
+        *,
+        sub_title: str | None = None,
+        extra_line: str | None = None,
         force: bool = False,
     ) -> None:
         """Update the displayed stage and progress bar."""
@@ -204,7 +221,12 @@ class ProgressController:
         self._last_edit_time = now
 
         caption = format_progress_caption(
-            self.stage_title, self.percent, registry=self.registry, detail=detail
+            self.stage_title,
+            self.percent,
+            registry=self.registry,
+            detail=detail,
+            sub_title=sub_title,
+            extra_line=extra_line,
         )
 
         try:
