@@ -157,10 +157,14 @@ async def _perform_download(
                         await bot.send_message(chat_id=chat_id, text=err_msg)
                     return
 
-                caption = (
-                    f"{registry.text('video')} <b>{html.quote(title)}</b>\n\n"
+                caption_lines = []
+                if title:
+                    caption_lines.append(f"{registry.text('video')} <b>{html.quote(title)}</b>")
+                caption_lines.append(
                     f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
+                caption = "\n\n".join(caption_lines)
+
                 await bot.send_video(
                     chat_id=chat_id,
                     video=FSInputFile(downloaded_file),
@@ -207,11 +211,20 @@ async def _perform_download(
                 if lyrics:
                     embed_lyrics_to_mp3(downloaded_file, lyrics)
 
-                caption = (
-                    f"{registry.text('audio')} <b>{html.quote(title)}</b>\n"
-                    f"{registry.text('user')} <b>سازنده:</b> {html.quote(str(uploader))}\n\n"
+                audio_caption_lines = []
+                if title:
+                    audio_caption_lines.append(
+                        f"{registry.text('audio')} <b>{html.quote(title)}</b>"
+                    )
+                if uploader and uploader not in ("Mewvia", "Unknown"):
+                    audio_caption_lines.append(
+                        f"{registry.text('user')} <b>سازنده:</b> {html.quote(str(uploader))}"
+                    )
+                audio_caption_lines.append(
                     f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
+                caption = "\n\n".join(audio_caption_lines)
+
                 sent_audio = await bot.send_audio(
                     chat_id=chat_id,
                     audio=FSInputFile(downloaded_file),
@@ -247,10 +260,15 @@ async def _perform_download(
                     raise ConversionError("هیچ عکسی برای دانلود یافت نشد.")
 
                 file_size = sum(f.stat().st_size for f in gallery_files)
-                gallery_caption = (
-                    f"{registry.text('photo')} <b>{html.quote(title)}</b>\n\n"
+                gallery_caption_lines = []
+                if title:
+                    gallery_caption_lines.append(
+                        f"{registry.text('photo')} <b>{html.quote(title)}</b>"
+                    )
+                gallery_caption_lines.append(
                     f"دانلود شده با @{settings.bot_username} {registry.text('paw')}"
                 )
+                gallery_caption = "\n\n".join(gallery_caption_lines)
 
                 if len(gallery_files) == 1:
                     single_file = gallery_files[0]
@@ -723,6 +741,12 @@ async def _handle_url_input(
             else ""
         )
 
+        title_line = (
+            f"{registry.text('text')} <b>عنوان:</b> {html.quote(info.title)}\n"
+            if info.title
+            else ""
+        )
+
         if info.is_playlist:
             type_str = "پلی‌لیست / آلبوم"
             count_str = fa_digits(str(info.playlist_count))
@@ -736,7 +760,7 @@ async def _handle_url_input(
             )
             card_text = (
                 f"{registry.text(p_slot)} <b>دانلود {type_str} از {info.platform_name}</b>\n\n"
-                f"{registry.text('text')} <b>عنوان:</b> {html.quote(info.title)}\n"
+                f"{title_line}"
                 f"{uploader_line}"
                 f"{count_line}\n"
                 "نحوه دانلود را انتخاب کن:"
@@ -744,7 +768,7 @@ async def _handle_url_input(
         else:
             card_text = (
                 f"{registry.text('youtube')} <b>دانلود از یوتیوب</b>\n\n"
-                f"{registry.text('text')} <b>عنوان:</b> {html.quote(info.title)}\n"
+                f"{title_line}"
                 f"{uploader_line}"
                 f"{duration_line}\n"
                 "کیفیت یا فرمت مورد نظرت را انتخاب کن:"

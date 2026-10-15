@@ -473,10 +473,25 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
         raise ConversionError("امکان استخراج اطلاعات از این لینک وجود ندارد.")
 
     info = info or {}
-    title = (info.get("title") or info.get("description") or f"رسانه {platform_name}").strip()
-    # Clean up very long titles
-    if len(title) > 90:
-        title = title[:87] + "…"
+    raw_desc = (info.get("description") or "").strip()
+    raw_title = (info.get("title") or "").strip()
+
+    is_dummy_title = (
+        not raw_title
+        or raw_title.startswith("Video by ")
+        or raw_title.startswith("Post by ")
+        or raw_title.startswith("رسانه ")
+        or raw_title.lower()
+        in ("media", "video", "post", "audio", "instagram post", "instagram video")
+    )
+
+    if raw_desc:
+        first_line = raw_desc.splitlines()[0].strip()
+        title = (first_line[:90] + "…") if len(first_line) > 90 else first_line
+    elif not is_dummy_title:
+        title = (raw_title[:90] + "…") if len(raw_title) > 90 else raw_title
+    else:
+        title = ""
 
     duration = info.get("duration")
     duration_sec = int(duration) if duration and isinstance(duration, (int, float)) else None
