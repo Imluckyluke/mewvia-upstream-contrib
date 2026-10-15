@@ -223,6 +223,9 @@ def _build_ytdlp_opts(
             "youtubepot-bgutilhttp": {
                 "base_url": ["http://warp:4416"],
             },
+            "youtube": {
+                "player_client": ["web", "mweb"],
+            },
         },
     }
 
@@ -356,18 +359,42 @@ def _download_spotify_track_sync(
     work_dir: Path,
     max_bytes: int | None = None,
 ) -> Path:
-    """Download matching audio for a Spotify track in a single pass and embed ID3 cover & tags."""
+    """Download matching audio for a Spotify track in a single pass with SoundCloud fallback."""
     query_parts = [artist, title, "audio"] if artist else [title, "audio"]
-    query = f"ytsearch1:{' '.join(p for p in query_parts if p)}"
+    clean_q = " ".join(p for p in query_parts if p)
+    yt_query = f"ytsearch1:{clean_q}"
+    sc_query = f"scsearch1:{artist} {title}" if artist else f"scsearch1:{title}"
 
-    # Direct 1-pass search and download (cuts latency in half)
-    mp3_file = _download_audio_sync(query, work_dir, max_bytes=max_bytes)
+    # Try YouTube first; on bot verification or failure, fallback to SoundCloud immediately
+    mp3_file: Path | None = None
+    try:
+        mp3_file = _download_audio_sync(yt_query, work_dir, max_bytes=max_bytes)
+    except Exception as exc:
+        log.warning(
+            "spotify_yt_download_failed_falling_back_to_soundcloud",
+            query=clean_q,
+            error=str(exc)[:150],
+        )
+        try:
+            mp3_file = _download_audio_sync(sc_query, work_dir, max_bytes=max_bytes)
+        except Exception as sc_exc:
+            log.warning("spotify_sc_fallback_failed", query=sc_query, error=str(sc_exc)[:150])
+            err_lower = str(exc).lower()
+            if "bot" in err_lower or "sign in" in err_lower:
+                raise ConversionError(
+                    "⚠️ یوتیوب برای این قطعه درخواست تأیید هویت داده و در ساندکلاد نیز یافت نشد."
+                ) from exc
+            raise ConversionError(f"خطا در دانلود ترک صوتی: {str(exc)[:100]}") from exc
 
     # Embed original Spotify cover and ID3 tags using Mutagen
     try:
-        from mutagen.id3 import APIC, ID3, TIT2, TPE1
+        from mutagen.id3 import APIC, ID3, TIT2, TPE1, ID3NoHeaderError
 
-        tags = ID3(mp3_file)
+        try:
+            tags = ID3(mp3_file)
+        except ID3NoHeaderError:
+            tags = ID3()
+
         tags.add(TIT2(encoding=3, text=title))
         if artist:
             tags.add(TPE1(encoding=3, text=artist))
@@ -389,7 +416,7 @@ def _download_spotify_track_sync(
                 )
             except Exception:
                 pass
-        tags.save()
+        tags.save(mp3_file)
     except Exception as exc:
         log.warning("spotify_tagging_failed", error=str(exc))
 

@@ -569,8 +569,14 @@ async def _perform_download(
                             f"<b>در حال پردازش آلبوم ({cur_fa} از {tot_fa})…</b>\n\n"
                             f"{registry.text('audio')} <b>{html.quote(it_title)}</b>"
                         )
+                        real_pct = int((sent_count / total_items) * 100)
                         try:
-                            await status_msg.edit_text(prog_text)
+                            if isinstance(status_msg, ProgressController):
+                                await status_msg.update_stage(
+                                    stage_title=prog_text, percent=real_pct, force=True
+                                )
+                            else:
+                                await status_msg.edit_text(prog_text)
                         except Exception:
                             pass
 
