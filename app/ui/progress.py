@@ -54,8 +54,11 @@ def format_progress_caption(
     if "<" in stage_title and ">" in stage_title:
         title_block = stage_title
     else:
-        ic_clock = registry.text("clock") if registry else "⏳"
-        title_block = f"{ic_clock} <b>{html.quote(stage_title)}</b>"
+        if "دانلود" in stage_title:
+            ic_icon = registry.text("download") if registry else "📥"
+        else:
+            ic_icon = registry.text("processing") if registry else "⏳"
+        title_block = f"{ic_icon} <b>{html.quote(stage_title)}</b>"
 
     lines = [title_block]
 
@@ -64,7 +67,7 @@ def format_progress_caption(
     if extra_line:
         lines.append(extra_line)
 
-    lines.append(f"\n<code>{bar_str}</code>")
+    lines.append(f"<code>{bar_str}</code>")
 
     ic_lightning = registry.text("lightning") if registry else "⚡"
     if detail:
@@ -103,14 +106,26 @@ class ProgressController:
             self._tick_task = asyncio.create_task(self._ticker_loop())
 
     async def _ticker_loop(self) -> None:
-        """Gradually advance progress percentage while operation runs."""
-        progression_steps = [28, 42, 57, 71, 82, 89, 94]
-        for step in progression_steps:
+        """Gradually advance progress percentage and dynamic detail while operation runs."""
+        steps = [
+            (25, "در حال اتصال به سرور رسانه…", 1.8),
+            (42, "در حال دریافت استریم با حداکثر سرعت…", 2.0),
+            (58, "در حال پردازش و استخراج فایل…", 2.2),
+            (73, "در حال بهینه‌سازی و آماده‌سازی فایل…", 2.5),
+            (86, "در حال نهایی‌سازی و فشرده‌سازی…", 2.8),
+            (94, "در حال ارسال فایل به تلگرام…", 3.0),
+        ]
+        for pct, detail_text, delay in steps:
             try:
-                await asyncio.sleep(1.8)
+                await asyncio.sleep(delay)
                 if self._completed:
                     break
-                await self.update_stage(self.stage_title, percent=step)
+                await self.update_stage(
+                    self.stage_title,
+                    percent=pct,
+                    detail=detail_text,
+                    from_ticker=True,
+                )
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -204,6 +219,7 @@ class ProgressController:
         sub_title: str | None = None,
         extra_line: str | None = None,
         force: bool = False,
+        from_ticker: bool = False,
     ) -> None:
         """Update the displayed stage and progress bar."""
         if self._completed or not self.message_id:
@@ -212,7 +228,7 @@ class ProgressController:
         self.stage_title = stage_title
         if percent is not None:
             self.percent = max(0, min(100, percent))
-            if self._tick_task and not self._tick_task.done():
+            if not from_ticker and self._tick_task and not self._tick_task.done():
                 self._tick_task.cancel()
 
         now = time.perf_counter()
