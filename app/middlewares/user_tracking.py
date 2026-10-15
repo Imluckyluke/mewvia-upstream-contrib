@@ -47,13 +47,11 @@ def is_real_interaction(event: TelegramObject) -> bool:
             text = (inner.text or inner.caption or "").strip()
             if text.startswith("/"):
                 return True
-            from app.media.downloader import detect_platform, extract_first_url
+            from app.media.downloader import extract_first_url, is_supported_media_url
 
             url = extract_first_url(text)
-            if url:
-                key, _, _ = detect_platform(url)
-                if key != "other" or (url.startswith("http://") or url.startswith("https://")):
-                    return True
+            if url and is_supported_media_url(url):
+                return True
             return False
         # Private chats (and channels edge-cases) always count.
         return True

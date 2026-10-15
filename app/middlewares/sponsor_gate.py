@@ -128,15 +128,11 @@ class SponsorGateMiddleware(BaseMiddleware):
             is_cmd = text.startswith("/")
             has_media_url = False
             if not is_cmd and text:
-                from app.media.downloader import detect_platform, extract_first_url
+                from app.media.downloader import extract_first_url, is_supported_media_url
 
                 found_url = extract_first_url(text)
-                if found_url:
-                    key, _, _ = detect_platform(found_url)
-                    if key != "other" or (
-                        found_url.startswith("http://") or found_url.startswith("https://")
-                    ):
-                        has_media_url = True
+                if found_url and is_supported_media_url(found_url):
+                    has_media_url = True
 
             if not is_cmd and not has_media_url:
                 return await handler(event, data)

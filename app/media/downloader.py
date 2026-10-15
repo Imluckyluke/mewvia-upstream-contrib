@@ -102,6 +102,57 @@ class DownloadInfo:
     playlist_items: tuple[dict[str, Any], ...] = ()
 
 
+SUPPORTED_PLATFORMS: frozenset[str] = frozenset(
+    {
+        "youtube",
+        "instagram",
+        "tiktok",
+        "twitter",
+        "pinterest",
+        "soundcloud",
+        "spotify",
+        "reddit",
+        "aparat",
+        "facebook",
+    }
+)
+
+DIRECT_MEDIA_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".mp4",
+        ".mkv",
+        ".webm",
+        ".mov",
+        ".mp3",
+        ".m4a",
+        ".ogg",
+        ".wav",
+        ".flac",
+    }
+)
+
+
+def is_direct_media_url(url: str) -> bool:
+    """Return True if the URL directly points to an audio or video file extension."""
+    if not url:
+        return False
+    try:
+        path = urlparse(url).path.lower()
+        return any(path.endswith(ext) for ext in DIRECT_MEDIA_EXTENSIONS)
+    except Exception:
+        return False
+
+
+def is_supported_media_url(url: str) -> bool:
+    """Check if the URL belongs to a supported downloader platform or is a direct media file."""
+    if not url:
+        return False
+    key, _, _ = detect_platform(url)
+    if key in SUPPORTED_PLATFORMS:
+        return True
+    return is_direct_media_url(url)
+
+
 def detect_platform(url: str) -> tuple[str, str, str]:
     """Identify the platform from the URL host."""
     parsed = urlparse(url)
@@ -115,11 +166,11 @@ def detect_platform(url: str) -> tuple[str, str, str]:
         key = "instagram"
     elif "tiktok.com" in host:
         key = "tiktok"
-    elif any(k in host for k in ("twitter.com", "x.com")):
+    elif "twitter.com" in host or "x.com" in host or host == "t.co" or host.endswith(".t.co"):
         key = "twitter"
-    elif any(k in host for k in ("pinterest.com", "pin.it")):
+    elif "pinterest." in host or "pin.it" in host:
         key = "pinterest"
-    elif "soundcloud.com" in host:
+    elif "soundcloud.com" in host or "on.soundcloud.com" in host:
         key = "soundcloud"
     elif "spotify.com" in host or "spotify.link" in host:
         key = "spotify"
@@ -127,7 +178,7 @@ def detect_platform(url: str) -> tuple[str, str, str]:
         key = "reddit"
     elif "aparat.com" in host:
         key = "aparat"
-    elif "facebook.com" in host or "fb.watch" in host:
+    elif any(k in host for k in ("facebook.com", "fb.watch", "fb.com")):
         key = "facebook"
     else:
         key = "other"

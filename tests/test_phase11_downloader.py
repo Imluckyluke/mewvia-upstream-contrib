@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +20,7 @@ from app.media.downloader import (
     extract_first_url,
     get_download_context,
     is_instagram_video_url,
+    is_supported_media_url,
     store_download_context,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -377,3 +379,66 @@ def test_clean_instagram_url_and_type_detection() -> None:
         "ببین این ریلز رو: https://www.instagram.com/reel/DeO_JgKIVYt/?stkn=xyz خیلی باحاله"
     )
     assert extracted == "https://www.instagram.com/reel/DeO_JgKIVYt/"
+
+
+async def test_supported_media_urls_and_group_filter() -> None:
+    """Verify that only supported media platforms are recognized, and groups ignore regular links."""
+    from aiogram.enums import ChatType
+    from aiogram.types import Chat, Message
+    from app.features.downloader.router import ContainsMediaUrlFilter
+
+    # Supported URLs
+    assert is_supported_media_url("https://www.youtube.com/watch?v=123") is True
+    assert is_supported_media_url("https://youtu.be/123") is True
+    assert is_supported_media_url("https://www.instagram.com/reel/abc/") is True
+    assert is_supported_media_url("https://tiktok.com/@user/video/123") is True
+    assert is_supported_media_url("https://twitter.com/user/status/123") is True
+    assert is_supported_media_url("https://x.com/user/status/123") is True
+    assert is_supported_media_url("https://t.co/abc1234") is True
+    assert is_supported_media_url("https://open.spotify.com/track/123") is True
+    assert is_supported_media_url("https://soundcloud.com/user/track") is True
+    assert is_supported_media_url("https://pin.it/abc") is True
+    assert is_supported_media_url("https://example.com/stream.mp4") is True
+    assert is_supported_media_url("https://cdn.site/music.mp3") is True
+
+    # Unsupported URLs (news, google, telegram, github, blogs)
+    assert is_supported_media_url("https://google.com") is False
+    assert is_supported_media_url("https://t.me/channel/123") is False
+    assert is_supported_media_url("https://zoomit.ir/tech/1234") is False
+    assert is_supported_media_url("https://github.com/mhm/repo") is False
+    assert is_supported_media_url("https://en.wikipedia.org/wiki/Python") is False
+
+    # Group message filter behavior
+    from datetime import datetime
+
+    group_chat = Chat(id=-1001234567890, type=ChatType.SUPERGROUP)
+    filter_obj = ContainsMediaUrlFilter()
+    now_dt = datetime.now(UTC)
+
+    # Unsupported URL in group -> MUST return False!
+    news_msg = Message(
+        message_id=1,
+        date=now_dt,
+        chat=group_chat,
+        text="بچه‌ها این خبر رو بخونید https://zoomit.ir/tech/1234 عالیه",
+    )
+    assert await filter_obj(news_msg) is False
+
+    tme_msg = Message(
+        message_id=2,
+        date=now_dt,
+        chat=group_chat,
+        text="عضو این کانال بشید https://t.me/some_channel",
+    )
+    assert await filter_obj(tme_msg) is False
+
+    # Supported media URL in group -> MUST return extracted URL!
+    ig_msg = Message(
+        message_id=3,
+        date=now_dt,
+        chat=group_chat,
+        text="این ریلز رو ببینید: https://www.instagram.com/reel/DeO_JgKIVYt/",
+    )
+    res = await filter_obj(ig_msg)
+    assert isinstance(res, dict)
+    assert res.get("extracted_url") == "https://www.instagram.com/reel/DeO_JgKIVYt/"

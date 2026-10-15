@@ -55,6 +55,7 @@ from app.media.downloader import (
     download_video,
     extract_first_url,
     get_download_context,
+    is_supported_media_url,
     probe_media_url,
     store_download_context,
 )
@@ -1040,7 +1041,7 @@ async def upload_cookie_file(message: Message, bot: Bot, session: AsyncSession) 
 
 
 class ContainsMediaUrlFilter(BaseFilter):
-    """Filter that matches only when the message contains a supported media URL."""
+    """Filter that matches media URLs. In groups, strictly matches only supported platforms."""
 
     async def __call__(self, message: Message) -> bool | dict[str, Any]:
         text = (message.text or "").strip()
@@ -1049,9 +1050,19 @@ class ContainsMediaUrlFilter(BaseFilter):
         url = extract_first_url(text)
         if not url:
             return False
-        key, _name, _icon = detect_platform(url)
-        if key == "other" and not (url.startswith("http://") or url.startswith("https://")):
-            return False
+
+        is_group = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+        # In groups/supergroups, ONLY react to supported downloader platforms.
+        # Regular chat messages containing non-media links are ignored.
+        if is_group:
+            if not is_supported_media_url(url):
+                return False
+        else:
+            # In private chat, also require supported platform or direct media link
+            key, _name, _icon = detect_platform(url)
+            if key == "other" and not (url.startswith("http://") or url.startswith("https://")):
+                return False
+
         return {"extracted_url": url}
 
 
