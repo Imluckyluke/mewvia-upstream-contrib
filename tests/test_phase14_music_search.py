@@ -237,7 +237,7 @@ async def test_select_and_download_spotify_track(session: AsyncSession):
 async def test_cmd_music_search_group_no_query():
     msg = MagicMock(spec=Message)
     msg.message_id = 1
-    msg.text = "/song"
+    msg.text = "/music"
     msg.chat = MagicMock()
     msg.chat.type = "supergroup"
     msg.reply_to_message = None
@@ -262,7 +262,7 @@ async def test_cmd_music_search_group_no_query():
 async def test_cmd_music_search_group_reply_query():
     msg = MagicMock(spec=Message)
     msg.message_id = 2
-    msg.text = "/song"
+    msg.text = "/music"
     msg.chat = MagicMock()
     msg.chat.type = "supergroup"
 

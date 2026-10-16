@@ -168,7 +168,7 @@ def _render_search_text(
     return "\n".join(lines)
 
 
-@router.message(Command("music", "song", "search", "ahang", "moozik", "آهنگ", "موزیک", "اهنگ"))
+@router.message(Command("music"))
 async def cmd_music_search(message: Message, command: CommandObject, state: FSMContext) -> None:
     query = (command.args or "").strip()
     chat_type = getattr(getattr(message, "chat", None), "type", "private")
@@ -190,9 +190,9 @@ async def cmd_music_search(message: Message, command: CommandObject, state: FSMC
             await message.reply(
                 f"{registry.text('search')} <b>جستجوی موزیک در گروه</b>\n\n"
                 "لطفاً نام آهنگ یا خواننده را همراه دستور بفرستید:\n"
-                "• <code>/song شادمهر بارون</code>\n"
+                "• <code>/music شادمهر بارون</code>\n"
                 "• <code>/music چاوشی</code>\n\n"
-                "یا روی پیام آهنگ <b>ریپلای</b> کرده و دستور <code>/song</code> را بفرستید. 🐾"
+                "یا روی پیام آهنگ <b>ریپلای</b> کرده و دستور <code>/music</code> را بفرستید. 🐾"
             )
             return
 
