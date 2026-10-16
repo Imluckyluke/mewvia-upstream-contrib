@@ -317,7 +317,7 @@ class ProgressController:
                 except Exception:
                     pass
                 try:
-                    await self.bot.send_message(self.chat_id, error_message)
+                    await self.bot.send_message(self.chat_id, error_message, parse_mode="HTML")
                 except Exception:
                     pass
                 self.message_id = 0
@@ -335,13 +335,66 @@ class ProgressController:
                         pass
 
     # Duck-typing methods for compatibility with code that treats status_msg as a Message
-    async def edit_text(self, text: str, **kwargs: Any) -> Any:
-        if any(w in text for w in ("❌", "خطا", "ناموفق", "نیاز به")):
+    async def edit_text(self, text: str, reply_markup: Any = None, **kwargs: Any) -> Any:
+        self._completed = True
+        if self._tick_task and not self._tick_task.done():
+            self._tick_task.cancel()
+
+        markup = kwargs.get("reply_markup", reply_markup)
+
+        if any(
+            w in text
+            for w in (
+                "❌",
+                "⚠️",
+                "خطا",
+                "ناموفق",
+                "نیاز به",
+                "متأسفانه",
+                "هشدار",
+                "مشکل",
+                "نشد",
+                "یافت نشد",
+            )
+        ):
             await self.fail(text)
-        elif any(w in text for w in ("پایان رسید", "با موفقیت", "آماده شد")):
-            await self.complete_with_text(text)
-        else:
-            await self.update_stage(text, force=True)
+            return self
+
+        if not self.message_id:
+            return self
+
+        try:
+            if self.is_animation:
+                await self.bot.edit_message_caption(
+                    chat_id=self.chat_id,
+                    message_id=self.message_id,
+                    caption=text,
+                    reply_markup=markup,
+                    parse_mode="HTML",
+                )
+            else:
+                await self.bot.edit_message_text(
+                    chat_id=self.chat_id,
+                    message_id=self.message_id,
+                    text=text,
+                    reply_markup=markup,
+                    parse_mode="HTML",
+                )
+        except Exception as exc:
+            log.debug("progress_edit_text_fallback", error=str(exc))
+            try:
+                if self.is_animation:
+                    await self.bot.delete_message(self.chat_id, self.message_id)
+                    await self.bot.send_message(
+                        self.chat_id, text, reply_markup=markup, parse_mode="HTML"
+                    )
+                    self.message_id = 0
+                else:
+                    await self.bot.send_message(
+                        self.chat_id, text, reply_markup=markup, parse_mode="HTML"
+                    )
+            except Exception:
+                pass
         return self
 
     async def delete(self) -> Any:

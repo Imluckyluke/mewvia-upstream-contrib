@@ -368,3 +368,26 @@ async def test_shazam_callback_download(tmp_path: Path) -> None:
         audio_kwargs = mock_bot.send_audio.call_args[1]
         assert "Yellow" in audio_kwargs["caption"]
         assert "Coldplay" in audio_kwargs["caption"]
+
+
+async def test_progress_controller_stops_ticker_on_warning_notice() -> None:
+    """Ensure warning/unidentified notices cleanly cancel the ticker and do not keep progress bar."""
+    from app.ui.progress import ProgressController
+
+    mock_bot = AsyncMock(spec=Bot)
+    pc = ProgressController(
+        bot=mock_bot,
+        chat_id=12345,
+        message_id=999,
+        is_animation=True,
+        stage_title="در حال پردازش…",
+        auto_tick=True,
+    )
+
+    err_msg = "⚠️ متأسفانه آهنگی شناسایی نشد.\n\nلطفاً مطمئن شوید بخش انتخابی دارای موزیک واضح است."
+    await pc.edit_text(err_msg)
+
+    assert pc._completed is True
+    # Animation must be deleted and error sent cleanly
+    mock_bot.delete_message.assert_awaited_once_with(12345, 999)
+    mock_bot.send_message.assert_awaited_once_with(12345, err_msg, parse_mode="HTML")
