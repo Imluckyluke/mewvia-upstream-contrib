@@ -190,8 +190,8 @@ async def cmd_music_search(message: Message, command: CommandObject, state: FSMC
             await message.reply(
                 f"{registry.text('search')} <b>جستجوی موزیک در گروه</b>\n\n"
                 "لطفاً نام آهنگ یا خواننده را همراه دستور بفرستید:\n"
-                "• <code>/music شادمهر بارون</code>\n"
-                "• <code>/music چاوشی</code>\n\n"
+                "• <code>/music معین همدم</code>\n"
+                "• <code>/music هایده سوغاتی</code>\n\n"
                 "یا روی پیام آهنگ <b>ریپلای</b> کرده و دستور <code>/music</code> را بفرستید. 🐾"
             )
             return
@@ -211,7 +211,7 @@ async def cmd_music_search(message: Message, command: CommandObject, state: FSMC
         await message.reply(
             "<b>🔍 جستجوی مستقیم موزیک (اسپاتیفای و ساندکلاد)</b>\n\n"
             "نام آهنگ، خواننده یا بخشی از متن آن را بفرست:\n\n"
-            "<i>مثال:</i> <code>Shayea Ye Moghehaei</code> یا <code>The Weeknd Starboy</code>",
+            "<i>مثال:</i> <code>معین همدم</code> یا <code>هایده سوغاتی</code>",
             reply_markup=kb,
         )
         return
@@ -237,7 +237,7 @@ async def prompt_music_search(query: CallbackQuery, state: FSMContext) -> None:
     prompt_text = (
         "<b>🔍 جستجوی مستقیم موزیک</b>\n\n"
         "نام آهنگ یا خواننده مورد نظرت رو بفرست:\n"
-        "<i>مثال:</i> <code>محسن چاوشی</code> یا <code>Blinding Lights</code>"
+        "<i>مثال:</i> <code>معین</code> یا <code>هایده</code>"
     )
     if isinstance(query.message, Message):
         await query.message.edit_text(prompt_text, reply_markup=kb)
