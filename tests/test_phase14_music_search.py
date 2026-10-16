@@ -231,3 +231,58 @@ async def test_select_and_download_spotify_track(session: AsyncSession):
             assert call_kwargs["title"] == "Selected Song"
             assert call_kwargs["performer"] == "Selected Artist"
             assert "Selected Song" in call_kwargs["caption"]
+
+
+@pytest.mark.asyncio
+async def test_cmd_music_search_group_no_query():
+    msg = MagicMock(spec=Message)
+    msg.message_id = 1
+    msg.text = "/song"
+    msg.chat = MagicMock()
+    msg.chat.type = "supergroup"
+    msg.reply_to_message = None
+    msg.reply = AsyncMock()
+
+    storage = MemoryStorage()
+    key = StorageKey(bot_id=1, chat_id=-10012345, user_id=12345)
+    state = FSMContext(storage=storage, key=key)
+
+    cmd = MagicMock()
+    cmd.args = ""
+
+    await cmd_music_search(msg, cmd, state)
+    msg.reply.assert_awaited_once()
+    reply_text = msg.reply.await_args[0][0]
+    assert "جستجوی موزیک در گروه" in reply_text
+    # Ensure FSM state is NOT set in group chatter
+    assert await state.get_state() is None
+
+
+@pytest.mark.asyncio
+async def test_cmd_music_search_group_reply_query():
+    msg = MagicMock(spec=Message)
+    msg.message_id = 2
+    msg.text = "/song"
+    msg.chat = MagicMock()
+    msg.chat.type = "supergroup"
+
+    replied = MagicMock(spec=Message)
+    replied.text = "Mohsen Chavoshi Hosein"
+    replied.caption = None
+    msg.reply_to_message = replied
+
+    storage = MemoryStorage()
+    key = StorageKey(bot_id=1, chat_id=-10012345, user_id=12345)
+    state = FSMContext(storage=storage, key=key)
+
+    cmd = MagicMock()
+    cmd.args = ""
+
+    with patch(
+        "app.features.music_search.router._execute_search", new_callable=AsyncMock
+    ) as mock_exec:
+        await cmd_music_search(msg, cmd, state)
+        mock_exec.assert_awaited_once_with(
+            msg, "Mohsen Chavoshi Hosein", platform="spotify", state=state
+        )
+

@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from aiogram import Bot, F, Router, html
+from aiogram.enums import ChatType
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -167,12 +168,36 @@ def _render_search_text(
     return "\n".join(lines)
 
 
-@router.message(Command("music", "song", "search"))
+@router.message(Command("music", "song", "search", "ahang", "moozik", "آهنگ", "موزیک", "اهنگ"))
 async def cmd_music_search(message: Message, command: CommandObject, state: FSMContext) -> None:
     query = (command.args or "").strip()
+    chat_type = getattr(getattr(message, "chat", None), "type", "private")
+    is_group = chat_type in (ChatType.GROUP, ChatType.SUPERGROUP)
+
+    # In groups or PV, if no query passed, check if replied to a message with text
+    reply_to = getattr(message, "reply_to_message", None)
+    if not query and reply_to:
+        replied_text = (
+            getattr(reply_to, "text", None) or getattr(reply_to, "caption", None) or ""
+        ).strip()
+        if replied_text and not replied_text.startswith("/"):
+            query = replied_text
+
     if not query:
-        await state.set_state(MusicSearchSG.waiting_for_query)
         registry = await ready_registry()
+        if is_group:
+            # Avoid setting FSM state in group chatter!
+            await message.reply(
+                f"{registry.text('search')} <b>جستجوی موزیک در گروه</b>\n\n"
+                "لطفاً نام آهنگ یا خواننده را همراه دستور بفرستید:\n"
+                "• <code>/song شادمهر بارون</code>\n"
+                "• <code>/music چاوشی</code>\n\n"
+                "یا روی پیام آهنگ <b>ریپلای</b> کرده و دستور <code>/song</code> را بفرستید. 🐾"
+            )
+            return
+
+        # Private chat: set FSM state with interactive cancel button
+        await state.set_state(MusicSearchSG.waiting_for_query)
         kb = (
             KB(registry)
             .button(
@@ -276,10 +301,28 @@ async def _execute_search(
     kb = _build_search_kb(sid, active_platform, tracks, registry)
     card_text = _render_search_text(query_str, active_platform, tracks, registry)
 
+    res_msg: Message | None = None
     if status_msg:
-        await status_msg.edit_text(card_text, reply_markup=kb.as_markup())
+        try:
+            await status_msg.edit_text(card_text, reply_markup=kb.as_markup())
+            res_msg = status_msg
+        except Exception:
+            res_msg = await message.reply(card_text, reply_markup=kb.as_markup())
     else:
-        await message.answer(card_text, reply_markup=kb.as_markup())
+        res_msg = await message.reply(card_text, reply_markup=kb.as_markup())
+
+    # Protect panel ownership in groups so only the requester can tap buttons
+    user_id = message.from_user.id if message.from_user else 0
+    user_name = message.from_user.first_name if message.from_user else "کاربر"
+    if res_msg and user_id:
+        await store_panel(
+            chat_id=message.chat.id,
+            message_id=res_msg.message_id,
+            owner_id=user_id,
+            owner_name=user_name,
+            reply_to_message_id=message.message_id,
+            kind="music_search",
+        )
 
 
 @router.callback_query(MusicSearchCB.filter(F.action == "switch"))
@@ -325,7 +368,10 @@ async def cancel_music_search(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     if isinstance(query.message, Message):
         try:
-            await query.message.edit_text("جستجوی موزیک بسته شد.")
+            if query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+                await query.message.delete()
+            else:
+                await query.message.edit_text("جستجوی موزیک بسته شد.")
         except Exception:
             pass
     await query.answer()
