@@ -109,7 +109,15 @@ class SponsorGateMiddleware(BaseMiddleware):
                     and at_bot != settings.bot_username.lower().lstrip("@")
                 ):
                     is_mewvia_cmd = False
-                elif cmd_name in {"media", "mewvia", "dl", "shazam", "findsong", "songid"}:
+                elif cmd_name in {
+                    "media",
+                    "mewvia",
+                    "dl",
+                    "shazam",
+                    "findsong",
+                    "songid",
+                    "music",
+                }:
                     is_mewvia_cmd = True
 
             has_media_url = False

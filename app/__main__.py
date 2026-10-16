@@ -44,6 +44,7 @@ PRIVATE_BOT_COMMANDS = [
 
 GROUP_BOT_COMMANDS = [
     BotCommand(command="media", description="دستیار مدیا (ریپلای روی فایل)"),
+    BotCommand(command="music", description="جستجوی مستقیم موزیک (اسپاتیفای و ساندکلاد)"),
     BotCommand(command="shazam", description="تشخیص آهنگ (ریپلای روی ویس یا ویدیو)"),
 ]
 

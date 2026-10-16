@@ -47,7 +47,15 @@ def is_real_interaction(event: TelegramObject) -> bool:
             text = (inner.text or inner.caption or "").strip()
             if text.startswith("/"):
                 cmd_name = text.split()[0][1:].lower().split("@")[0]
-                if cmd_name in {"media", "mewvia", "dl", "shazam", "findsong", "songid"}:
+                if cmd_name in {
+                    "media",
+                    "mewvia",
+                    "dl",
+                    "shazam",
+                    "findsong",
+                    "songid",
+                    "music",
+                }:
                     return True
                 return False
             from app.media.downloader import extract_first_url, is_supported_media_url
