@@ -66,6 +66,7 @@ from app.media.lyrics import (
     embed_lyrics_to_mp3,
     fetch_lyrics,
 )
+from app.media.probe import probe
 from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB, inline_button
@@ -174,11 +175,26 @@ async def _perform_download(
                 )
                 caption = "\n\n".join(caption_lines)
 
+                v_w: int | None = None
+                v_h: int | None = None
+                v_dur: int | None = None
+                try:
+                    v_info = await probe(downloaded_file)
+                    v_w = v_info.width if v_info.width > 0 else None
+                    v_h = v_info.height if v_info.height > 0 else None
+                    v_dur = int(v_info.duration) if v_info.duration > 0 else None
+                except Exception:
+                    pass
+
                 video_kb = build_video_actions_kb(registry)
                 sent_video = await bot.send_video(
                     chat_id=chat_id,
                     video=FSInputFile(downloaded_file),
                     caption=caption[:1024],
+                    width=v_w,
+                    height=v_h,
+                    duration=v_dur,
+                    supports_streaming=True,
                     reply_to_message_id=reply_to_id,
                     reply_markup=video_kb.as_markup(),
                 )
@@ -310,11 +326,26 @@ async def _perform_download(
                 if len(gallery_files) == 1:
                     single_file = gallery_files[0]
                     if single_file.suffix.lower() == ".mp4":
+                        v_w = None
+                        v_h = None
+                        v_dur = None
+                        try:
+                            v_info = await probe(single_file)
+                            v_w = v_info.width if v_info.width > 0 else None
+                            v_h = v_info.height if v_info.height > 0 else None
+                            v_dur = int(v_info.duration) if v_info.duration > 0 else None
+                        except Exception:
+                            pass
+
                         video_kb = build_video_actions_kb(registry)
                         sent_v = await bot.send_video(
                             chat_id=chat_id,
                             video=FSInputFile(single_file),
                             caption=gallery_caption[:1024],
+                            width=v_w,
+                            height=v_h,
+                            duration=v_dur,
+                            supports_streaming=True,
                             reply_to_message_id=reply_to_id,
                             reply_markup=video_kb.as_markup(),
                         )
@@ -356,8 +387,25 @@ async def _perform_download(
                         for i, p in enumerate(chunk):
                             cap = gallery_caption[:1024] if chunk_idx == 0 and i == 0 else None
                             if p.suffix.lower() == ".mp4":
+                                v_w = None
+                                v_h = None
+                                v_dur = None
+                                try:
+                                    v_info = await probe(p)
+                                    v_w = v_info.width if v_info.width > 0 else None
+                                    v_h = v_info.height if v_info.height > 0 else None
+                                    v_dur = int(v_info.duration) if v_info.duration > 0 else None
+                                except Exception:
+                                    pass
                                 media_group.append(
-                                    InputMediaVideo(media=FSInputFile(p), caption=cap)
+                                    InputMediaVideo(
+                                        media=FSInputFile(p),
+                                        caption=cap,
+                                        width=v_w,
+                                        height=v_h,
+                                        duration=v_dur,
+                                        supports_streaming=True,
+                                    )
                                 )
                             else:
                                 media_group.append(
@@ -366,9 +414,23 @@ async def _perform_download(
                         if len(media_group) == 1:
                             single_item = chunk[0]
                             if single_item.suffix.lower() == ".mp4":
+                                v_w = None
+                                v_h = None
+                                v_dur = None
+                                try:
+                                    v_info = await probe(single_item)
+                                    v_w = v_info.width if v_info.width > 0 else None
+                                    v_h = v_info.height if v_info.height > 0 else None
+                                    v_dur = int(v_info.duration) if v_info.duration > 0 else None
+                                except Exception:
+                                    pass
                                 await bot.send_video(
                                     chat_id=chat_id,
                                     video=FSInputFile(single_item),
+                                    width=v_w,
+                                    height=v_h,
+                                    duration=v_dur,
+                                    supports_streaming=True,
                                     reply_to_message_id=reply_to_id,
                                 )
                             else:
@@ -536,10 +598,26 @@ async def _perform_download(
                                     caption_v = (
                                         f"{registry.text('video')} <b>{html.quote(it_title)}</b>"
                                     )
+                                    v_w = None
+                                    v_h = None
+                                    v_dur = None
+                                    try:
+                                        v_info = await probe(file_path)
+                                        v_w = v_info.width if v_info.width > 0 else None
+                                        v_h = v_info.height if v_info.height > 0 else None
+                                        v_dur = (
+                                            int(v_info.duration) if v_info.duration > 0 else None
+                                        )
+                                    except Exception:
+                                        pass
                                     await bot.send_video(
                                         chat_id=chat_id,
                                         video=FSInputFile(file_path),
                                         caption=caption_v,
+                                        width=v_w,
+                                        height=v_h,
+                                        duration=v_dur,
+                                        supports_streaming=True,
                                         reply_to_message_id=reply_to_id,
                                     )
                                 else:

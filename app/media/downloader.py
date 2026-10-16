@@ -692,6 +692,99 @@ async def probe_media_url(url: str, cookie_file: str | None = None) -> DownloadI
     return await asyncio.to_thread(_probe_info_sync, url, cookie_file)
 
 
+def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
+    """Ensure downloaded video is 100% compatible with Apple iOS Photos/Camera Roll.
+
+    Apple iOS (Photos.app, QuickTime, AVFoundation) strictly requires:
+    - Video codec: H.264 (avc1) or HEVC (hvc1). VP9/AV1 videos cannot be saved on iOS!
+    - Pixel format: yuv420p (8-bit 4:2:0).
+    - Audio codec: AAC or MP3 (or none).
+    - Container: MP4 with +faststart (moov atom at beginning of file).
+    """
+    if not video_path.is_file() or video_path.stat().st_size == 0:
+        return video_path
+    if video_path.suffix.lower() != ".mp4":
+        return video_path
+
+    try:
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name,pix_fmt",
+            "-of",
+            "json",
+            str(video_path),
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        data = json.loads(res.stdout)
+        streams = data.get("streams", [])
+        if not streams:
+            return video_path
+
+        stream = streams[0]
+        vcodec = (stream.get("codec_name") or "").lower()
+        pix_fmt = (stream.get("pix_fmt") or "").lower()
+
+        out_path = work_dir / f"ios_{video_path.name}"
+
+        # If already standard H.264/HEVC with standard yuv420p, ensure faststart stream copy
+        if vcodec in ("h264", "hevc") and pix_fmt in ("yuv420p", "yuvj420p"):
+            faststart_cmd = [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                str(video_path),
+                "-c",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(out_path),
+            ]
+            fs_res = subprocess.run(faststart_cmd, capture_output=True, timeout=30)
+            if fs_res.returncode == 0 and out_path.is_file() and out_path.stat().st_size > 0:
+                return out_path
+            return video_path
+
+        # If VP9/AV1 or non-standard pixel format, transcode to standard H.264 + AAC + yuv420p
+        log.info("transcoding_video_for_ios_camera_roll", vcodec=vcodec, pix_fmt=pix_fmt)
+        transcode_cmd = [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(video_path),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            str(out_path),
+        ]
+        tc_res = subprocess.run(transcode_cmd, capture_output=True, timeout=120)
+        if tc_res.returncode == 0 and out_path.is_file() and out_path.stat().st_size > 0:
+            return out_path
+    except Exception as exc:
+        log.warning("ios_video_compatibility_check_failed", error=str(exc))
+
+    return video_path
+
+
 def _download_video_sync(
     url: str,
     work_dir: Path,
@@ -705,12 +798,22 @@ def _download_video_sync(
 
     if max_height:
         format_str = (
+            f"bestvideo[height<={max_height}][vcodec^=avc]+bestaudio[ext=m4a]/"
+            f"bestvideo[height<={max_height}][vcodec^=h264]+bestaudio[ext=m4a]/"
+            f"best[height<={max_height}][vcodec^=avc]/"
+            f"best[height<={max_height}][vcodec^=h264]/"
+            f"best[height<={max_height}][format_id!*=dash]/"
             f"bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/"
             f"best[height<={max_height}][ext=mp4]/"
             f"best[height<={max_height}]/best"
         )
     else:
-        format_str = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best"
+        format_str = (
+            "b[vcodec^=avc]/b[vcodec^=h264]/"
+            "bv[vcodec^=avc]+ba[ext=m4a]/bv[vcodec^=h264]+ba[ext=m4a]/"
+            "best[format_id!*=dash]/"
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+        )
 
     opts = _build_ytdlp_opts(
         download=True,
@@ -773,7 +876,8 @@ def _download_video_sync(
 
     # Prefer .mp4 if multiple
     mp4s = [p for p in candidates if p.suffix.lower() == ".mp4"]
-    return mp4s[0] if mp4s else candidates[0]
+    selected = mp4s[0] if mp4s else candidates[0]
+    return _ensure_ios_compatibility_sync(selected, work_dir)
 
 
 def _download_audio_sync(
@@ -882,9 +986,11 @@ def _download_gallery_sync(
     except subprocess.TimeoutExpired:
         raise ConversionError("دانلود گالری به دلیل اتمام زمان متوقف شد.") from None
 
-    # Collect downloaded image files
+    # Collect downloaded image and video files, ensuring iOS compatibility for videos
     results = [
-        p
+        _ensure_ios_compatibility_sync(p, dest_dir)
+        if p.suffix.lower() == ".mp4"
+        else p
         for p in dest_dir.rglob("*")
         if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".mp4")
     ]
@@ -936,8 +1042,15 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
                 f for f in formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("url")
             ]
             if v_fmts:
-                # Video item in post/carousel! Download real MP4 video, never thumbnail
-                v_url = v_fmts[-1]["url"]
+                # Video item in post/carousel! Prefer AVC/H264 stream for iOS Camera Roll
+                avc_fmts = [
+                    f
+                    for f in v_fmts
+                    if "avc" in (f.get("vcodec") or "").lower()
+                    or "h264" in (f.get("vcodec") or "").lower()
+                ]
+                chosen_fmt = avc_fmts[-1] if avc_fmts else v_fmts[-1]
+                v_url = chosen_fmt["url"]
                 resp = requests.get(
                     v_url, proxies={"https": "socks5h://warp:1080"}, stream=True, timeout=30
                 )
@@ -946,6 +1059,7 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
                     with open(out, "wb") as f:
                         for chunk in resp.iter_content(chunk_size=65536):
                             f.write(chunk)
+                    out = _ensure_ios_compatibility_sync(out, dest_dir)
                     results.append(out)
             else:
                 # Photo item! Download full-res image
