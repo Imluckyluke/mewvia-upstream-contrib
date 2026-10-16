@@ -656,6 +656,9 @@ async def _perform_download(
         except MewviaError as exc:
             if cookie_record:
                 await repo_cookie.record_usage(cookie_record.id, success=False, error=str(exc))
+                from app.admin.cookies_router import sync_active_cookie_to_disk
+
+                await sync_active_cookie_to_disk(session)
             err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
             if status_msg is not None:
                 await status_msg.edit_text(err)
@@ -666,6 +669,9 @@ async def _perform_download(
         except Exception as exc:
             if cookie_record:
                 await repo_cookie.record_usage(cookie_record.id, success=False, error=str(exc))
+                from app.admin.cookies_router import sync_active_cookie_to_disk
+
+                await sync_active_cookie_to_disk(session)
             log.error("downloader_error", url=url, error=str(exc))
             err = "❌ خطا در دانلود رسانه. ممکن است لینک منقضی یا نامعتبر باشد."
             if status_msg is not None:

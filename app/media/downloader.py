@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import secrets
 import subprocess
@@ -72,9 +73,14 @@ def find_cookie_file(platform_key: str | None = None) -> Path | None:
     """Check for platform-specific cookie file."""
     if not platform_key or platform_key in ("spotify", "other"):
         return None
+    # For Instagram, do not inject static disk cookies by default; anonymous Chrome-impersonation
+    # via WARP is vastly more reliable and avoids expired session checkpoint errors.
+    # Valid active cookies from the database are injected per-job by the downloader router.
+    if platform_key == "instagram":
+        return None
     p = Path(f"/data/cookies/{platform_key}.txt")
     try:
-        if p.is_file() and p.stat().st_size > 0:
+        if p.is_file() and p.stat().st_size > 0 and os.access(p, os.R_OK):
             return p
     except OSError:
         pass
@@ -554,14 +560,28 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
         # If Instagram, retry with Instagram InfoExtractor directly to bypass
         # transient JSON / checkpoint errors
         if platform_key == "instagram":
-            try:
-                with _make_ydl(opts) as ydl_retry:
-                    ie = ydl_retry.get_info_extractor("Instagram")
-                    ie.initialize()
-                    ie.raise_no_formats = lambda *a, **kw: None
-                    info = ie.extract(url)
-            except Exception as retry_exc:
-                log.warning("instagram_retry_probe_failed", error=str(retry_exc))
+            # 1. First retry anonymously without any cookie
+            if opts.get("cookiefile"):
+                opts_anon = dict(opts)
+                opts_anon.pop("cookiefile", None)
+                try:
+                    with _make_ydl(opts_anon) as ydl_anon:
+                        info = ydl_anon.extract_info(url, download=False)
+                except Exception as anon_exc:
+                    log.warning("instagram_anon_retry_failed", error=str(anon_exc))
+
+            # 2. If still no info, retry with raw InfoExtractor
+            if not info:
+                try:
+                    opts_raw = dict(opts)
+                    opts_raw.pop("cookiefile", None)
+                    with _make_ydl(opts_raw) as ydl_retry:
+                        ie = ydl_retry.get_info_extractor("Instagram")
+                        ie.initialize()
+                        ie.raise_no_formats = lambda *a, **kw: None
+                        info = ie.extract(url)
+                except Exception as retry_exc:
+                    log.warning("instagram_retry_probe_failed", error=str(retry_exc))
 
     # 3. Check gallery-dl compatibility if yt-dlp failed or gave no media
     is_gallery = False
@@ -707,7 +727,7 @@ def _download_video_sync(
             ydl.download([url])
     except Exception as exc:
         err_str = str(exc).lower()
-        if cookie_file:
+        if opts.get("cookiefile"):
             log.warning(
                 "video_download_failed_with_cookie_retrying_anonymous",
                 url=url,
