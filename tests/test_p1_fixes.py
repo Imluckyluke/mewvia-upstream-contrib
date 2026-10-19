@@ -159,3 +159,42 @@ async def test_quota_exhausted_blocks_heavy_features(monkeypatch: pytest.MonkeyP
 
     await save_tag_edits(cb_tag, bot, session, settings, state_tag)
     assert mock_quota.called
+
+
+def test_twitter_wrapped_entries_detected_as_video(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Twitter URLs returning wrapped entries from yt-dlp must be detected as video, NOT playlist."""
+    from app.media.downloader import _probe_info_sync
+
+    fake_twitter_info = {
+        "id": "12345",
+        "title": "Cool Tweet",
+        "uploader": "TwitterUser",
+        "entries": [
+            {
+                "id": "12345_1",
+                "formats": [
+                    {"vcodec": "avc1.4D400D", "ext": "mp4", "url": "https://video.twimg.com/vid.mp4"},
+                ],
+            },
+            {"id": "12345_2", "url": "https://x.com/tweet"},
+        ],
+    }
+
+    class FakeYDL:
+        def __enter__(self) -> FakeYDL:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def extract_info(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            return fake_twitter_info
+
+    monkeypatch.setattr("app.media.downloader._make_ydl", lambda *args, **kwargs: FakeYDL())
+
+    info = _probe_info_sync("https://x.com/TwitterUser/status/12345")
+    assert info.platform_key == "twitter"
+    assert info.is_video is True
+    assert info.is_playlist is False
+    assert info.is_gallery is False
+    assert info.is_audio_only is False

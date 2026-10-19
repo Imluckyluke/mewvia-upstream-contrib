@@ -576,14 +576,24 @@ async def _perform_download(
                                     return idx, it, p
                             else:
                                 if it_url:
-                                    p = await asyncio.wait_for(
-                                        download_audio(
-                                            it_url,
-                                            track_dir,
-                                            max_bytes=settings.upload_limit,
-                                        ),
-                                        timeout=item_timeout,
-                                    )
+                                    try:
+                                        p = await asyncio.wait_for(
+                                            download_audio(
+                                                it_url,
+                                                track_dir,
+                                                max_bytes=settings.upload_limit,
+                                            ),
+                                            timeout=item_timeout,
+                                        )
+                                    except Exception:
+                                        p = await asyncio.wait_for(
+                                            download_video(
+                                                it_url,
+                                                track_dir,
+                                                max_bytes=settings.upload_limit,
+                                            ),
+                                            timeout=item_timeout,
+                                        )
                                     return idx, it, p
                         except Exception as exc:
                             log.warning(

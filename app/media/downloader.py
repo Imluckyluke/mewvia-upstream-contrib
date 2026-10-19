@@ -646,24 +646,42 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
         info["thumbnails"][-1]["url"] if info.get("thumbnails") else None
     )
 
-    # Detect playlist in yt-dlp response
-    is_pl = (info.get("_type") == "playlist") or bool(info.get("entries"))
-    entries = info.get("entries") or []
-    pl_items: list[dict[str, Any]] = []
-    if is_pl and entries:
-        for e in entries:
-            if isinstance(e, dict):
-                pl_items.append(
-                    {
-                        "title": (e.get("title") or "Unknown").strip(),
-                        "url": e.get("url") or e.get("webpage_url") or "",
-                        "duration_seconds": e.get("duration"),
-                        "uploader": e.get("uploader") or uploader,
-                    }
-                )
-
+    # Detect video formats on top level or within wrapped entries (e.g. Twitter/X, TikTok)
     formats = info.get("formats", [])
     has_video = any(f.get("vcodec") and f.get("vcodec") != "none" for f in formats)
+
+    entries = info.get("entries") or []
+    if not has_video and entries:
+        for e in entries:
+            if isinstance(e, dict):
+                e_fmts = e.get("formats") or []
+                if any(f.get("vcodec") and f.get("vcodec") != "none" for f in e_fmts) or (
+                    e.get("vcodec") and e.get("vcodec") != "none"
+                ):
+                    has_video = True
+                    break
+
+    # Detect playlist in yt-dlp response.
+    # Only YouTube, Spotify, and SoundCloud can be treated as multi-track playlists/albums.
+    # Social posts (Twitter/X, TikTok, Instagram, etc.) are single media or carousels!
+    is_pl = False
+    pl_items: list[dict[str, Any]] = []
+    if platform_key in ("youtube", "spotify", "soundcloud"):
+        is_pl = (info.get("_type") == "playlist") or (
+            bool(entries) and (not formats or info.get("_type") == "playlist")
+        )
+        if is_pl and entries:
+            for e in entries:
+                if isinstance(e, dict):
+                    pl_items.append(
+                        {
+                            "title": (e.get("title") or "Unknown").strip(),
+                            "url": e.get("url") or e.get("webpage_url") or "",
+                            "duration_seconds": e.get("duration"),
+                            "uploader": e.get("uploader") or uploader,
+                        }
+                    )
+
     if is_ig_video:
         has_video = True
         is_gallery = False
