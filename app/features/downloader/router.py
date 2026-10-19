@@ -1103,10 +1103,29 @@ async def cmd_cookie_info(message: Message, session: AsyncSession) -> None:
     await message.reply(text, reply_markup=kb.as_markup())
 
 
+def _is_cookie_file_upload(message: Message) -> bool:
+    if (
+        message.animation
+        or message.video
+        or message.photo
+        or message.sticker
+        or message.video_note
+        or message.audio
+        or message.voice
+    ):
+        return False
+    doc = message.document
+    if not doc or not doc.file_name:
+        return False
+    file_name = doc.file_name.lower()
+    valid_keywords = ("cookie", "insta", "instagram", "youtube", "yt")
+    return file_name.endswith((".txt", ".json")) and any(k in file_name for k in valid_keywords)
+
+
 @router.message(
     F.chat.type == "private",
     IsAdmin(),
-    F.document,
+    _is_cookie_file_upload,
 )
 async def upload_cookie_file(message: Message, bot: Bot, session: AsyncSession) -> None:
     """Allow admins to upload cookies.txt directly to add to the account pool."""

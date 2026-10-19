@@ -272,3 +272,33 @@ def test_document_extension_detection_for_gif_and_sticker() -> None:
     assert res2 is not None
     assert res2[0] == MediaKind.STICKER_ANIMATED
 
+
+def test_cookie_file_upload_filter_ignores_animations_and_media() -> None:
+    from aiogram.types import Animation, Chat, Document, Message, User
+    from app.features.downloader.router import _is_cookie_file_upload
+
+    user = User(id=7575366278, is_bot=False, first_name="mhm")
+    chat = Chat(id=7575366278, type="private")
+
+    # Animation with document attached (standard Telegram GIF)
+    doc_gif = Document(
+        file_id="d1",
+        file_unique_id="u1",
+        file_name="cat.mp4",
+        mime_type="video/mp4",
+    )
+    anim = Animation(file_id="a1", file_unique_id="u2", width=100, height=100, duration=2)
+    msg_anim = Message(message_id=1, date=1, chat=chat, from_user=user, animation=anim, document=doc_gif)
+    assert _is_cookie_file_upload(msg_anim) is False
+
+    # Real cookie txt file
+    doc_cookie = Document(
+        file_id="d2",
+        file_unique_id="u3",
+        file_name="instagram_cookies.txt",
+        mime_type="text/plain",
+    )
+    msg_cookie = Message(message_id=2, date=1, chat=chat, from_user=user, document=doc_cookie)
+    assert _is_cookie_file_upload(msg_cookie) is True
+
+
