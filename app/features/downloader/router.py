@@ -80,7 +80,7 @@ router = Router(name="downloader")
 
 
 def _add_to_zip(zip_path: Path, file_path: Path, arcname: str) -> None:
-    with zipfile.ZipFile(zip_path, "a", compression=zipfile.ZIP_STORED) as zf:
+    with zipfile.ZipFile(zip_path, "a", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(file_path, arcname=arcname)
 
 
@@ -316,6 +316,13 @@ async def _perform_download(
                     raise ConversionError("هیچ عکسی برای دانلود یافت نشد.")
 
                 file_size = sum(f.stat().st_size for f in gallery_files)
+                valid_gallery = [
+                    f for f in gallery_files if f.stat().st_size <= settings.upload_limit
+                ]
+                if not valid_gallery:
+                    limit_str = human_bytes(settings.upload_limit)
+                    raise ConversionError(f"حجم فایل‌های گالری بیش از حد مجاز ({limit_str}) است.")
+                gallery_files = valid_gallery
                 gallery_caption_lines = []
                 if title:
                     gallery_caption_lines.append(

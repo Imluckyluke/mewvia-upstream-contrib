@@ -353,10 +353,12 @@ async def switch_music_platform(query: CallbackQuery, callback_data: MusicSearch
     cached_key = f"{target_platform}_results"
     raw_cached = session_data.get(cached_key) or []
 
+    answered = False
     if raw_cached:
         tracks = [SearchTrack.from_dict(d) for d in raw_cached]
     else:
         await query.answer("در حال دریافت نتایج…")
+        answered = True
         if target_platform == "soundcloud":
             tracks = await search_soundcloud(query_str, limit=5)
         else:
@@ -375,7 +377,8 @@ async def switch_music_platform(query: CallbackQuery, callback_data: MusicSearch
         await query.message.edit_text(card_text, reply_markup=kb.as_markup())
     except Exception:
         pass
-    await query.answer()
+    if not answered:
+        await query.answer()
 
 
 @router.callback_query(MusicSearchCB.filter(F.action == "cancel"))

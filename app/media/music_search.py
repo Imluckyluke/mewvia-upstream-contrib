@@ -82,7 +82,7 @@ def _get_spotify_token_sync() -> str:
                     )
                 },
             )
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:  # nosec B310
                 html = resp.read().decode("utf-8", errors="replace")
                 m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
                 if not m:
@@ -153,7 +153,7 @@ def search_spotify_sync(query: str, limit: int = 5) -> list[SearchTrack]:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             data = json.loads(resp.read().decode("utf-8", errors="replace"))
     except Exception as exc:
         log.warning("spotify_search_request_failed", query=clean_query, error=str(exc))

@@ -62,6 +62,8 @@ def build_storage(settings: Settings) -> BaseStorage:
         return RedisStorage.from_url(
             settings.redis_url,
             connection_kwargs={"max_connections": 50},
+            state_ttl=86400,
+            data_ttl=86400,
         )
     log.warning("redis_url_missing_using_memory_storage")
     return MemoryStorage()

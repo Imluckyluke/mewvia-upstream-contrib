@@ -323,7 +323,7 @@ def extract_spotify_metadata_sync(url: str) -> dict[str, Any]:
         import urllib.request
 
         req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310
             oembed_data = json.loads(r.read().decode("utf-8"))
     except Exception as exc:
         log.warning("spotify_oembed_failed", url=url, error=str(exc))
@@ -340,7 +340,7 @@ def extract_spotify_metadata_sync(url: str) -> dict[str, Any]:
         import urllib.request
 
         req = urllib.request.Request(embed_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310
             html_text = r.read().decode("utf-8")
             m = re.search(
                 r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
@@ -465,7 +465,7 @@ def _download_spotify_track_sync(
                 import urllib.request
 
                 req = urllib.request.Request(thumbnail_url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
                     thumb_bytes = resp.read()
                 tags.add(
                     APIC(
@@ -993,13 +993,14 @@ def _download_gallery_sync(
     except subprocess.TimeoutExpired:
         raise ConversionError("دانلود گالری به دلیل اتمام زمان متوقف شد.") from None
 
-    # Collect downloaded image and video files, ensuring iOS compatibility for videos
+    # Collect downloaded image, animation and video files, ensuring iOS compatibility for videos
     results = [
         _ensure_ios_compatibility_sync(p, dest_dir)
-        if p.suffix.lower() == ".mp4"
+        if p.suffix.lower() in (".mp4", ".webm")
         else p
         for p in dest_dir.rglob("*")
-        if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".mp4")
+        if p.is_file()
+        and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".gif", ".webm")
     ]
 
     if not results:
