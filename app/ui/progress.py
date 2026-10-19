@@ -314,12 +314,12 @@ class ProgressController:
             if self.is_animation:
                 try:
                     await self.bot.delete_message(self.chat_id, self.message_id)
-                except Exception:
-                    pass
+                except Exception as del_exc:
+                    log.warning("progress_animation_delete_failed", error=str(del_exc))
                 try:
                     await self.bot.send_message(self.chat_id, error_message, parse_mode="HTML")
-                except Exception:
-                    pass
+                except Exception as send_exc:
+                    log.warning("progress_fail_send_message_failed", error=str(send_exc))
                 self.message_id = 0
             else:
                 try:
@@ -331,8 +331,8 @@ class ProgressController:
                 except Exception:
                     try:
                         await self.bot.send_message(self.chat_id, error_message)
-                    except Exception:
-                        pass
+                    except Exception as fallback_exc:
+                        log.warning("progress_fail_fallback_send_failed", error=str(fallback_exc))
 
     # Duck-typing methods for compatibility with code that treats status_msg as a Message
     async def edit_text(self, text: str, reply_markup: Any = None, **kwargs: Any) -> Any:
@@ -393,8 +393,8 @@ class ProgressController:
                     await self.bot.send_message(
                         self.chat_id, text, reply_markup=markup, parse_mode="HTML"
                     )
-            except Exception:
-                pass
+            except Exception as fb_exc:
+                log.warning("progress_edit_fallback_send_failed", error=str(fb_exc))
         return self
 
     async def delete(self) -> Any:

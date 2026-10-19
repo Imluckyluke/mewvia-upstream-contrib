@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.callbacks import FilterCB
 from app.config import Settings
 from app.core.logging import get_logger
+from app.core.quota import check_daily_quota
 from app.db.repo import ConversionRepo
 from app.media.filters import FILTER_MAP, apply_filter_to_image, apply_filter_to_video
 from app.media.kinds import MediaKind, resolve_panel_media, send_processing_status
@@ -125,6 +126,10 @@ async def process_filter_apply(
 
     kind, file_id, file_size, _reply_to_id = resolved
     user_id = query.from_user.id if query.from_user else 0
+
+    if not await check_daily_quota(session, user_id, query):
+        return
+
     await query.answer()
 
     status_msg = await send_processing_status(msg, t("common.processing"))

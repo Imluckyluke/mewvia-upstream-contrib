@@ -133,6 +133,9 @@ async def _perform_download(
                 ig_cookie_path.write_text(cookie_record.cookie_text, encoding="utf-8")
                 cookie_file_str = str(ig_cookie_path)
 
+        # Release database transaction so connection returns to pool during heavy download
+        await session.commit()
+
         try:
             if action.startswith("video"):
                 max_h: int | None = None
@@ -540,29 +543,39 @@ async def _perform_download(
 
                     async with sem:
                         try:
+                            item_timeout = min(60, settings.job_timeout)
                             if platform_key == "spotify":
-                                p = await download_spotify_track(
-                                    title=it_title,
-                                    artist=it_artist,
-                                    thumbnail_url=ctx.get("thumbnail_url"),
-                                    work_dir=track_dir,
-                                    max_bytes=settings.upload_limit,
+                                p = await asyncio.wait_for(
+                                    download_spotify_track(
+                                        title=it_title,
+                                        artist=it_artist,
+                                        thumbnail_url=ctx.get("thumbnail_url"),
+                                        work_dir=track_dir,
+                                        max_bytes=settings.upload_limit,
+                                    ),
+                                    timeout=item_timeout,
                                 )
                                 return idx, it, p
                             elif action == "pl_video_all":
                                 if it_url:
-                                    p = await download_video(
-                                        it_url,
-                                        track_dir,
-                                        max_bytes=settings.upload_limit,
+                                    p = await asyncio.wait_for(
+                                        download_video(
+                                            it_url,
+                                            track_dir,
+                                            max_bytes=settings.upload_limit,
+                                        ),
+                                        timeout=item_timeout,
                                     )
                                     return idx, it, p
                             else:
                                 if it_url:
-                                    p = await download_audio(
-                                        it_url,
-                                        track_dir,
-                                        max_bytes=settings.upload_limit,
+                                    p = await asyncio.wait_for(
+                                        download_audio(
+                                            it_url,
+                                            track_dir,
+                                            max_bytes=settings.upload_limit,
+                                        ),
+                                        timeout=item_timeout,
                                     )
                                     return idx, it, p
                         except Exception as exc:

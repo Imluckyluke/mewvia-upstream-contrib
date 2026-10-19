@@ -296,8 +296,17 @@ async def process_conversion(
                     chat_id=chat_id, photo=input_file_obj, reply_to_message_id=reply_to_id
                 )
             elif target_spec.id == "mp4":
+                v_w = output.info.width if output.info.width > 0 else None
+                v_h = output.info.height if output.info.height > 0 else None
+                v_dur = int(output.info.duration) if output.info.duration > 0 else None
                 await bot.send_video(
-                    chat_id=chat_id, video=input_file_obj, reply_to_message_id=reply_to_id
+                    chat_id=chat_id,
+                    video=input_file_obj,
+                    width=v_w,
+                    height=v_h,
+                    duration=v_dur,
+                    supports_streaming=True,
+                    reply_to_message_id=reply_to_id,
                 )
             else:
                 await bot.send_document(

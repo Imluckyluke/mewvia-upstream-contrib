@@ -421,6 +421,9 @@ async def select_and_download_track(
     if not await check_daily_quota(session, user_id, query):
         return
 
+    # Release database transaction so connection returns to pool during download
+    await session.commit()
+
     await query.answer()
     p_name = "اسپاتیفای" if platform == "spotify" else "ساندکلاد"
     reply_to_id = (

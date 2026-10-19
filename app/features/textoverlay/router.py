@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.callbacks import TextOverlayCB
 from app.config import Settings
 from app.core.logging import get_logger
+from app.core.quota import check_daily_quota
 from app.db.repo import ConversionRepo
 from app.media.kinds import MediaKind, resolve_panel_media
 from app.media.text_overlay import COLOR_MAP, add_text_to_image, add_text_to_video
@@ -516,6 +517,11 @@ async def render_and_send_overlay(
 
     if not file_id or not kind_str or not user_text:
         await query.answer(t("common.stale_button"), show_alert=True)
+        await state.clear()
+        return
+
+    user_id = query.from_user.id if query.from_user else 0
+    if not await check_daily_quota(session, user_id, query):
         await state.clear()
         return
 

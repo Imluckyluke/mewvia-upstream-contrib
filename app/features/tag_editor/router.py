@@ -35,6 +35,7 @@ from app.callbacks import AudioToolCB
 from app.config import Settings
 from app.core.errors import ConversionError, MewviaError
 from app.core.logging import get_logger
+from app.core.quota import check_daily_quota
 from app.core.units import fa_digits, fa_to_en_digits
 from app.db.repo import ConversionRepo
 from app.features.registry import Feature, register
@@ -584,6 +585,11 @@ async def save_tag_edits(
     file_id = data.get("file_id")
     if not file_id:
         await query.answer(t("common.stale_button"), show_alert=True)
+        return
+
+    user_id = query.from_user.id if query.from_user else 0
+    if not await check_daily_quota(session, user_id, query):
+        await state.clear()
         return
 
     staged = {

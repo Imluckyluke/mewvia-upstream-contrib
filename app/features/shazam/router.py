@@ -15,6 +15,7 @@ from app.callbacks.shazam import ShazamCB
 from app.config import Settings
 from app.core.errors import ConversionError, MewviaError
 from app.core.logging import get_logger
+from app.core.quota import check_daily_quota
 from app.core.units import human_bytes
 from app.db.repo import ConversionRepo
 from app.features.downloader.action_keyboards import build_audio_actions_kb
@@ -185,17 +186,18 @@ async def close_shazam_card(query: CallbackQuery) -> None:
 
 @router.callback_query(ShazamCB.filter(F.action == "lyrics"))
 async def view_shazam_lyrics(query: CallbackQuery) -> None:
+    await query.answer()
     cb = ShazamCB.unpack(query.data or "")
     track = await get_shazam_session(cb.sid)
     if not track:
-        await query.answer("اطلاعات این آهنگ منقضی شده است.", show_alert=True)
+        if isinstance(query.message, Message):
+            await query.message.reply("اطلاعات این آهنگ منقضی شده است.")
         return
-
-    await query.answer("در حال جستجوی متن ترانه…")
 
     lyrics = await fetch_lyrics(track.title, track.artist)
     if not lyrics:
-        await query.answer("متأسفانه متن ترانه‌ای برای این آهنگ یافت نشد.", show_alert=True)
+        if isinstance(query.message, Message):
+            await query.message.reply("متأسفانه متن ترانه‌ای برای این آهنگ یافت نشد.")
         return
 
     registry = await ready_registry()
@@ -219,6 +221,9 @@ async def download_shazam_track(
         return
 
     user_id = query.from_user.id if query.from_user else 0
+    if not await check_daily_quota(session, user_id, query):
+        return
+
     await query.answer()
 
     chat_id = query.message.chat.id

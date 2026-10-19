@@ -298,6 +298,10 @@ async def process_video_tool(
                 await bot.send_video(
                     chat_id=msg.chat.id,
                     video=out_obj,
+                    width=res_info.width if res_info.width > 0 else None,
+                    height=res_info.height if res_info.height > 0 else None,
+                    duration=int(res_info.duration) if res_info.duration > 0 else None,
+                    supports_streaming=True,
                     reply_to_message_id=reply_to_id,
                     caption=cap_cmp,
                 )
@@ -308,6 +312,10 @@ async def process_video_tool(
                 await bot.send_video(
                     chat_id=msg.chat.id,
                     video=out_obj,
+                    width=res_info.width if res_info.width > 0 else None,
+                    height=res_info.height if res_info.height > 0 else None,
+                    duration=int(res_info.duration) if res_info.duration > 0 else None,
+                    supports_streaming=True,
                     reply_to_message_id=reply_to_id,
                     caption=f"{registry.text('mute')} <b>صدا با موفقیت حذف شد.</b>",
                 )
@@ -318,6 +326,10 @@ async def process_video_tool(
                 await bot.send_video(
                     chat_id=msg.chat.id,
                     video=out_obj,
+                    width=res_info.width if res_info.width > 0 else None,
+                    height=res_info.height if res_info.height > 0 else None,
+                    duration=int(res_info.duration) if res_info.duration > 0 else None,
+                    supports_streaming=True,
                     reply_to_message_id=reply_to_id,
                     caption=f"{registry.text('reverse')} <b>ویدیو معکوس شد.</b>",
                 )

@@ -121,15 +121,36 @@ async def compress_video(
 
 
 async def mute_video(input_file: Path, output_file: Path) -> MediaInfo:
-    """Remove audio stream from video."""
-    args = [
-        "-i",
-        str(input_file),
-        "-an",
-        "-c:v",
-        "copy",
-        str(output_file),
-    ]
+    """Remove audio stream from video with iOS H.264/HEVC and faststart compatibility."""
+    info = await probe(input_file)
+    if info.video_codec.lower() in ("h264", "hevc") and not info.has_alpha:
+        args = [
+            "-i",
+            str(input_file),
+            "-an",
+            "-c:v",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(output_file),
+        ]
+    else:
+        args = [
+            "-i",
+            str(input_file),
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(output_file),
+        ]
     await run_ffmpeg(args)
     return await probe(output_file)
 
@@ -161,6 +182,8 @@ async def reverse_video(input_file: Path, output_file: Path, info: MediaInfo) ->
         "2",
         "-pix_fmt",
         "yuv420p",
+        "-movflags",
+        "+faststart",
         *vf_args,
         str(output_file),
     ]
