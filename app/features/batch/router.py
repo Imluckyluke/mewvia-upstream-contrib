@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from aiogram import Bot, F, Router
+from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
@@ -311,6 +312,14 @@ async def show_batch_text_prompt(query: CallbackQuery, state: FSMContext) -> Non
     if not isinstance(query.message, Message):
         await query.answer(t("common.stale_button"), show_alert=True)
         return
+
+    if query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await query.answer(
+            "⚠️ افزودن متن در گروه پشتیبانی نمی‌شود؛ لطفاً در پی‌وی ربات انجام دهید.",
+            show_alert=True,
+        )
+        return
+
     resolved = await resolve_panel_media(query)
     if not resolved:
         await query.answer(t("common.stale_button"), show_alert=True)

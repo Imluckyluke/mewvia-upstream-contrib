@@ -65,7 +65,7 @@ class ReplyTextFilter(Filter):
         self._target_or_getter = target_or_getter
 
     async def __call__(self, message: Message) -> bool:
-        if not message.text:
+        if getattr(message.chat, "type", None) != "private" or not message.text:
             return False
         target = (
             self._target_or_getter() if callable(self._target_or_getter) else self._target_or_getter

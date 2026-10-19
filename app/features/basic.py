@@ -77,7 +77,7 @@ async def send_start(message: Message, is_admin: bool) -> None:
     await message.answer(body, reply_markup=await main_menu(registry, is_admin=is_admin))
 
 
-@router.message(CommandStart())
+@router.message(F.chat.type == ChatType.PRIVATE, CommandStart())
 async def cmd_start(
     message: Message,
     command: CommandObject,
@@ -101,7 +101,7 @@ async def cmd_start(
     await send_start(message, is_admin)
 
 
-@router.message(Command("cancel"))
+@router.message(F.chat.type == ChatType.PRIVATE, Command("cancel"))
 async def cmd_cancel(
     message: Message,
     is_admin: bool,
@@ -117,7 +117,7 @@ async def cmd_cancel(
     )
 
 
-@router.message(ReplyTextFilter(lambda: t("menu.start_over")))
+@router.message(F.chat.type == ChatType.PRIVATE, ReplyTextFilter(lambda: t("menu.start_over")))
 async def reply_start_over(
     message: Message,
     is_admin: bool,
@@ -150,8 +150,8 @@ async def menu_root(
     await query.answer()
 
 
-@router.message(Command("help"))
-@router.message(ReplyTextFilter(lambda: t("menu.help")))
+@router.message(F.chat.type == ChatType.PRIVATE, Command("help"))
+@router.message(F.chat.type == ChatType.PRIVATE, ReplyTextFilter(lambda: t("menu.help")))
 async def cmd_help(message: Message, state: FSMContext | None = None) -> None:
     if state is not None:
         await state.clear()
@@ -246,7 +246,7 @@ async def verify_sponsors(
 # ---------------------------------------------------------------------------
 
 
-@router.message(Command("me"))
+@router.message(F.chat.type == ChatType.PRIVATE, Command("me"))
 async def cmd_me(message: Message, session: AsyncSession) -> None:
     """Show the sender's stored profile; falls back gracefully."""
     from app.db.repo import UserRepo
@@ -270,7 +270,7 @@ async def cmd_me(message: Message, session: AsyncSession) -> None:
     await message.answer(body, reply_markup=back_to_menu(registry).as_markup())
 
 
-@router.message(Command("ping"))
+@router.message(F.chat.type == ChatType.PRIVATE, Command("ping"))
 async def cmd_ping(message: Message) -> None:
     started = time.perf_counter()
     sent = await message.answer(t("common.processing"))
@@ -278,7 +278,7 @@ async def cmd_ping(message: Message) -> None:
     await sent.edit_text(t("ping.pong", latency_ms=latency_ms))
 
 
-@router.message(Command("health"), IsAdmin())
+@router.message(F.chat.type == ChatType.PRIVATE, Command("health"), IsAdmin())
 async def cmd_health(message: Message, settings: Settings, session: AsyncSession) -> None:
     api_mode = "Local Bot API Server" if settings.uses_local_api else "Public Bot API"
     runtime = await get_settings_store().all()

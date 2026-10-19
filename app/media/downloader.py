@@ -73,11 +73,6 @@ def find_cookie_file(platform_key: str | None = None) -> Path | None:
     """Check for platform-specific cookie file."""
     if not platform_key or platform_key in ("spotify", "other"):
         return None
-    # For Instagram, do not inject static disk cookies by default; anonymous Chrome-impersonation
-    # via WARP is vastly more reliable and avoids expired session checkpoint errors.
-    # Valid active cookies from the database are injected per-job by the downloader router.
-    if platform_key == "instagram":
-        return None
     p = Path(f"/data/cookies/{platform_key}.txt")
     try:
         if p.is_file() and p.stat().st_size > 0 and os.access(p, os.R_OK):
@@ -560,7 +555,7 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
         # If Instagram, retry with Instagram InfoExtractor directly to bypass
         # transient JSON / checkpoint errors
         if platform_key == "instagram":
-            # 1. First retry anonymously without any cookie
+            # 1. First retry anonymously without any cookie if cookie was used
             if opts.get("cookiefile"):
                 opts_anon = dict(opts)
                 opts_anon.pop("cookiefile", None)
@@ -570,7 +565,19 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
                 except Exception as anon_exc:
                     log.warning("instagram_anon_retry_failed", error=str(anon_exc))
 
-            # 2. If still no info, retry with raw InfoExtractor
+            # 2. If tried anonymously and failed, retry with disk cookie if available
+            elif not opts.get("cookiefile"):
+                disk_cookie = Path("/data/cookies/instagram.txt")
+                if disk_cookie.is_file() and disk_cookie.stat().st_size > 0:
+                    opts_cookie = dict(opts)
+                    opts_cookie["cookiefile"] = str(disk_cookie)
+                    try:
+                        with _make_ydl(opts_cookie) as ydl_cookie:
+                            info = ydl_cookie.extract_info(url, download=False)
+                    except Exception as c_exc:
+                        log.warning("instagram_cookie_retry_failed", error=str(c_exc))
+
+            # 3. If still no info, retry with raw InfoExtractor
             if not info:
                 try:
                     opts_raw = dict(opts)

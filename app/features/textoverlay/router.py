@@ -6,7 +6,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from aiogram import Bot, F, Router
+from aiogram import Bot, F, Router, html
+from aiogram.enums import ChatType
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, FSInputFile, Message
@@ -264,6 +265,13 @@ async def start_text_overlay(
         await query.answer(t("common.stale_button"), show_alert=True)
         return
 
+    if query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await query.answer(
+            "⚠️ افزودن متن نیازمند ورود متن است؛ لطفاً این کار را در پی‌وی ربات انجام دهید.",
+            show_alert=True,
+        )
+        return
+
     msg = query.message
     resolved = await resolve_panel_media(query)
 
@@ -290,7 +298,7 @@ async def start_text_overlay(
     await msg.edit_text(t("text_overlay.prompt_text"))
 
 
-@router.message(TextOverlayFSM.waiting_for_text, F.text)
+@router.message(F.chat.type == ChatType.PRIVATE, TextOverlayFSM.waiting_for_text, F.text)
 async def process_user_text_input(
     message: Message,
     state: FSMContext,
@@ -319,7 +327,7 @@ async def process_user_text_input(
 
     menu_text = t(
         "text_overlay.menu_title",
-        text=user_text,
+        text=html.quote(user_text),
         font_name=font_name,
         size_label=size_label,
         color_label=color_label,
@@ -398,7 +406,7 @@ async def update_overlay_options(
 
     menu_text = t(
         "text_overlay.menu_title",
-        text=user_text,
+        text=html.quote(user_text),
         font_name=font_name,
         size_label=size_label,
         color_label=color_label,

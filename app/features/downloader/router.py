@@ -772,8 +772,23 @@ async def _handle_url_input(
     status = await message.reply("⏳ <b>در حال دریافت اطلاعات لینک…</b>")
     status_msg: Message | None = status if isinstance(status, Message) else None
 
+    cookie_file_str: str | None = None
+    platform_key, _, _ = detect_platform(url)
+    if platform_key == "instagram":
+        repo_cookie = InstagramCookieRepo(session)
+        cookie_rec = await repo_cookie.get_next_cookie()
+        if (
+            cookie_rec
+            and cookie_rec.cookie_text
+            and cookie_rec.is_active
+            and cookie_rec.status != "invalid"
+        ):
+            disk_cookie = Path("/data/cookies/instagram.txt")
+            if disk_cookie.is_file() and disk_cookie.stat().st_size > 0:  # noqa: ASYNC240
+                cookie_file_str = str(disk_cookie)
+
     try:
-        info = await probe_media_url(url)
+        info = await probe_media_url(url, cookie_file=cookie_file_str)
     except MewviaError as exc:
         err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
         if status_msg:

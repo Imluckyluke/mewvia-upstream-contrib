@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 from aiogram import Bot, F, Router, html
+from aiogram.enums import ChatType
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -221,6 +222,13 @@ async def open_tag_editor(
         return
 
     msg = query.message
+    if msg.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await query.answer(
+            "⚠️ ویرایش تگ و کاور نیازمند ورود متن و ارسال عکس است؛ لطفاً در پی‌وی ربات استفاده کنید.",
+            show_alert=True,
+        )
+        return
+
     resolved = await resolve_panel_media(query)
     if not resolved:
         await query.answer(t("common.stale_button"), show_alert=True)
@@ -309,6 +317,13 @@ async def open_tag_editor(
 async def prompt_tag_field(
     query: CallbackQuery, callback_data: TagFieldCB, state: FSMContext
 ) -> None:
+    if query.message and query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await query.answer(
+            "⚠️ ویرایش تگ در گروه پشتیبانی نمی‌شود؛ لطفاً در پی‌وی ربات استفاده کنید.",
+            show_alert=True,
+        )
+        return
+
     field = callback_data.field
     if field not in FIELD_LABELS:
         await query.answer(t("common.stale_button"), show_alert=True)
@@ -375,7 +390,7 @@ async def prompt_tag_field(
     await query.answer()
 
 
-@router.message(TagEditFSM.waiting_for_value)
+@router.message(F.chat.type == ChatType.PRIVATE, TagEditFSM.waiting_for_value)
 async def receive_tag_value(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     field = data.get("tag_active_field", "")
@@ -504,7 +519,7 @@ async def clear_tag_cover(query: CallbackQuery, state: FSMContext) -> None:
     await query.answer()
 
 
-@router.message(TagEditFSM.waiting_for_cover, F.photo)
+@router.message(F.chat.type == ChatType.PRIVATE, TagEditFSM.waiting_for_cover, F.photo)
 async def receive_tag_cover(message: Message, bot: Bot, state: FSMContext) -> None:
     data = await state.get_data()
     if not data.get("file_id"):
@@ -530,7 +545,7 @@ async def receive_tag_cover(message: Message, bot: Bot, state: FSMContext) -> No
     )
 
 
-@router.message(TagEditFSM.waiting_for_cover)
+@router.message(F.chat.type == ChatType.PRIVATE, TagEditFSM.waiting_for_cover)
 async def receive_tag_cover_invalid(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
     if raw.startswith("/"):

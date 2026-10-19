@@ -70,6 +70,7 @@ def _build_search_kb(
     platform: str,
     tracks: list[SearchTrack],
     registry: EmojiRegistry,
+    is_group: bool = False,
 ) -> KB:
     kb = KB(registry)
 
@@ -113,23 +114,28 @@ def _build_search_kb(
             )
         )
 
-    # Action footer
-    kb.row(
-        inline_button(
-            "جستجوی جدید",
-            callback_data=MusicSearchCB(action="prompt").pack(),
-            style=Style.CONFIRM,
-            emoji_slot="search",
-            registry=registry,
-        ),
+    # Action footer: in groups, hide "New Search" prompt to avoid accidental group FSM triggers
+    footer_btns = []
+    if not is_group:
+        footer_btns.append(
+            inline_button(
+                "جستجوی جدید",
+                callback_data=MusicSearchCB(action="prompt").pack(),
+                style=Style.CONFIRM,
+                emoji_slot="search",
+                registry=registry,
+            )
+        )
+    footer_btns.append(
         inline_button(
             "بستن",
             callback_data=MusicSearchCB(action="cancel").pack(),
             style=Style.DESTRUCTIVE,
             emoji_slot="error",
             registry=registry,
-        ),
+        )
     )
+    kb.row(*footer_btns)
     return kb
 
 
@@ -222,6 +228,13 @@ async def cmd_music_search(message: Message, command: CommandObject, state: FSMC
 @router.callback_query(MusicSearchCB.filter(F.action == "prompt"))
 @router.callback_query(F.data == "msearch:prompt")
 async def prompt_music_search(query: CallbackQuery, state: FSMContext) -> None:
+    if query.message and query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await query.answer(
+            "برای جستجوی جدید در گروه، دستور زیر را بفرستید:\n/music <نام آهنگ>",
+            show_alert=True,
+        )
+        return
+
     await state.set_state(MusicSearchSG.waiting_for_query)
     registry = await ready_registry()
     kb = (
@@ -247,7 +260,7 @@ async def prompt_music_search(query: CallbackQuery, state: FSMContext) -> None:
     await query.answer()
 
 
-@router.message(MusicSearchSG.waiting_for_query, F.text)
+@router.message(F.chat.type == ChatType.PRIVATE, MusicSearchSG.waiting_for_query, F.text)
 async def process_search_query_input(message: Message, state: FSMContext) -> None:
     query = (message.text or "").strip()
     if query.startswith("/"):
@@ -298,7 +311,8 @@ async def _execute_search(
     await store_search_session(sid, session_data)
 
     registry = await ready_registry()
-    kb = _build_search_kb(sid, active_platform, tracks, registry)
+    is_group = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+    kb = _build_search_kb(sid, active_platform, tracks, registry, is_group=is_group)
     card_text = _render_search_text(query_str, active_platform, tracks, registry)
 
     res_msg: Message | None = None
@@ -353,7 +367,8 @@ async def switch_music_platform(query: CallbackQuery, callback_data: MusicSearch
         await store_search_session(sid, session_data)
 
     registry = await ready_registry()
-    kb = _build_search_kb(sid, target_platform, tracks, registry)
+    is_group = query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+    kb = _build_search_kb(sid, target_platform, tracks, registry, is_group=is_group)
     card_text = _render_search_text(query_str, target_platform, tracks, registry)
 
     try:

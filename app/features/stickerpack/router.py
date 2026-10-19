@@ -6,7 +6,8 @@ import re
 import tempfile
 from pathlib import Path
 
-from aiogram import Bot, F, Router
+from aiogram import Bot, F, Router, html
+from aiogram.enums import ChatType
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -88,6 +89,14 @@ async def start_pack_flow(query: CallbackQuery, session: AsyncSession, state: FS
         await query.answer(t("common.stale_button"), show_alert=True)
         return
 
+    if query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await query.answer(
+            "⚠️ مدیریت و ساخت استیکرپک نیازمند ورود متن و ایموجی است؛ "
+            "لطفاً در پی‌وی ربات استفاده کنید.",
+            show_alert=True,
+        )
+        return
+
     resolved = await resolve_panel_media(query)
 
     if not resolved:
@@ -152,6 +161,13 @@ async def start_pack_flow(query: CallbackQuery, session: AsyncSession, state: FS
 
 @router.callback_query(StickerPackCB.filter(F.action == "create"))
 async def prompt_create_pack(query: CallbackQuery, state: FSMContext) -> None:
+    if query.message and query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        await query.answer(
+            "⚠️ ساخت استیکرپک در گروه پشتیبانی نمی‌شود؛ لطفاً در پی‌وی ربات استفاده کنید.",
+            show_alert=True,
+        )
+        return
+
     registry = await ready_registry()
     await state.set_state(PackFSM.waiting_for_title)
 
@@ -174,7 +190,7 @@ async def prompt_create_pack(query: CallbackQuery, state: FSMContext) -> None:
     await query.answer()
 
 
-@router.message(PackFSM.waiting_for_title)
+@router.message(F.chat.type == ChatType.PRIVATE, PackFSM.waiting_for_title)
 async def process_pack_title(message: Message, state: FSMContext, settings: Settings) -> None:
     title = (message.text or "").strip()
     if title.startswith("/"):
@@ -192,7 +208,7 @@ async def process_pack_title(message: Message, state: FSMContext, settings: Sett
 
     await state.set_state(PackFSM.waiting_for_emoji)
     await message.reply(
-        f"عالی! عنوان پک <code>{branded_title}</code> ثبت شد.\n\n"
+        f"عالی! عنوان پک <code>{html.quote(branded_title)}</code> ثبت شد.\n\n"
         "حالا یک <b>ایموجی مرتبط</b> برای این استیکر بفرست (مثلاً 😊 یا 🎨):"
     )
 
@@ -211,7 +227,7 @@ async def select_existing_pack(
     await query.answer()
 
 
-@router.message(PackFSM.waiting_for_emoji)
+@router.message(F.chat.type == ChatType.PRIVATE, PackFSM.waiting_for_emoji)
 async def process_pack_emoji_and_build(
     message: Message,
     bot: Bot,
@@ -331,7 +347,7 @@ async def process_pack_emoji_and_build(
 
             await message.reply(
                 f"🎉 <b>استیکر با موفقیت به پک اضافه شد!</b>\n\n"
-                f"نام پک: <code>{pack_title}</code>\n"
+                f"نام پک: <code>{html.quote(pack_title)}</code>\n"
                 f"لینک مستقیم: {pack_url}",
                 reply_markup=kb,
             )
