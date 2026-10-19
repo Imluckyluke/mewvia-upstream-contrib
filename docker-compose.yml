@@ -1,7 +1,14 @@
 name: mewvia
 
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   bot:
+    logging: *default-logging
     build:
       context: .
       dockerfile: Dockerfile
@@ -39,6 +46,7 @@ services:
       start_period: 40s
 
   postgres:
+    logging: *default-logging
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
@@ -55,6 +63,7 @@ services:
       start_period: 20s
 
   redis:
+    logging: *default-logging
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
@@ -72,6 +81,7 @@ services:
   # service lifts both to ~2GB.
   # ---------------------------------------------------------------------------
   telegram-bot-api:
+    logging: *default-logging
     image: aiogram/telegram-bot-api:latest
     restart: unless-stopped
     environment:
@@ -92,6 +102,7 @@ services:
   # Bypasses datacenter IP blocks and YouTube/Instagram login walls.
   # ---------------------------------------------------------------------------
   warp:
+    logging: *default-logging
     build: ./warp
     image: mewvia-warp:latest
     container_name: mewvia-warp
@@ -113,6 +124,7 @@ services:
   # Runs inside WARP network namespace so PO-tokens match the outbound IP.
   # ---------------------------------------------------------------------------
   bgutil-provider:
+    logging: *default-logging
     image: brainicism/bgutil-ytdlp-pot-provider:latest
     restart: unless-stopped
     network_mode: "service:warp"
