@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from aiogram import Bot, F, Router
-from aiogram.filters import StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,10 +53,11 @@ async def ready_registry() -> EmojiRegistry:
 
 @router.message(
     F.chat.type == "private",
-    StateFilter(None),
     F.sticker | F.animation | F.video_note | F.video | F.photo | F.document,
 )
-async def handle_incoming_media(message: Message, settings: Settings) -> None:
+async def handle_incoming_media(
+    message: Message, settings: Settings, state: FSMContext
+) -> None:
     detected = detect_media_kind(message)
     if not detected:
         return
@@ -66,6 +67,9 @@ async def handle_incoming_media(message: Message, settings: Settings) -> None:
     # If it's audio (e.g. sent as uncompressed document), delegate to audio router
     if kind in (MediaKind.AUDIO, MediaKind.VOICE):
         return
+
+    # Clear any stale FSM state so sending new media always opens fresh panel
+    await state.clear()
 
     # Enforce API file download limits (20MB public, 2GB local)
     if file_size > settings.download_limit:

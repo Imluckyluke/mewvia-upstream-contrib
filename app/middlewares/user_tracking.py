@@ -55,9 +55,17 @@ def is_real_interaction(event: TelegramObject) -> bool:
                     "findsong",
                     "songid",
                     "music",
+                    "edit",
+                    "tools",
+                    "ابزار",
+                    "پنل",
                 }:
                     return True
                 return False
+
+            if "@mewvia_bot" in text.lower():
+                return True
+
             from app.media.downloader import extract_first_url, is_supported_media_url
 
             url = extract_first_url(text)

@@ -1,14 +1,15 @@
 """Group media assistant router.
 
-Handles `/media` and `/mewvia` commands sent in group/supergroup chats as replies to media messages.
+Handles `/media`, `/mewvia`, `/edit`, `/tools` commands and bot mentions (`@Mewvia_bot`)
+sent in group/supergroup chats either as replies to media messages or directly with media.
 Builds and sends interactive inline menus with ownership protection.
 """
 
 from __future__ import annotations
 
-from aiogram import F, Router
+from aiogram import Router
 from aiogram.enums import ChatType
-from aiogram.filters import Command
+from aiogram.filters import BaseFilter
 from aiogram.types import Message
 
 from app.callbacks import AudioToolCB, BatchCB, ConvertCB, FilterCB, TextOverlayCB, WideCB
@@ -29,6 +30,37 @@ log = get_logger(__name__)
 router = Router(name="group_media")
 
 
+class GroupMediaInvocationFilter(BaseFilter):
+    """Matches group messages that explicitly invoke the media assistant."""
+
+    SUPPORTED_COMMANDS = frozenset({"media", "mewvia", "edit", "tools", "ابزار", "پنل"})
+
+    async def __call__(self, message: Message, settings: Settings) -> bool:
+        if message.chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
+            return False
+
+        text = (message.text or message.caption or "").strip()
+        bot_user = (settings.bot_username or "").lower()
+
+        # 1. Explicit slash commands
+        if text.startswith("/"):
+            cmd = text.split()[0][1:].lower().split("@")[0]
+            if cmd in self.SUPPORTED_COMMANDS:
+                return True
+
+        # 2. Explicit bot mention in text or caption (e.g. @Mewvia_bot or configured username)
+        if (bot_user and f"@{bot_user}" in text.lower()) or "@mewvia_bot" in text.lower():
+            return True
+
+        # 3. Explicit reply to the bot itself
+        reply = message.reply_to_message
+        if reply and reply.from_user and reply.from_user.is_bot:
+            if reply.from_user.username and reply.from_user.username.lower() == bot_user:
+                return True
+
+        return False
+
+
 async def ready_registry() -> EmojiRegistry:
     registry = get_emoji_registry()
     await registry.refresh_premium_flag()
@@ -36,17 +68,26 @@ async def ready_registry() -> EmojiRegistry:
     return registry
 
 
-@router.message(
-    F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}),
-    Command("media"),
-)
+@router.message(GroupMediaInvocationFilter())
 async def handle_group_media_command(message: Message, settings: Settings) -> None:
     reply = message.reply_to_message
-    if not reply or not isinstance(reply, Message):
-        await message.reply(t("group.no_reply"))
+    target_msg: Message | None = None
+
+    # Priority 1: User replied to a message containing media
+    if reply and isinstance(reply, Message) and detect_media_kind(reply):
+        target_msg = reply
+    # Priority 2: Message itself contains media (e.g. caption with @Mewvia_bot or /media)
+    elif detect_media_kind(message):
+        target_msg = message
+
+    if target_msg is None:
+        if reply and isinstance(reply, Message):
+            await message.reply(t("group.unsupported_reply"))
+        else:
+            await message.reply(t("group.no_reply"))
         return
 
-    detected = detect_media_kind(reply)
+    detected = detect_media_kind(target_msg)
     if not detected:
         await message.reply(t("group.unsupported_reply"))
         return
@@ -206,14 +247,17 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
             )
         )
 
+    reply_target_id = target_msg.message_id
     sender_name = message.from_user.first_name if message.from_user else "کاربر"
     title = t("group.panel_title", name=sender_name)
 
     sent_msg = await message.answer(
         title,
         reply_markup=kb.as_markup(),
-        reply_to_message_id=reply.message_id,
+        reply_to_message_id=reply_target_id,
     )
+    if sent_msg is None:
+        return
 
     # Store panel metadata so the guard locks the buttons
     # and resolve_panel_media recovers file_id
@@ -223,7 +267,7 @@ async def handle_group_media_command(message: Message, settings: Settings) -> No
         message_id=sent_msg.message_id,
         owner_id=owner_id,
         owner_name=sender_name,
-        reply_to_message_id=reply.message_id,
+        reply_to_message_id=reply_target_id,
         kind=kind.value,
         file_id=_file_id,
         file_size=file_size,

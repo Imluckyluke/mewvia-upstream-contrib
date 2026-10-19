@@ -198,3 +198,77 @@ def test_twitter_wrapped_entries_detected_as_video(monkeypatch: pytest.MonkeyPat
     assert info.is_playlist is False
     assert info.is_gallery is False
     assert info.is_audio_only is False
+
+
+@pytest.mark.asyncio
+async def test_group_media_invocation_filter_commands_and_mentions() -> None:
+    from aiogram.enums import ChatType
+    from aiogram.types import Chat, Message, User
+    from app.config import get_settings
+    from app.features.group_media.router import GroupMediaInvocationFilter
+
+    settings = get_settings()
+    filt = GroupMediaInvocationFilter()
+
+    group_chat = Chat(id=-10012345, type=ChatType.SUPERGROUP)
+    pv_chat = Chat(id=12345, type=ChatType.PRIVATE)
+    user = User(id=12345, is_bot=False, first_name="Test")
+
+    # Group message with /media command
+    msg1 = Message(message_id=1, date=1, chat=group_chat, from_user=user, text="/media")
+    assert await filt(msg1, settings) is True
+
+    # Group message with /edit command
+    msg2 = Message(message_id=2, date=1, chat=group_chat, from_user=user, text="/edit")
+    assert await filt(msg2, settings) is True
+
+    # Group message with bot mention @Mewvia_bot
+    msg3 = Message(
+        message_id=3,
+        date=1,
+        chat=group_chat,
+        from_user=user,
+        caption="check this @Mewvia_bot",
+    )
+    assert await filt(msg3, settings) is True
+
+    # Group plain chatter should NOT match
+    msg4 = Message(message_id=4, date=1, chat=group_chat, from_user=user, text="سلام چطوری")
+    assert await filt(msg4, settings) is False
+
+    # Private chat message should not match group filter
+    msg5 = Message(message_id=5, date=1, chat=pv_chat, from_user=user, text="/media")
+    assert await filt(msg5, settings) is False
+
+
+def test_document_extension_detection_for_gif_and_sticker() -> None:
+    from aiogram.types import Chat, Document, Message, User
+    from app.media.kinds import MediaKind, detect_media_kind
+
+    user = User(id=12345, is_bot=False, first_name="Test")
+    chat = Chat(id=12345, type="private")
+
+    # Document with generic mime but .gif extension
+    doc_gif = Document(
+        file_id="d1",
+        file_unique_id="u1",
+        file_name="funny_cat.gif",
+        mime_type="application/octet-stream",
+    )
+    msg1 = Message(message_id=1, date=1, chat=chat, from_user=user, document=doc_gif)
+    res1 = detect_media_kind(msg1)
+    assert res1 is not None
+    assert res1[0] == MediaKind.DOCUMENT_VIDEO
+
+    # Document with .tgs extension
+    doc_tgs = Document(
+        file_id="d2",
+        file_unique_id="u2",
+        file_name="animated.tgs",
+        mime_type="application/octet-stream",
+    )
+    msg2 = Message(message_id=2, date=1, chat=chat, from_user=user, document=doc_tgs)
+    res2 = detect_media_kind(msg2)
+    assert res2 is not None
+    assert res2[0] == MediaKind.STICKER_ANIMATED
+

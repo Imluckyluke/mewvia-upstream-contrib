@@ -73,10 +73,18 @@ def detect_media_kind(message: Message) -> tuple[MediaKind, Any, str, int] | Non
         file_size = doc.file_size or 0
         file_name = (doc.file_name or "").lower()
 
-        if mime.startswith("image/"):
+        if mime.startswith("image/") or file_name.endswith(
+            (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+        ):
             return MediaKind.DOCUMENT_IMAGE, doc, file_id, file_size
-        if mime.startswith("video/"):
+        if (
+            mime.startswith("video/")
+            or mime == "image/gif"
+            or file_name.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".gif"))
+        ):
             return MediaKind.DOCUMENT_VIDEO, doc, file_id, file_size
+        if mime == "application/x-tgsticker" or file_name.endswith(".tgs"):
+            return MediaKind.STICKER_ANIMATED, doc, file_id, file_size
         if mime.startswith("audio/") or file_name.endswith(
             (".mp3", ".flac", ".wav", ".ogg", ".m4a", ".aac", ".opus")
         ):
