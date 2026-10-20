@@ -590,31 +590,76 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
                 except Exception as retry_exc:
                     log.warning("instagram_retry_probe_failed", error=str(retry_exc))
 
+        # 4. If TikTok failed via yt-dlp (e.g. sensitive content, age restriction), retry via TikWM
+        if platform_key == "tiktok" and not info:
+            log.info("trying_tiktok_probe_via_tikwm", url=url)
+            info = _probe_tiktok_via_tikwm(url)
+
     # 3. Check gallery-dl compatibility if yt-dlp failed or gave no media
     is_gallery = False
-    if not is_ig_video and (
+    can_be_gallery = platform_key in ("instagram", "pinterest", "reddit", "twitter") or (
+        platform_key == "tiktok"
+        and ("/photo/" in url.lower() or (info and info.get("_fallback_images")))
+    )
+    if can_be_gallery and not is_ig_video and (
         not info or (info.get("_type") == "playlist" and not info.get("entries"))
     ):
-        try:
-            from gallery_dl import extractor
+        is_blocked = False
+        if probe_error:
+            err_lower = probe_error.lower()
+            if any(
+                k in err_lower
+                for k in (
+                    "not comfortable for some audiences",
+                    "log in for access",
+                    "sign in to confirm",
+                    "login required",
+                    "private video",
+                    "this video is private",
+                    "unavailable",
+                    "blocked from accessing",
+                    "ip address is blocked",
+                )
+            ):
+                is_blocked = True
 
-            if extractor.find(url):
-                is_gallery = True
-        except Exception:
-            pass
+        if not is_blocked:
+            try:
+                from gallery_dl import extractor
+
+                if extractor.find(url):
+                    is_gallery = True
+            except Exception:
+                pass
 
     if not info and not is_gallery:
         if probe_error:
             err_lower = probe_error.lower()
+            if (
+                "not comfortable for some audiences" in err_lower
+                or "log in for access" in err_lower
+            ):
+                if platform_key == "tiktok":
+                    raise ConversionError(
+                        "⚠️ این پست در تیک‌تاک دارای محتوای حساس یا محدودیت سنی (۱۸+) است "
+                        "و نیاز به ورود به حساب دارد."
+                    )
+                raise ConversionError(
+                    f"⚠️ مشاهده این محتوا در {platform_name} نیاز به ورود به حساب کاربری دارد."
+                )
             if "sign in to confirm" in err_lower or "bot" in err_lower:
                 raise ConversionError(
                     "⚠️ یوتیوب برای مشاهده این ویدیو درخواست تأیید هویت (Bot Verification) داده است."
                 )
             if "private" in err_lower:
                 raise ConversionError("🔒 این ویدیو خصوصی (Private) است.")
-            if "unavailable" in err_lower:
+            if "unavailable" in err_lower or "deleted" in err_lower or "removed" in err_lower:
                 raise ConversionError("❌ این ویدیو در دسترس نیست یا حذف شده است.")
-        raise ConversionError("امکان استخراج اطلاعات از این لینک وجود ندارد.")
+            if "blocked from accessing" in err_lower or "ip address is blocked" in err_lower:
+                raise ConversionError(
+                    f"🚫 دسترسی موقت به این محتوا از سوی {platform_name} مسدود شده است."
+                )
+        raise ConversionError(f"امکان استخراج اطلاعات از این لینک {platform_name} وجود ندارد.")
 
     info = info or {}
     raw_desc = (info.get("description") or "").strip()
@@ -854,6 +899,13 @@ def _download_video_sync(
         with _make_ydl(opts) as ydl:
             ydl.download([url])
     except Exception as exc:
+        is_tiktok = any(k in url.lower() for k in ("tiktok.com", "vm.tiktok", "vt.tiktok"))
+        if is_tiktok:
+            log.info("trying_tiktok_download_via_tikwm", url=url)
+            fb_path = _download_tiktok_via_tikwm(url, work_dir)
+            if fb_path and fb_path.is_file() and fb_path.stat().st_size > 0:
+                return fb_path
+
         err_str = str(exc).lower()
         if opts.get("cookiefile"):
             log.warning(
@@ -880,9 +932,19 @@ def _download_video_sync(
                 raise ConversionError(f"خطا در دانلود ویدیو: {str(retry_exc)[:150]}") from retry_exc
         else:
             if "login" in err_str or "empty media" in err_str or "redirect to login" in err_str:
+                if is_tiktok:
+                    raise ConversionError(
+                        "⚠️ این ویدیو در تیک‌تاک دارای محتوای حساس یا محدودیت سنی (۱۸+) است "
+                        "و نیاز به ورود به حساب دارد."
+                    ) from None
                 raise ConversionError(
                     "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین دارد.\n\n"
                     "علت: این پست احتمالاً در یک پیج خصوصی (Private) قرار دارد."
+                ) from None
+            if "not comfortable for some audiences" in err_str or "log in for access" in err_str:
+                raise ConversionError(
+                    "⚠️ این ویدیو در تیک‌تاک دارای محتوای حساس یا محدودیت سنی (۱۸+) است "
+                    "و نیاز به ورود به حساب دارد."
                 ) from None
             if "sign in to confirm" in err_str:
                 raise ConversionError(
@@ -982,7 +1044,7 @@ def _download_gallery_sync(
         "--no-mtime",
     ]
 
-    platform_key, _, _ = detect_platform(url)
+    platform_key, platform_name, _ = detect_platform(url)
     cookie = Path(cookie_file) if cookie_file else find_cookie_file(platform_key)
     if cookie and cookie.is_file() and cookie.stat().st_size > 0:
         cmd.extend(["--cookies", str(cookie)])
@@ -1032,13 +1094,33 @@ def _download_gallery_sync(
             if fallback_photos:
                 return sorted(fallback_photos)
 
+        # Fallback for TikTok photos via TikWM
+        if platform_key == "tiktok" or "tiktok.com" in url:
+            log.info("trying_tiktok_photo_fallback_via_tikwm", url=url)
+            fallback_photos = _download_tiktok_photos_via_tikwm(url, dest_dir)
+            if fallback_photos:
+                return sorted(fallback_photos)
+
         err_lower = err.lower()
-        if "login" in err_lower or "redirect to login" in err_lower:
-            raise ConversionError(
-                "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین دارد.\n\n"
-                "علت: این پست ممکن است در یک پیج خصوصی باشد."
-            )
-        raise ConversionError("فایلی در گالری یافت نشد یا دسترسی به آن محدود است.")
+        if "login" in err_lower or "redirect to login" in err_lower or "cookies" in err_lower:
+            if platform_key == "instagram":
+                raise ConversionError(
+                    "⚠️ اینستاگرام برای مشاهده این پست نیاز به لاگین دارد.\n\n"
+                    "علت: این پست ممکن است در یک پیج خصوصی باشد."
+                )
+            elif platform_key == "tiktok":
+                raise ConversionError(
+                    "⚠️ تیک‌تاک برای مشاهده این محتوا نیاز به ورود به حساب دارد.\n\n"
+                    "علت: این پست دارای محدودیت سنی (۱۸+) یا محتوای حساس است."
+                )
+            else:
+                raise ConversionError(
+                    f"⚠️ برای مشاهده این محتوا از {platform_name} نیاز به لاگین است."
+                )
+
+        if platform_key in ("tiktok", "youtube", "twitter"):
+            raise ConversionError(f"❌ امکان دریافت این مدیا از {platform_name} وجود نداشت.")
+        raise ConversionError("فایلی در این پست یافت نشد یا دسترسی به آن محدود است.")
 
     return sorted(results)
 
@@ -1103,6 +1185,116 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
     except Exception as exc:
         log.warning("instagram_photo_fallback_failed", error=str(exc))
         return []
+
+
+def _probe_tiktok_via_tikwm(url: str) -> dict[str, Any] | None:
+    """Fallback probe for TikTok videos/photos when yt-dlp faces 18+/sensitive restrictions."""
+    import requests
+
+    try:
+        r = requests.get(
+            f"https://www.tikwm.com/api/?url={url}",
+            proxies={"https": "socks5h://warp:1080"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("code") == 0:
+                d = data.get("data", {})
+                images = d.get("images") or []
+                play = d.get("play")
+                author = d.get("author") or {}
+                uploader = author.get("nickname") or author.get("unique_id") or "TikTok"
+                title = d.get("title") or ""
+                thumb = d.get("cover")
+                dur = d.get("duration")
+                formats = []
+                entries = []
+                if play and not images:
+                    formats = [{"url": play, "vcodec": "h264", "acodec": "aac", "ext": "mp4"}]
+                elif images:
+                    entries = [{"url": img, "thumbnail": img} for img in images]
+                return {
+                    "id": d.get("id", "tiktok_media"),
+                    "title": title,
+                    "description": title,
+                    "uploader": uploader,
+                    "thumbnail": thumb,
+                    "duration": dur,
+                    "formats": formats,
+                    "entries": entries,
+                    "_type": "playlist" if images else "video",
+                    "_fallback_play_url": play,
+                    "_fallback_images": images,
+                }
+    except Exception as exc:
+        log.warning("tiktok_tikwm_probe_failed", error=str(exc))
+    return None
+
+
+def _download_tiktok_via_tikwm(url: str, work_dir: Path) -> Path | None:
+    """Download TikTok video via TikWM when yt-dlp encounters restricted content."""
+    import requests
+
+    try:
+        r = requests.get(
+            f"https://www.tikwm.com/api/?url={url}",
+            proxies={"https": "socks5h://warp:1080"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("code") == 0:
+                play = data.get("data", {}).get("play")
+                if play:
+                    out = work_dir / "media.mp4"
+                    with requests.get(
+                        play,
+                        headers={"User-Agent": "Mozilla/5.0"},
+                        proxies={"https": "socks5h://warp:1080"},
+                        stream=True,
+                        timeout=45,
+                    ) as vr:
+                        if vr.status_code == 200:
+                            with open(out, "wb") as f:
+                                for chunk in vr.iter_content(chunk_size=65536):
+                                    f.write(chunk)
+                            if out.is_file() and out.stat().st_size > 0:
+                                return _ensure_ios_compatibility_sync(out, work_dir)
+    except Exception as exc:
+        log.warning("tiktok_tikwm_download_failed", error=str(exc))
+    return None
+
+
+def _download_tiktok_photos_via_tikwm(url: str, dest_dir: Path) -> list[Path]:
+    """Download TikTok photo carousels via TikWM."""
+    import requests
+
+    results: list[Path] = []
+    try:
+        r = requests.get(
+            f"https://www.tikwm.com/api/?url={url}",
+            proxies={"https": "socks5h://warp:1080"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("code") == 0:
+                images = data.get("data", {}).get("images") or []
+                for idx, img_url in enumerate(images, 1):
+                    resp = requests.get(
+                        img_url,
+                        headers={"User-Agent": "Mozilla/5.0"},
+                        proxies={"https": "socks5h://warp:1080"},
+                        timeout=20,
+                    )
+                    if resp.status_code == 200 and resp.content:
+                        out = dest_dir / f"tiktok_photo_{idx:02d}.jpg"
+                        out.write_bytes(resp.content)
+                        results.append(out)
+    except Exception as exc:
+        log.warning("tiktok_tikwm_photos_download_failed", error=str(exc))
+    return results
 
 
 async def download_video(

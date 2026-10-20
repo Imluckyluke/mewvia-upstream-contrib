@@ -302,3 +302,58 @@ def test_cookie_file_upload_filter_ignores_animations_and_media() -> None:
     assert _is_cookie_file_upload(msg_cookie) is True
 
 
+def test_tiktok_restricted_video_fallback_or_accurate_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.errors import ConversionError
+    from app.media.downloader import _probe_info_sync
+
+    # Simulate yt-dlp raising "This post may not be comfortable for some audiences"
+    class FakeFailingYDL:
+        def __enter__(self) -> FakeFailingYDL:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def extract_info(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError("ERROR: [TikTok] 12345: This post may not be comfortable for some audiences. Log in for access.")
+
+    monkeypatch.setattr("app.media.downloader._make_ydl", lambda *args, **kwargs: FakeFailingYDL())
+
+    # Case A: TikWM fallback succeeds
+    fake_tikwm_data = {
+        "id": "12345",
+        "title": "Interesting News Video",
+        "play": "https://v16.tiktokcdn.com/video.mp4",
+        "author": {"nickname": "NewsChannel"},
+        "duration": 45,
+    }
+    monkeypatch.setattr(
+        "app.media.downloader._probe_tiktok_via_tikwm",
+        lambda url: {
+            "id": fake_tikwm_data["id"],
+            "title": fake_tikwm_data["title"],
+            "description": fake_tikwm_data["title"],
+            "uploader": "NewsChannel",
+            "thumbnail": "https://p16.tiktokcdn.com/thumb.jpg",
+            "duration": 45,
+            "formats": [{"url": fake_tikwm_data["play"], "vcodec": "h264", "ext": "mp4"}],
+            "entries": [],
+            "_type": "video",
+        },
+    )
+
+    info = _probe_info_sync("https://www.tiktok.com/@newschannel/video/12345")
+    assert info.platform_key == "tiktok"
+    assert info.is_video is True
+    assert info.is_gallery is False
+
+    # Case B: TikWM also fails -> should raise explicit TikTok age/sensitivity error, NEVER gallery error!
+    monkeypatch.setattr("app.media.downloader._probe_tiktok_via_tikwm", lambda url: None)
+    with pytest.raises(ConversionError) as exc_info:
+        _probe_info_sync("https://www.tiktok.com/@newschannel/video/12345")
+    err_msg = str(exc_info.value)
+    assert "محدودیت سنی" in err_msg or "محتوای حساس" in err_msg
+    assert "گالری" not in err_msg
+
+
+
