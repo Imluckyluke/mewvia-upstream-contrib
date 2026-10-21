@@ -52,12 +52,9 @@ class GroupMediaInvocationFilter(BaseFilter):
         if (bot_user and f"@{bot_user}" in text.lower()) or "@mewvia_bot" in text.lower():
             return True
 
-        # 3. Explicit reply to the bot itself
-        reply = message.reply_to_message
-        if reply and reply.from_user and reply.from_user.is_bot:
-            if reply.from_user.username and reply.from_user.username.lower() == bot_user:
-                return True
-
+        # NOTE: replying to a bot message is deliberately NOT a trigger.
+        # Downloaded media / bot results live in the group; a plain reply to them
+        # is normal chatter and must never pop the media panel open.
         return False
 
 

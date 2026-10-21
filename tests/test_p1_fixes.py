@@ -241,6 +241,61 @@ async def test_group_media_invocation_filter_commands_and_mentions() -> None:
     assert await filt(msg5, settings) is False
 
 
+@pytest.mark.asyncio
+async def test_replying_to_bot_group_message_does_not_open_panel() -> None:
+    """A plain reply to a bot-posted download in a group must stay silent."""
+    from aiogram.enums import ChatType
+    from aiogram.types import Chat, Message, User
+    from app.config import get_settings
+    from app.features.group_media.router import GroupMediaInvocationFilter
+
+    settings = get_settings()
+    filt = GroupMediaInvocationFilter()
+
+    group_chat = Chat(id=-10012345, type=ChatType.SUPERGROUP)
+    human = User(id=111, is_bot=False, first_name="Ali")
+    bot_user = User(
+        id=8621022596,
+        is_bot=True,
+        first_name="Mewvia",
+        username=settings.bot_username,
+    )
+
+    # The bot's own posted download (a video) — replying to it triggers nothing
+    bot_post = Message(message_id=500, date=1, chat=group_chat, from_user=bot_user, text="دانلود شد")
+    reply_msg = Message(
+        message_id=501,
+        date=1,
+        chat=group_chat,
+        from_user=human,
+        text="دمت گرم",
+        reply_to_message=bot_post,
+    )
+    assert await filt(reply_msg, settings) is False
+
+    # Even a reply to the bot's message that contains real text must stay inert
+    reply_long = Message(
+        message_id=502,
+        date=1,
+        chat=group_chat,
+        from_user=human,
+        text="این ویدیو خیلی خوب بود، مرسی",
+        reply_to_message=bot_post,
+    )
+    assert await filt(reply_long, settings) is False
+
+    # Explicit mention still works when replying to the bot
+    reply_mention = Message(
+        message_id=503,
+        date=1,
+        chat=group_chat,
+        from_user=human,
+        text=f"@{settings.bot_username} ادیتش کن",
+        reply_to_message=bot_post,
+    )
+    assert await filt(reply_mention, settings) is True
+
+
 def test_document_extension_detection_for_gif_and_sticker() -> None:
     from aiogram.types import Chat, Document, Message, User
     from app.media.kinds import MediaKind, detect_media_kind
