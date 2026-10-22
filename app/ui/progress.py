@@ -47,7 +47,12 @@ def format_progress_caption(
     sub_title: str | None = None,
     extra_line: str | None = None,
 ) -> str:
-    """Format sleek, clean progress message or animation caption."""
+    """Format sleek, clean progress message or animation caption.
+
+    Layout is strictly: title (and optional context lines) on top, progress bar
+    last. Nothing is rendered below the bar — explanatory one-liners there were
+    noise.
+    """
     bar_str = render_progress_bar(percent)
 
     # Avoid double icon or double wrapping if stage_title is already formatted
@@ -68,12 +73,6 @@ def format_progress_caption(
         lines.append(extra_line)
 
     lines.append(f"<code>{bar_str}</code>")
-
-    ic_lightning = registry.text("lightning") if registry else "⚡"
-    if detail:
-        lines.append(f"{ic_lightning} <i>{html.quote(detail)}</i>")
-    else:
-        lines.append(f"{ic_lightning} <i>لطفاً چند لحظه شکیبا باشید…</i>")
 
     return "\n".join(lines)
 
@@ -106,16 +105,16 @@ class ProgressController:
             self._tick_task = asyncio.create_task(self._ticker_loop())
 
     async def _ticker_loop(self) -> None:
-        """Gradually advance progress percentage and dynamic detail while operation runs."""
+        """Gradually advance the progress percentage while the operation runs."""
         steps = [
-            (25, "در حال اتصال به سرور رسانه…", 1.8),
-            (42, "در حال دریافت استریم با حداکثر سرعت…", 2.0),
-            (58, "در حال پردازش و استخراج فایل…", 2.2),
-            (73, "در حال بهینه‌سازی و آماده‌سازی فایل…", 2.5),
-            (86, "در حال نهایی‌سازی و فشرده‌سازی…", 2.8),
-            (94, "در حال ارسال فایل به تلگرام…", 3.0),
+            (25, 1.8),
+            (42, 2.0),
+            (58, 2.2),
+            (73, 2.5),
+            (86, 2.8),
+            (94, 3.0),
         ]
-        for pct, detail_text, delay in steps:
+        for pct, delay in steps:
             try:
                 await asyncio.sleep(delay)
                 if self._completed:
@@ -123,7 +122,6 @@ class ProgressController:
                 await self.update_stage(
                     self.stage_title,
                     percent=pct,
-                    detail=detail_text,
                     from_ticker=True,
                 )
             except asyncio.CancelledError:

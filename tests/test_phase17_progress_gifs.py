@@ -69,10 +69,14 @@ async def test_format_progress_caption() -> None:
     caption = format_progress_caption("در حال دانلود…", 45)
     assert "در حال دانلود…" in caption
     assert "۴۵%" in caption
-    assert "لطفاً چند لحظه شکیبا باشید…" in caption
+    # Nothing is rendered below the progress bar any more (no filler one-liner).
+    assert caption.strip().endswith("</code>")
 
+    # `detail` is accepted for backwards compatibility but never rendered.
     caption_detail = format_progress_caption("در حال فشرده‌سازی…", 80, detail="سایز: 5MB")
-    assert "سایز: 5MB" in caption_detail
+    assert "سایز: 5MB" not in caption_detail
+    assert "شکیبا باشید" not in caption_detail
+    assert caption_detail.strip().endswith("</code>")
 
 
 @pytest.mark.asyncio
