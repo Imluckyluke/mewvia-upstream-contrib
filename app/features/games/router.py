@@ -1,0 +1,722 @@
+"""Games & Entertainment feature router (Tic-Tac-Toe, Leaderboards, Leagues)."""
+
+from __future__ import annotations
+
+import html
+from collections.abc import Sequence
+
+from aiogram import F, Router
+from aiogram.enums import ChatType
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.callbacks import MenuCB, NoopCB
+from app.callbacks.game import GameCB
+from app.core.logging import get_logger
+from app.db.models.game_stat import GameStat
+from app.db.models.user import User
+from app.db.repo.game import GameRepo
+from app.db.repo.user import UserRepo
+from app.features.games.leagues import format_league_progress_bar, get_league
+from app.features.games.xo_engine import (
+    calculate_score_delta,
+    check_winner,
+    find_best_move,
+)
+from app.features.registry import Feature, register
+from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.kb import KB
+from app.ui.styles import Style
+
+log = get_logger(__name__)
+
+router = Router(name="games")
+
+DIFF_LABELS: dict[str, str] = {
+    "easy": "آسان 🟢",
+    "med": "متوسط 🟡",
+    "hard": "سخت (ناممکن) 🔴",
+}
+
+
+async def ready_registry() -> EmojiRegistry:
+    registry = get_emoji_registry()
+    await registry.refresh_premium_flag()
+    await registry.load()
+    return registry
+
+
+# ---------------------------------------------------------------------------
+# Renderers
+# ---------------------------------------------------------------------------
+
+
+def render_games_hub(
+    user: User,
+    stat: GameStat,
+    rank: int,
+    total_players: int,
+    registry: EmojiRegistry,
+) -> tuple[str, InlineKeyboardMarkup]:
+    league = get_league(stat.score)
+    u_name = html.escape(user.first_name or user.username or "بازیکن")
+
+    text = (
+        f"🎮 <b>مرکز بازی و مسابقات میوویا</b>\n\n"
+        f"👤 بازیکن: <b>{u_name}</b>\n"
+        f"{league.badge} لیگ: <b>{league.name}</b> — <i>«{league.title}»</i>\n"
+        f"🏆 ریتینگ: <b>{stat.score:,}</b> امتیاز\n"
+        f"📍 رتبه جهانی: <b>#{rank}</b> (از {max(1, total_players):,} بازیکن)\n\n"
+        f"📊 <b>کارنامه مسابقات:</b>\n"
+        f"• بردها: <b>{stat.wins}</b> | باخت‌ها: <b>{stat.losses}</b> | مساوی: <b>{stat.draws}</b>\n"
+        f"• نرخ پیروزی: <b>{stat.win_rate}%</b>\n"
+        f"• زنجیره برد فعلی: <b>{stat.current_streak}</b> 🔥 (بهترین: {stat.max_streak})\n\n"
+        f"یک گزینه را انتخاب کنید:"
+    )
+
+    kb = KB(registry)
+    # Row 1: Main Game
+    kb.button(
+        "🎮 بازی دوز (XO)",
+        callback_data=GameCB(action="diff").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="rocket",
+    )
+    kb.adjust(1)
+
+    # Row 2: Competition
+    kb.button(
+        "🏆 برترین‌ها و جدول رده‌بندی",
+        callback_data=GameCB(action="lb").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="stats",
+    )
+    kb.button(
+        "🎖 نردبان و وضعیت لیگ من",
+        callback_data=GameCB(action="profile").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="celebrate",
+    )
+    kb.adjust(1, 2)
+
+    # Row 3: Rules & Math
+    kb.button(
+        "📜 قوانین و راهنمای امتیازدهی",
+        callback_data=GameCB(action="rules").pack(),
+        style=Style.NEUTRAL,
+        emoji_slot="file",
+    )
+    # Row 4: Back to Main Menu
+    kb.button(
+        "◀️ بازگشت به منوی اصلی",
+        callback_data=MenuCB(target="root").pack(),
+        style=Style.NEUTRAL,
+        emoji_slot="back",
+    )
+    kb.adjust(1, 2, 1, 1)
+
+    return text, kb.as_markup()
+
+
+def render_diff_picker(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
+    text = (
+        "🎮 <b>بازی دوز هوشمند (Tic-Tac-Toe)</b>\n\n"
+        "حریف شما <b>هوش مصنوعی میوویا</b> است!\n"
+        "سطح دشواری بازی را انتخاب کنید:\n\n"
+        "🟢 <b>آسان:</b> هوش مصنوعی ساده‌تر (+۱۵ امتیاز برد)\n"
+        "🟡 <b>متوسط:</b> دفاع هوشمند و حمله استاندارد (+۲۵ امتیاز برد)\n"
+        "🔴 <b>سخت (ناممکن):</b> الگوریتم Minimax بدون خطا (+۴۰ امتیاز برد)\n\n"
+        "<i>هرچه سطح بالاتری را شکست دهید، امتیاز بیشتری به ریتینگ اضافه می‌شود!</i>"
+    )
+
+    kb = KB(registry)
+    kb.button(
+        "🟢 سطح آسان (+۱۵)",
+        callback_data=GameCB(action="xo", diff="easy").pack(),
+        style=Style.NEUTRAL,
+    )
+    kb.button(
+        "🟡 سطح متوسط (+۲۵)",
+        callback_data=GameCB(action="xo", diff="med").pack(),
+        style=Style.CONFIRM,
+    )
+    kb.button(
+        "🔴 سطح سخت و ناممکن (+۴۰)",
+        callback_data=GameCB(action="xo", diff="hard").pack(),
+        style=Style.DESTRUCTIVE,
+    )
+    kb.button(
+        "◀️ بازگشت به مرکز بازی",
+        callback_data=GameCB(action="menu").pack(),
+        style=Style.NEUTRAL,
+        emoji_slot="back",
+    )
+    kb.adjust(1, 1, 1, 1)
+
+    return text, kb.as_markup()
+
+
+def render_xo_board(
+    user: User,
+    stat: GameStat,
+    diff: str,
+    board: str,
+    registry: EmojiRegistry,
+    last_outcome: str | None = None,
+    score_delta: int = 0,
+) -> tuple[str, InlineKeyboardMarkup]:
+    diff_title = DIFF_LABELS.get(diff, "متوسط 🟡")
+    league = get_league(stat.score)
+
+    header = (
+        f"🎮 <b>بازی دوز (XO) با میوویا</b>\n"
+        f"سطح رقابت: <b>{diff_title}</b>\n"
+        f"علامت شما: <b>❌</b> ({stat.score:,} امتیاز - {league.badge}) | میوویا: <b>⭕</b>\n"
+    )
+
+    if last_outcome == "win":
+        status_line = (
+            f"\n🎉 <b>تبریک فراوان! شما برنده شدید!</b>\n"
+            f"🔥 <b>+{score_delta} امتیاز</b> به ریتینگ شما اضافه شد!"
+        )
+    elif last_outcome == "loss":
+        delta_str = (
+            f"{score_delta} امتیاز"
+            if score_delta != 0
+            else "بدون کسر امتیاز (حاشیه امن برنز)"
+        )
+        status_line = (
+            f"\n🤖 <b>میوویا پیروز شد!</b>\n"
+            f"🔻 <b>{delta_str}</b> از ریتینگ شما ثبت شد."
+        )
+    elif last_outcome == "draw":
+        status_line = (
+            f"\n🤝 <b>بازی مساوی شد!</b>\n"
+            f"✨ <b>+{score_delta} امتیاز</b> ثبت شد."
+        )
+    else:
+        status_line = "\nنوبت شماست! یک خانه خالی را لمس کنید:"
+
+    text = f"{header}{status_line}"
+
+    is_finished = last_outcome is not None
+
+    kb = KB(registry)
+
+    # 3x3 Grid
+    for i in range(9):
+        char = board[i]
+        if char == "X":
+            kb.button("❌", callback_data=NoopCB().pack(), style=Style.PRIMARY)
+        elif char == "O":
+            kb.button("⭕", callback_data=NoopCB().pack(), style=Style.DESTRUCTIVE)
+        else:
+            if is_finished:
+                kb.button("⬜", callback_data=NoopCB().pack(), style=Style.NEUTRAL)
+            else:
+                kb.button(
+                    "⬜",
+                    callback_data=GameCB(action="move", diff=diff, cell=i, b=board).pack(),
+                    style=Style.NEUTRAL,
+                )
+
+    widths = [3, 3, 3]
+
+    if is_finished:
+        kb.button(
+            "🔄 بازی مجدد",
+            callback_data=GameCB(action="reset", diff=diff).pack(),
+            style=Style.CONFIRM,
+            emoji_slot="refresh",
+        )
+        kb.button(
+            "⚙️ تغییر سطح",
+            callback_data=GameCB(action="diff").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="tool",
+        )
+        kb.button(
+            "🏆 جدول برترین‌ها",
+            callback_data=GameCB(action="lb").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="stats",
+        )
+        kb.button(
+            "◀️ مرکز بازی‌ها",
+            callback_data=GameCB(action="menu").pack(),
+            style=Style.NEUTRAL,
+            emoji_slot="back",
+        )
+        widths.extend([2, 1, 1])
+    else:
+        kb.button(
+            "🔄 شروع مجدد",
+            callback_data=GameCB(action="reset", diff=diff).pack(),
+            style=Style.DESTRUCTIVE,
+            emoji_slot="refresh",
+        )
+        kb.button(
+            "⚙️ تغییر سطح",
+            callback_data=GameCB(action="diff").pack(),
+            style=Style.NEUTRAL,
+        )
+        kb.button(
+            "◀️ مرکز بازی‌ها",
+            callback_data=GameCB(action="menu").pack(),
+            style=Style.NEUTRAL,
+            emoji_slot="back",
+        )
+        widths.extend([2, 1])
+
+    kb.adjust(*widths)
+    return text, kb.as_markup()
+
+
+def render_leaderboard(
+    user_id: int,
+    top_stats: Sequence[GameStat],
+    user_rank: int,
+    total_players: int,
+    registry: EmojiRegistry,
+) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [
+        "🏆 <b>جدول رتبه‌بندی برترین بازیکنان میوویا</b>\n",
+        "۱۰ بازیکن برتر بر اساس بالاترین ریتینگ لیگ:\n",
+    ]
+
+    medals = ["🥇", "🥈", "🥉"]
+
+    if not top_stats:
+        lines.append("<i>هنوز هیچ مسابقه‌ای ثبت نشده است. اولین قهرمان باشید!</i>\n")
+    else:
+        for idx, s in enumerate(top_stats, start=1):
+            badge = medals[idx - 1] if idx <= 3 else f"<b>{idx}.</b>"
+            league_obj = get_league(s.score)
+            p_name = "بازیکن ناشناس"
+            if s.user:
+                p_name = s.user.display_name or (s.user.first_name or "بازیکن")
+            is_me = (s.telegram_id == user_id)
+            me_tag = " (شما)" if is_me else ""
+            name_escaped = html.escape(p_name)
+            lines.append(
+                f"{badge} <b>{name_escaped}</b>{me_tag} — "
+                f"<b>{s.score:,}</b> امتیاز {league_obj.badge} "
+                f"[برد: {s.wins} | باخت: {s.losses}]"
+            )
+
+    lines.append("\n──────────────")
+    lines.append(f"📍 <b>رتبه شما:</b> #{user_rank} از {max(1, total_players):,} بازیکن")
+
+    kb = KB(registry)
+    kb.button(
+        "🎮 بازی دوز (XO)",
+        callback_data=GameCB(action="diff").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="rocket",
+    )
+    kb.button(
+        "🔄 به‌روزرسانی",
+        callback_data=GameCB(action="lb").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="refresh",
+    )
+    kb.button(
+        "🎖 نردبان لیگ من",
+        callback_data=GameCB(action="profile").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="celebrate",
+    )
+    kb.button(
+        "◀️ مرکز بازی‌ها",
+        callback_data=GameCB(action="menu").pack(),
+        style=Style.NEUTRAL,
+        emoji_slot="back",
+    )
+    kb.adjust(1, 2, 1)
+
+    return "\n".join(lines), kb.as_markup()
+
+
+def render_my_league(
+    user: User,
+    stat: GameStat,
+    rank: int,
+    total_players: int,
+    registry: EmojiRegistry,
+) -> tuple[str, InlineKeyboardMarkup]:
+    league = get_league(stat.score)
+    bar_str = format_league_progress_bar(stat.score)
+    u_name = html.escape(user.first_name or user.username or "بازیکن")
+
+    text = (
+        f"🎖 <b>شناسنامه لیگ و وضعیت شما</b>\n\n"
+        f"👤 بازیکن: <b>{u_name}</b>\n"
+        f"{league.badge} لیگ فعلی: <b>{league.name}</b>\n"
+        f"🏷 لقب افتخاری: <b>«{league.title}»</b>\n"
+        f"🏆 ریتینگ: <b>{stat.score:,}</b> امتیاز (رتبه #{rank} از {max(1, total_players):,})\n\n"
+        f"📈 <b>مسیر ارتقا به لیگ بعدی:</b>\n"
+        f"<code>{bar_str}</code>\n\n"
+        f"📊 <b>آمار تفصیلی:</b>\n"
+        f"• کل مسابقات: <b>{stat.total_games}</b>\n"
+        f"• پیروزی‌ها: <b>{stat.wins}</b> (نرخ برد: {stat.win_rate}%)\n"
+        f"• شکست‌ها: <b>{stat.losses}</b> | تساوی‌ها: <b>{stat.draws}</b>\n"
+        f"• زنجیره برد پی‌درپی فعلی: <b>{stat.current_streak}</b> 🔥\n"
+        f"• بالاترین رکورد پیروزی متوالی: <b>{stat.max_streak}</b> ✨\n\n"
+        f"🏅 <b>سطوح نردبان لیگ‌های میوویا:</b>\n"
+        f"🥉 <b>لیگ برنز:</b> ۱,۰۰۰ تا ۱,۱۴۹ امتیاز\n"
+        f"🥈 <b>لیگ نقره:</b> ۱,۱۵۰ تا ۱,۳۴۹ امتیاز\n"
+        f"🥇 <b>لیگ طلا:</b> ۱,۳۵۰ تا ۱,۶۴۹ امتیاز\n"
+        f"💎 <b>لیگ الماس:</b> ۱,۶۵۰ تا ۱,۹۹۹ امتیاز\n"
+        f"👑 <b>لیگ افسانه‌ای مستر:</b> ۲,۰۰۰+ امتیاز"
+    )
+
+    kb = KB(registry)
+    kb.button(
+        "🎮 بازی دوز (XO)",
+        callback_data=GameCB(action="diff").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="rocket",
+    )
+    kb.button(
+        "🏆 جدول برترین‌ها",
+        callback_data=GameCB(action="lb").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="stats",
+    )
+    kb.button(
+        "◀️ مرکز بازی‌ها",
+        callback_data=GameCB(action="menu").pack(),
+        style=Style.NEUTRAL,
+        emoji_slot="back",
+    )
+    kb.adjust(1, 1, 1)
+
+    return text, kb.as_markup()
+
+
+def render_rules(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
+    text = (
+        "📜 <b>راهنما و قوانین امتیازدهی بازی دوز میوویا</b>\n\n"
+        "سیستم رتبه‌بندی بازی‌ها بر پایه ریتینگ هوشمند طراحی شده است:\n\n"
+        "🎯 <b>ضرایب امتیاز بر اساس سطح دشواری:</b>\n"
+        "• <b>سطح آسان 🟢:</b> برد +۱۵ | مساوی +۲ | باخت -۵\n"
+        "• <b>سطح متوسط 🟡:</b> برد +۲۵ | مساوی +۵ | باخت -۱۰\n"
+        "• <b>سطح سخت 🔴:</b> برد +۴۰ | مساوی +۱۰ | باخت -۱۵\n\n"
+        "🔥 <b>پاداش زنجیره برد (Streak Bonus):</b>\n"
+        "با هر برد متوالی، به ازای هر برد +۲ امتیاز پاداش ویژه دریافت می‌کنید!\n\n"
+        "🛡 <b>حاشیه امن برنز:</b>\n"
+        "امتیاز بازیکنان تازه وارد زیر ۱,۰۰۰ امتیاز کسر نخواهد شد."
+    )
+
+    kb = KB(registry)
+    kb.button(
+        "🎮 شروع بازی دوز",
+        callback_data=GameCB(action="diff").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="rocket",
+    )
+    kb.button(
+        "◀️ مرکز بازی‌ها",
+        callback_data=GameCB(action="menu").pack(),
+        style=Style.NEUTRAL,
+        emoji_slot="back",
+    )
+    kb.adjust(1, 1)
+
+    return text, kb.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Handlers
+# ---------------------------------------------------------------------------
+
+
+@router.message(
+    F.chat.type == ChatType.PRIVATE,
+    Command("games", "game", "xo", "دوز", "بازی"),
+)
+async def cmd_games(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
+    registry = await ready_registry()
+    user_repo = UserRepo(session)
+    user = await user_repo.upsert_from_telegram(message.from_user)
+
+    game_repo = GameRepo(session)
+    stat = await game_repo.get_or_create(user.telegram_id)
+    rank = await game_repo.get_user_rank(user.telegram_id)
+    total = await game_repo.get_total_players()
+
+    text, reply_markup = render_games_hub(user, stat, rank, total, registry)
+    await message.reply(text, reply_markup=reply_markup)
+
+
+@router.callback_query(MenuCB.filter(F.target == "games"))
+async def menu_games(query: CallbackQuery, session: AsyncSession) -> None:
+    if not query.from_user or not isinstance(query.message, Message):
+        return
+    await query.answer()
+    registry = await ready_registry()
+    user_repo = UserRepo(session)
+    user = await user_repo.upsert_from_telegram(query.from_user)
+
+    game_repo = GameRepo(session)
+    stat = await game_repo.get_or_create(user.telegram_id)
+    rank = await game_repo.get_user_rank(user.telegram_id)
+    total = await game_repo.get_total_players()
+
+    text, reply_markup = render_games_hub(user, stat, rank, total, registry)
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
+
+
+@router.callback_query(GameCB.filter(F.action == "menu"))
+async def cb_games_menu(query: CallbackQuery, session: AsyncSession) -> None:
+    if not query.from_user or not isinstance(query.message, Message):
+        return
+    await query.answer()
+    registry = await ready_registry()
+    user_repo = UserRepo(session)
+    user = await user_repo.upsert_from_telegram(query.from_user)
+
+    game_repo = GameRepo(session)
+    stat = await game_repo.get_or_create(user.telegram_id)
+    rank = await game_repo.get_user_rank(user.telegram_id)
+    total = await game_repo.get_total_players()
+
+    text, reply_markup = render_games_hub(user, stat, rank, total, registry)
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
+
+
+@router.callback_query(GameCB.filter(F.action == "diff"))
+async def cb_diff_picker(query: CallbackQuery) -> None:
+    if not isinstance(query.message, Message):
+        return
+    await query.answer()
+    registry = await ready_registry()
+    text, reply_markup = render_diff_picker(registry)
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
+
+
+@router.callback_query(GameCB.filter(F.action.in_({"xo", "reset"})))
+async def cb_start_xo(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
+    if not query.from_user or not isinstance(query.message, Message):
+        return
+    await query.answer("بازی جدید آغاز شد! نوبت شماست.")
+    registry = await ready_registry()
+    user_repo = UserRepo(session)
+    user = await user_repo.upsert_from_telegram(query.from_user)
+
+    game_repo = GameRepo(session)
+    stat = await game_repo.get_or_create(user.telegram_id)
+
+    diff = callback_data.diff or "med"
+    clean_board = "_________"
+    text, reply_markup = render_xo_board(user, stat, diff, clean_board, registry)
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
+
+
+@router.callback_query(GameCB.filter(F.action == "move"))
+async def cb_handle_move(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
+    if not query.from_user or not isinstance(query.message, Message):
+        return
+
+    cell = callback_data.cell
+    board = callback_data.b
+    diff = callback_data.diff
+
+    # Validate cell
+    if not (0 <= cell <= 8) or len(board) != 9:
+        await query.answer("حرکت نامعتبر است.")
+        return
+
+    if board[cell] != "_":
+        await query.answer("این خانه قبلاً انتخاب شده است!")
+        return
+
+    # Check if game already ended
+    w_now, _ = check_winner(board)
+    if w_now is not None:
+        await query.answer("بازی به پایان رسیده است.")
+        return
+
+    user_repo = UserRepo(session)
+    user = await user_repo.upsert_from_telegram(query.from_user)
+    game_repo = GameRepo(session)
+    stat = await game_repo.get_or_create(user.telegram_id)
+
+    # 1. Player move
+    b_list = list(board)
+    b_list[cell] = "X"
+    board_after_player = "".join(b_list)
+
+    # Check player win/draw
+    winner, _ = check_winner(board_after_player)
+    registry = await ready_registry()
+
+    if winner == "X":
+        delta = calculate_score_delta("win", diff, stat.score, stat.current_streak)
+        stat = await game_repo.record_result(user.telegram_id, "win", delta)
+        await query.answer("🎉 تبریک! برنده شدید!")
+        text, reply_markup = render_xo_board(
+            user, stat, diff, board_after_player, registry, "win", delta
+        )
+        try:
+            await query.message.edit_text(text, reply_markup=reply_markup)
+        except Exception:
+            pass
+        return
+
+    if winner == "draw":
+        delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
+        stat = await game_repo.record_result(user.telegram_id, "draw", delta)
+        await query.answer("🤝 بازی مساوی شد!")
+        text, reply_markup = render_xo_board(
+            user, stat, diff, board_after_player, registry, "draw", delta
+        )
+        try:
+            await query.message.edit_text(text, reply_markup=reply_markup)
+        except Exception:
+            pass
+        return
+
+    # 2. Bot move
+    bot_move = find_best_move(board_after_player, diff)
+    if bot_move != -1:
+        b_list[bot_move] = "O"
+
+    board_after_bot = "".join(b_list)
+    winner_bot, _ = check_winner(board_after_bot)
+
+    if winner_bot == "O":
+        delta = calculate_score_delta("loss", diff, stat.score, stat.current_streak)
+        stat = await game_repo.record_result(user.telegram_id, "loss", delta)
+        await query.answer("🤖 میوویا برنده شد!")
+        text, reply_markup = render_xo_board(
+            user, stat, diff, board_after_bot, registry, "loss", delta
+        )
+        try:
+            await query.message.edit_text(text, reply_markup=reply_markup)
+        except Exception:
+            pass
+        return
+
+    if winner_bot == "draw":
+        delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
+        stat = await game_repo.record_result(user.telegram_id, "draw", delta)
+        await query.answer("🤝 بازی مساوی شد!")
+        text, reply_markup = render_xo_board(
+            user, stat, diff, board_after_bot, registry, "draw", delta
+        )
+        try:
+            await query.message.edit_text(text, reply_markup=reply_markup)
+        except Exception:
+            pass
+        return
+
+    # Still ongoing
+    await query.answer()
+    text, reply_markup = render_xo_board(
+        user, stat, diff, board_after_bot, registry, None, 0
+    )
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
+
+
+@router.callback_query(GameCB.filter(F.action == "lb"))
+async def cb_leaderboard(query: CallbackQuery, session: AsyncSession) -> None:
+    if not query.from_user or not isinstance(query.message, Message):
+        return
+    await query.answer()
+    registry = await ready_registry()
+    game_repo = GameRepo(session)
+
+    top_stats = await game_repo.get_leaderboard(limit=10)
+    user_rank = await game_repo.get_user_rank(query.from_user.id)
+    total_players = await game_repo.get_total_players()
+
+    text, reply_markup = render_leaderboard(
+        user_id=query.from_user.id,
+        top_stats=top_stats,
+        user_rank=user_rank,
+        total_players=total_players,
+        registry=registry,
+    )
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
+
+
+@router.callback_query(GameCB.filter(F.action == "profile"))
+async def cb_my_league(query: CallbackQuery, session: AsyncSession) -> None:
+    if not query.from_user or not isinstance(query.message, Message):
+        return
+    await query.answer()
+    registry = await ready_registry()
+    user_repo = UserRepo(session)
+    user = await user_repo.upsert_from_telegram(query.from_user)
+
+    game_repo = GameRepo(session)
+    stat = await game_repo.get_or_create(user.telegram_id)
+    rank = await game_repo.get_user_rank(user.telegram_id)
+    total_players = await game_repo.get_total_players()
+
+    text, reply_markup = render_my_league(
+        user=user,
+        stat=stat,
+        rank=rank,
+        total_players=total_players,
+        registry=registry,
+    )
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
+
+
+@router.callback_query(GameCB.filter(F.action == "rules"))
+async def cb_rules(query: CallbackQuery) -> None:
+    if not isinstance(query.message, Message):
+        return
+    await query.answer()
+    registry = await ready_registry()
+    text, reply_markup = render_rules(registry)
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Feature registration
+# ---------------------------------------------------------------------------
+
+feature = register(
+    Feature(
+        name="games",
+        router=router,
+        menu_label_key="menu.games",
+        menu_emoji_slot="rocket",
+        menu_style=Style.PRIMARY,
+        order=140,
+    )
+)

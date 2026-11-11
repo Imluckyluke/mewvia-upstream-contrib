@@ -28,6 +28,7 @@ def load_features() -> list[Feature]:
             downloader,
             fallback,
             filters,
+            games,
             group_media,
             music_search,
             shazam,

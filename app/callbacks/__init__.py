@@ -12,6 +12,7 @@ from app.callbacks.batch import BatchCB
 from app.callbacks.convert import ConvertCB
 from app.callbacks.downloader import DownloaderCB
 from app.callbacks.filter import FilterCB
+from app.callbacks.game import GameCB
 from app.callbacks.image import ImageToolCB
 from app.callbacks.music_search import MusicSearchCB
 from app.callbacks.nav import DemoCB, MenuCB, NoopCB, PageCB
@@ -27,6 +28,7 @@ __all__ = [
     "DemoCB",
     "DownloaderCB",
     "FilterCB",
+    "GameCB",
     "ImageToolCB",
     "MenuCB",
     "MusicSearchCB",
