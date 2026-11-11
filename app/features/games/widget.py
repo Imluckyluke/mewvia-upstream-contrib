@@ -20,26 +20,20 @@ XO_WIDGET_HTML = """<!DOCTYPE html>
   -webkit-tap-highlight-color: transparent;
   margin: 0;
   padding: 0;
-  touch-action: manipulation;
-}
-html, body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  touch-action: none;
 }
 body {
-  background: #060608;
+  background: #08080c;
   color: #00ff66;
   font-family: 'Courier New', Courier, monospace;
-  padding: 6px 8px;
+  padding: 10px 8px;
   text-align: center;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: manipulation;
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(0,0,0,0.6) 0px,
-    rgba(0,0,0,0.6) 1px,
+    rgba(0,0,0,0.5) 0px,
+    rgba(0,0,0,0.5) 1px,
     transparent 1px,
     transparent 2px
   );
@@ -47,23 +41,22 @@ body {
 .arcade-cabinet {
   border: 3px solid #00f0ff;
   border-radius: 12px;
-  padding: 8px;
-  background: #0a0a10;
-  box-shadow: 0 0 14px rgba(0,240,255,0.35), inset 0 0 14px rgba(0,0,0,0.8);
-  max-width: 280px;
+  padding: 10px 8px;
+  background: #0e0e18;
+  box-shadow: 0 0 16px rgba(0,240,255,0.35), inset 0 0 16px rgba(0,0,0,0.85);
+  max-width: 290px;
   margin: 0 auto;
-  overflow: hidden;
 }
 .marquee {
-  background: #12121e;
-  border: 2px solid #00f0ff;
+  background: #161626;
+  border: 2px solid #ff0055;
   border-radius: 6px;
-  padding: 5px;
+  padding: 6px 4px;
   margin-bottom: 8px;
-  box-shadow: 0 0 10px rgba(0,240,255,0.3);
+  box-shadow: 0 0 10px rgba(255,0,85,0.3);
 }
 .title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 900;
   color: #ffea00;
   text-shadow: 0 0 8px #ffea00, 2px 2px #ff0055;
@@ -80,14 +73,14 @@ body {
   justify-content: space-around;
   align-items: center;
   background: #000;
-  border: 1px solid #222;
+  border: 2px solid #222;
   padding: 5px 12px;
   margin-bottom: 8px;
   border-radius: 6px;
 }
 .led-box { display: flex; flex-direction: column; align-items: center; }
 .led-label { font-size: 9px; color: #888; font-weight: bold; }
-.led-val { font-size: 18px; font-weight: 900; }
+.led-val { font-size: 20px; font-weight: 900; font-family: monospace; }
 .val-1p { color: #ff0055; text-shadow: 0 0 8px #ff0055; }
 .val-cpu { color: #00ff66; text-shadow: 0 0 8px #00ff66; }
 .vs-badge { font-size: 11px; font-weight: 900; color: #64748b; }
@@ -96,79 +89,78 @@ body {
   display: flex;
   gap: 6px;
   justify-content: center;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .diff-btn {
   flex: 1;
-  max-width: 90px;
-  background: #141420;
+  max-width: 82px;
+  background: #141422;
   border: 2px solid #333;
   color: #888;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 900;
-  padding: 7px 0;
-  border-radius: 6px;
+  padding: 6px 0;
+  border-radius: 5px;
   cursor: pointer;
   touch-action: manipulation;
-  transition: all 0.15s;
 }
 .diff-btn.active {
   background: #ffea00;
   color: #000;
   border-color: #fff;
-  box-shadow: 0 0 12px rgba(255,234,0,0.6);
+  box-shadow: 0 0 10px rgba(255,234,0,0.6);
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(3, 80px);
-  grid-template-rows: repeat(3, 80px);
-  gap: 9px;
-  width: 258px;
-  height: 258px;
+  grid-template-columns: repeat(3, 72px);
+  grid-template-rows: repeat(3, 72px);
+  gap: 8px;
+  width: 232px;
+  height: 232px;
   margin: 0 auto;
   justify-content: center;
 }
-.cell-btn {
-  width: 80px;
-  height: 80px;
-  min-width: 80px;
-  min-height: 80px;
-  max-width: 80px;
-  max-height: 80px;
-  background: #181826;
-  border: 3px solid #3a3a4c;
-  border-bottom: 4px solid #0f0f18;
-  border-radius: 10px;
+.cell {
+  width: 72px;
+  height: 72px;
+  min-width: 72px;
+  min-height: 72px;
+  max-width: 72px;
+  max-height: 72px;
+  background: #1a1a2a;
+  border: 2px solid #3a3a4c;
+  border-bottom: 4px solid #10101a;
+  border-radius: 8px;
   color: #fff;
   font-family: inherit;
-  font-size: 44px;
+  font-size: 38px;
   font-weight: 900;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   touch-action: manipulation;
-  box-shadow: inset 0 0 10px rgba(0,0,0,0.7);
+  box-shadow: inset 0 0 8px rgba(0,0,0,0.6);
   line-height: 1;
   padding: 0;
   overflow: hidden;
   outline: none;
 }
-.cell-btn:active {
-  background: #28283a;
+.cell:active {
+  background: #252538;
 }
-.cell-btn.mark-x {
+.cell.x {
   color: #ff0055;
-  text-shadow: 0 0 14px #ff0055, 0 0 25px #ff0055;
+  text-shadow: 0 0 12px #ff0055, 0 0 20px #ff0055;
   border-color: #ff0055;
 }
-.cell-btn.mark-o {
+.cell.o {
   color: #00ff66;
-  text-shadow: 0 0 14px #00ff66, 0 0 25px #00ff66;
+  text-shadow: 0 0 12px #00ff66, 0 0 20px #00ff66;
   border-color: #00ff66;
 }
-.cell-btn.win {
+.cell.win {
   background: #ffea00 !important;
   color: #000 !important;
   border-color: #fff !important;
@@ -177,50 +169,50 @@ body {
 }
 @keyframes flash { from { opacity: 0.7; } to { opacity: 1; } }
 .msg-screen {
-  margin: 8px 0 8px 0;
+  margin: 10px 0 8px 0;
   background: #000;
-  border: 1px solid #222;
-  border-radius: 4px;
+  border: 2px solid #222;
+  border-radius: 5px;
   padding: 5px;
   font-size: 11px;
   font-weight: 900;
   color: #ffea00;
   text-shadow: 0 0 6px rgba(255,234,0,0.6);
-  min-height: 26px;
+  min-height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   letter-spacing: 0.5px;
+  overflow: hidden;
 }
 .footer-btns {
   display: flex;
   gap: 8px;
   justify-content: center;
 }
-.arcade-act-btn {
-  background: #ff0055;
+.act-btn {
+  background: #00f0ff;
   border: none;
-  border-bottom: 3px solid #88002d;
-  color: #fff;
+  border-bottom: 3px solid #008899;
+  color: #000;
   font-family: inherit;
   font-size: 10px;
   font-weight: 900;
-  padding: 6px 14px;
-  border-radius: 6px;
+  padding: 7px 14px;
+  border-radius: 5px;
   cursor: pointer;
-  touch-action: none;
+  touch-action: manipulation;
   letter-spacing: 1px;
-  box-shadow: 0 0 8px rgba(255,0,85,0.4);
-}
-.arcade-act-btn:active {
-  border-bottom: 1px solid #88002d;
-  transform: translateY(2px);
-}
-.btn-yellow {
-  background: #00f0ff;
-  color: #000;
-  border-bottom: 3px solid #008899;
   box-shadow: 0 0 8px rgba(0,240,255,0.4);
+}
+.act-btn:active {
+  transform: translateY(1px);
+}
+.btn-pink {
+  background: #ff0055;
+  color: #fff;
+  border-bottom: 3px solid #88002d;
+  box-shadow: 0 0 8px rgba(255,0,85,0.4);
 }
 </style>
 </head>
@@ -244,37 +236,46 @@ body {
   </div>
 
   <div class="diff-row">
-    <button class="diff-btn" id="bEasy" type="button">EASY</button>
-    <button class="diff-btn active" id="bSmart" type="button">SMART</button>
-    <button class="diff-btn" id="bBrutal" type="button">BRUTAL</button>
+    <button class="diff-btn" id="d0" type="button" onclick="setD(0)">EASY</button>
+    <button class="diff-btn active" id="d1" type="button" onclick="setD(1)">SMART</button>
+    <button class="diff-btn" id="d2" type="button" onclick="setD(2)">BRUTAL</button>
   </div>
 
-  <div class="grid" id="g"></div>
+  <div class="grid">
+    <button class="cell" id="c0" type="button" onclick="tap(0)"></button>
+    <button class="cell" id="c1" type="button" onclick="tap(1)"></button>
+    <button class="cell" id="c2" type="button" onclick="tap(2)"></button>
+    <button class="cell" id="c3" type="button" onclick="tap(3)"></button>
+    <button class="cell" id="c4" type="button" onclick="tap(4)"></button>
+    <button class="cell" id="c5" type="button" onclick="tap(5)"></button>
+    <button class="cell" id="c6" type="button" onclick="tap(6)"></button>
+    <button class="cell" id="c7" type="button" onclick="tap(7)"></button>
+    <button class="cell" id="c8" type="button" onclick="tap(8)"></button>
+  </div>
 
   <div class="msg-screen" id="mBox">&gt;&gt; YOUR TURN: TAP TO MOVE &lt;&lt;</div>
 
   <div class="footer-btns">
-    <button class="arcade-act-btn" id="rstBtn" type="button">[ NEW GAME ]</button>
-    <button class="arcade-act-btn btn-yellow" id="clrBtn" type="button">[ RESET SCORE ]</button>
+    <button class="act-btn" type="button" onclick="restart()">[ NEW GAME ]</button>
+    <button class="act-btn btn-pink" type="button" onclick="resetScore()">[ RESET SCORE ]</button>
   </div>
 </div>
 
 <script>
-let b = ['', '', '', '', '', '', '', '', ''];
-let pX = 0, pO = 0;
-let over = false;
-let dLevel = 1;
+var b = ['', '', '', '', '', '', '', '', ''];
+var pX = 0, pO = 0;
+var over = false;
+var dLevel = 1;
 
-const W = [
+var W = [
   [0,1,2],[3,4,5],[6,7,8],
   [0,3,6],[1,4,7],[2,5,8],
   [0,4,8],[2,4,6]
 ];
 
-function setText(el, txt) {
-  if (!el) return;
-  try { el.textContent = txt; } catch(e) {}
-  try { el.innerText = txt; } catch(e) {}
+function setMsg(t) {
+  var el = document.getElementById('mBox');
+  if (el) { el.textContent = t; }
 }
 
 function haptic(t) {
@@ -287,73 +288,35 @@ function haptic(t) {
   } catch(e) {}
 }
 
-const grid = document.getElementById('g');
-const btns = [];
-for (let i = 0; i < 9; i++) {
-  const btn = document.createElement('button');
-  btn.className = 'cell-btn';
-  btn.setAttribute('type', 'button');
-  function tapHandler(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    onMove(i);
+function setD(lvl) {
+  dLevel = lvl;
+  for (var i = 0; i < 3; i++) {
+    var btn = document.getElementById('d' + i);
+    if (btn) {
+      btn.className = (i === lvl) ? 'diff-btn active' : 'diff-btn';
+    }
   }
-  btn.onclick = tapHandler;
-  btn.addEventListener('click', tapHandler);
-  grid.appendChild(btn);
-  btns.push(btn);
+  haptic('tap');
+  restart();
 }
 
-const diffBtns = [
-  document.getElementById('bEasy'),
-  document.getElementById('bSmart'),
-  document.getElementById('bBrutal')
-];
-
-diffBtns.forEach(function(btn, idx) {
-  btn.onclick = function() { selectDiff(idx); };
-  btn.addEventListener('click', function() { selectDiff(idx); });
-});
-
-function selectDiff(idx) {
-  dLevel = idx;
-  diffBtns.forEach(function(b, i) {
-    if (i === idx) b.className = 'diff-btn active';
-    else b.className = 'diff-btn';
-  });
-  haptic('tap');
-  newRound();
-}
-
-const rstBtn = document.getElementById('rstBtn');
-rstBtn.onclick = function() { newRound(); haptic('tap'); };
-rstBtn.addEventListener('click', function() { newRound(); haptic('tap'); });
-
-const clrBtn = document.getElementById('clrBtn');
-clrBtn.onclick = function() { clearScore(); };
-clrBtn.addEventListener('click', function() { clearScore(); });
-
-function clearScore() {
-  haptic('tap');
-  pX = 0; pO = 0;
-  setText(document.getElementById('sX'), '00');
-  setText(document.getElementById('sO'), '00');
-  newRound();
-}
-
-function onMove(idx) {
-  if (b[idx] !== '' || over) return;
-  b[idx] = 'X';
-  setText(btns[idx], 'X');
-  btns[idx].className = 'cell-btn mark-x';
+function tap(i) {
+  if (b[i] !== '' || over) return;
+  b[i] = 'X';
+  var cell = document.getElementById('c' + i);
+  if (cell) {
+    cell.textContent = 'X';
+    cell.className = 'cell x';
+  }
   haptic('tap');
 
-  const win = check('X');
+  var win = check('X');
   if (win) {
     pX++;
-    const s = pX < 10 ? '0' + pX : '' + pX;
-    setText(document.getElementById('sX'), s);
+    var s = pX < 10 ? '0' + pX : '' + pX;
+    document.getElementById('sX').textContent = s;
     setMsg('*** YOU WIN! HIGH SCORE! ***');
-    flashWin(win);
+    flash(win);
     haptic('win');
     over = true;
     return;
@@ -366,26 +329,29 @@ function onMove(idx) {
 
   setMsg('.. CPU CALCULATING ..');
   over = true;
-  setTimeout(cpuMove, 300);
+  setTimeout(cpu, 300);
 }
 
-function cpuMove() {
-  const m = getMove();
+function cpu() {
+  var m = getMove();
   if (m !== -1) {
     b[m] = 'O';
-    setText(btns[m], 'O');
-    btns[m].className = 'cell-btn mark-o';
+    var cell = document.getElementById('c' + m);
+    if (cell) {
+      cell.textContent = 'O';
+      cell.className = 'cell o';
+    }
   }
   haptic('tap');
   over = false;
 
-  const win = check('O');
+  var win = check('O');
   if (win) {
     pO++;
-    const s = pO < 10 ? '0' + pO : '' + pO;
-    setText(document.getElementById('sO'), s);
+    var s = pO < 10 ? '0' + pO : '' + pO;
+    document.getElementById('sO').textContent = s;
     setMsg('!!! CPU WINS! GAME OVER !!!');
-    flashWin(win);
+    flash(win);
     haptic('loss');
     over = true;
     return;
@@ -399,8 +365,8 @@ function cpuMove() {
 }
 
 function getMove() {
-  const free = [];
-  for (let i = 0; i < 9; i++) {
+  var free = [];
+  for (var i = 0; i < 9; i++) {
     if (b[i] === '') free.push(i);
   }
   if (!free.length) return -1;
@@ -409,12 +375,12 @@ function getMove() {
     return free[Math.floor(Math.random() * free.length)];
   }
 
-  for (let i = 0; i < free.length; i++) {
+  for (var i = 0; i < free.length; i++) {
     b[free[i]] = 'O';
     if (check('O')) { b[free[i]] = ''; return free[i]; }
     b[free[i]] = '';
   }
-  for (let i = 0; i < free.length; i++) {
+  for (var i = 0; i < free.length; i++) {
     b[free[i]] = 'X';
     if (check('X')) { b[free[i]] = ''; return free[i]; }
     b[free[i]] = '';
@@ -425,39 +391,46 @@ function getMove() {
   }
 
   if (free.includes(4)) return 4;
-  const corners = [];
+  var corners = [];
   [0, 2, 6, 8].forEach(function(c) { if (free.includes(c)) corners.push(c); });
   if (corners.length) return corners[Math.floor(Math.random() * corners.length)];
   return free[0];
 }
 
 function check(p) {
-  for (let i = 0; i < W.length; i++) {
-    const l = W[i];
+  for (var i = 0; i < W.length; i++) {
+    var l = W[i];
     if (b[l[0]] === p && b[l[1]] === p && b[l[2]] === p) return l;
   }
   return null;
 }
 
-function flashWin(line) {
-  for (let i = 0; i < line.length; i++) {
-    btns[line[i]].className = 'cell-btn win';
+function flash(line) {
+  for (var i = 0; i < line.length; i++) {
+    var c = document.getElementById('c' + line[i]);
+    if (c) c.className = 'cell win';
   }
 }
 
-function setMsg(t) {
-  const m = document.getElementById('mBox');
-  setText(m, t);
-}
-
-function newRound() {
+function restart() {
   b = ['', '', '', '', '', '', '', '', ''];
   over = false;
-  for (let i = 0; i < 9; i++) {
-    setText(btns[i], '');
-    btns[i].className = 'cell-btn';
+  for (var i = 0; i < 9; i++) {
+    var c = document.getElementById('c' + i);
+    if (c) {
+      c.textContent = '';
+      c.className = 'cell';
+    }
   }
   setMsg('&gt;&gt; YOUR TURN: TAP TO MOVE &lt;&lt;');
+}
+
+function resetScore() {
+  haptic('tap');
+  pX = 0; pO = 0;
+  document.getElementById('sX').textContent = '00';
+  document.getElementById('sO').textContent = '00';
+  restart();
 }
 </script>
 </body>
