@@ -15,17 +15,16 @@ XO_WIDGET_HTML = """<!DOCTYPE html>
 <style>
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
 body {
-  background: #08080a;
+  background: #060608;
   color: #00ff66;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Arial, sans-serif;
-  padding: 10px;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 8px 10px;
   text-align: center;
   user-select: none;
-  direction: rtl;
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(0,0,0,0.5) 0px,
-    rgba(0,0,0,0.5) 1px,
+    rgba(0,0,0,0.6) 0px,
+    rgba(0,0,0,0.6) 1px,
     transparent 1px,
     transparent 2px
   );
@@ -33,16 +32,16 @@ body {
 .arcade-cabinet {
   border: 3px solid #ff0055;
   border-radius: 12px;
-  padding: 10px;
-  background: #0d0d14;
-  box-shadow: 0 0 15px rgba(255,0,85,0.4), inset 0 0 15px rgba(0,0,0,0.8);
+  padding: 8px;
+  background: #0a0a10;
+  box-shadow: 0 0 16px rgba(255,0,85,0.4), inset 0 0 15px rgba(0,0,0,0.8);
 }
 .marquee {
-  background: #141422;
+  background: #12121e;
   border: 2px solid #00f0ff;
   border-radius: 6px;
-  padding: 6px;
-  margin-bottom: 10px;
+  padding: 5px;
+  margin-bottom: 8px;
   box-shadow: 0 0 10px rgba(0,240,255,0.3);
 }
 .title {
@@ -50,50 +49,74 @@ body {
   font-weight: 900;
   color: #ffea00;
   text-shadow: 0 0 8px #ffea00, 2px 2px #ff0055;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
 }
 .sub {
-  font-size: 10px;
+  font-size: 9px;
   color: #00f0ff;
   margin-top: 2px;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
 }
 .led-panel {
   display: flex;
   justify-content: space-around;
+  align-items: center;
   background: #000;
-  border: 1px solid #333;
-  padding: 6px;
-  margin-bottom: 10px;
-  border-radius: 4px;
+  border: 1px solid #222;
+  padding: 5px 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
 }
 .led-box { display: flex; flex-direction: column; align-items: center; }
-.led-label { font-size: 10px; color: #888; font-weight: bold; margin-bottom: 2px; }
-.led-val { font-size: 16px; font-weight: bold; font-family: monospace; }
-.val-1p { color: #00ff66; text-shadow: 0 0 6px #00ff66; }
-.val-cpu { color: #ff0055; text-shadow: 0 0 6px #ff0055; }
-.val-diff {
-  color: #ffea00;
-  text-shadow: 0 0 6px #ffea00;
+.led-label { font-size: 9px; color: #888; font-weight: bold; }
+.led-val { font-size: 18px; font-weight: 900; }
+.val-1p { color: #00ff66; text-shadow: 0 0 8px #00ff66; }
+.val-cpu { color: #ff0055; text-shadow: 0 0 8px #ff0055; }
+.vs-badge { font-size: 11px; font-weight: 900; color: #64748b; }
+
+.diff-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.diff-btn {
+  flex: 1;
+  max-width: 78px;
+  background: #14141e;
+  border: 1px solid #333;
+  color: #777;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 900;
+  padding: 5px 0;
+  border-radius: 4px;
   cursor: pointer;
   touch-action: none;
-  font-size: 12px;
+  transition: all 0.15s;
+}
+.diff-btn.active {
+  background: #ffea00;
+  color: #000;
+  border-color: #fff;
+  box-shadow: 0 0 10px rgba(255,234,0,0.6);
+  font-weight: 900;
 }
 .grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  width: 230px;
-  height: 230px;
+  gap: 7px;
+  width: 234px;
+  height: 234px;
   margin: 0 auto;
-  direction: ltr;
 }
 .cell-btn {
-  background: #1a1a26;
-  border: 2px solid #444;
-  border-bottom: 4px solid #111;
+  background: #161622;
+  border: 2px solid #333;
+  border-bottom: 4px solid #0a0a0f;
   border-radius: 8px;
   color: #fff;
+  font-family: inherit;
   font-size: 38px;
   font-weight: 900;
   cursor: pointer;
@@ -106,7 +129,7 @@ body {
   line-height: 1;
 }
 .cell-btn:active {
-  border-bottom: 2px solid #111;
+  border-bottom: 2px solid #0a0a0f;
   transform: translateY(2px);
 }
 .cell-btn.mark-x {
@@ -128,20 +151,20 @@ body {
 }
 @keyframes flash { from { opacity: 0.7; } to { opacity: 1; } }
 .msg-screen {
-  margin: 10px 0 8px 0;
+  margin: 8px 0 8px 0;
   background: #000;
   border: 1px solid #222;
   border-radius: 4px;
-  padding: 6px;
-  font-size: 12px;
-  font-weight: bold;
+  padding: 5px;
+  font-size: 11px;
+  font-weight: 900;
   color: #ffea00;
   text-shadow: 0 0 6px rgba(255,234,0,0.6);
-  min-height: 28px;
+  min-height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  direction: rtl;
+  letter-spacing: 0.5px;
 }
 .footer-btns {
   display: flex;
@@ -153,12 +176,14 @@ body {
   border: none;
   border-bottom: 3px solid #88002d;
   color: #fff;
-  font-size: 11px;
-  font-weight: bold;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 900;
   padding: 6px 14px;
   border-radius: 6px;
   cursor: pointer;
   touch-action: none;
+  letter-spacing: 1px;
   box-shadow: 0 0 8px rgba(255,0,85,0.4);
 }
 .arcade-act-btn:active {
@@ -166,43 +191,45 @@ body {
   transform: translateY(2px);
 }
 .btn-yellow {
-  background: #ffea00;
+  background: #00f0ff;
   color: #000;
-  border-bottom: 3px solid #b2a400;
-  box-shadow: 0 0 8px rgba(255,234,0,0.4);
+  border-bottom: 3px solid #008899;
+  box-shadow: 0 0 8px rgba(0,240,255,0.4);
 }
 </style>
 </head>
 <body>
 <div class="arcade-cabinet">
   <div class="marquee">
-    <div class="title">★ آرکید نوستالژیک میوویا ★</div>
-    <div class="sub">بازی دوز کلاسیک — ۱ نفره با هوش مصنوعی</div>
+    <div class="title">★ MEWVIA ARCADE ★</div>
+    <div class="sub">INSERT COIN - 1P VS CPU</div>
   </div>
 
   <div class="led-panel">
     <div class="led-box">
-      <span class="led-label">شما (X)</span>
+      <span class="led-label">1P [X]</span>
       <span class="led-val val-1p" id="sX">00</span>
     </div>
+    <div class="vs-badge">VS</div>
     <div class="led-box">
-      <span class="led-label">سطح هوش</span>
-      <button class="led-val val-diff" id="dBtn"
-        style="background:none;border:none;font-family:inherit;">هوشمند 🟡</button>
-    </div>
-    <div class="led-box">
-      <span class="led-label">میوویا (O)</span>
+      <span class="led-label">CPU [O]</span>
       <span class="led-val val-cpu" id="sO">00</span>
     </div>
   </div>
 
+  <div class="diff-row">
+    <button class="diff-btn" id="bEasy" type="button">EASY</button>
+    <button class="diff-btn active" id="bSmart" type="button">SMART</button>
+    <button class="diff-btn" id="bBrutal" type="button">BRUTAL</button>
+  </div>
+
   <div class="grid" id="g"></div>
 
-  <div class="msg-screen" id="mBox">نوبت شماست: یک خانه را انتخاب کن</div>
+  <div class="msg-screen" id="mBox">&gt;&gt; YOUR TURN: TAP TO MOVE &lt;&lt;</div>
 
   <div class="footer-btns">
-    <button class="arcade-act-btn" id="rstBtn">🔄 بازی جدید</button>
-    <button class="arcade-act-btn btn-yellow" id="clrBtn">0️⃣ ریست امتیاز</button>
+    <button class="arcade-act-btn" id="rstBtn" type="button">[ NEW GAME ]</button>
+    <button class="arcade-act-btn btn-yellow" id="clrBtn" type="button">[ RESET SCORE ]</button>
   </div>
 </div>
 
@@ -211,7 +238,6 @@ let b = ['', '', '', '', '', '', '', '', ''];
 let pX = 0, pO = 0;
 let over = false;
 let dLevel = 1;
-const dNames = ['ساده 🟢', 'هوشمند 🟡', 'غیرممکن 🔴'];
 
 const W = [
   [0,1,2],[3,4,5],[6,7,8],
@@ -247,13 +273,23 @@ for (let i = 0; i < 9; i++) {
   btns.push(btn);
 }
 
-const dBtn = document.getElementById('dBtn');
-dBtn.onclick = function() { toggleDiff(); };
-dBtn.addEventListener('click', function() { toggleDiff(); });
+const diffBtns = [
+  document.getElementById('bEasy'),
+  document.getElementById('bSmart'),
+  document.getElementById('bBrutal')
+];
 
-function toggleDiff() {
-  dLevel = (dLevel + 1) % 3;
-  setText(dBtn, dNames[dLevel]);
+diffBtns.forEach(function(btn, idx) {
+  btn.onclick = function() { selectDiff(idx); };
+  btn.addEventListener('click', function() { selectDiff(idx); });
+});
+
+function selectDiff(idx) {
+  dLevel = idx;
+  diffBtns.forEach(function(b, i) {
+    if (i === idx) b.className = 'diff-btn active';
+    else b.className = 'diff-btn';
+  });
   haptic('tap');
   newRound();
 }
@@ -286,19 +322,19 @@ function onMove(idx) {
     pX++;
     const s = pX < 10 ? '0' + pX : '' + pX;
     setText(document.getElementById('sX'), s);
-    setMsg('🎉 پیروز شدی! رکورد ثبت شد!');
+    setMsg('*** YOU WIN! HIGH SCORE! ***');
     flashWin(win);
     haptic('win');
     over = true;
     return;
   }
   if (!b.includes('')) {
-    setMsg('🤝 مساوی شد! دوباره بازی کن');
+    setMsg('== DRAW GAME! TRY AGAIN ==');
     over = true;
     return;
   }
 
-  setMsg('میوویا در حال محاسبه حرکت...');
+  setMsg('.. CPU CALCULATING ..');
   over = true;
   setTimeout(cpuMove, 300);
 }
@@ -318,18 +354,18 @@ function cpuMove() {
     pO++;
     const s = pO < 10 ? '0' + pO : '' + pO;
     setText(document.getElementById('sO'), s);
-    setMsg('🤖 میوویا برنده شد! دست بعد جبران کن');
+    setMsg('!!! CPU WINS! GAME OVER !!!');
     flashWin(win);
     haptic('loss');
     over = true;
     return;
   }
   if (!b.includes('')) {
-    setMsg('🤝 مساوی شد! دوباره بازی کن');
+    setMsg('== DRAW GAME! TRY AGAIN ==');
     over = true;
     return;
   }
-  setMsg('نوبت شماست: یک خانه را انتخاب کن');
+  setMsg('&gt;&gt; YOUR TURN: TAP TO MOVE &lt;&lt;');
 }
 
 function getMove() {
@@ -339,7 +375,7 @@ function getMove() {
   }
   if (!free.length) return -1;
 
-  if (dLevel === 0 && Math.random() < 0.6) {
+  if (dLevel === 0 && Math.random() < 0.65) {
     return free[Math.floor(Math.random() * free.length)];
   }
 
@@ -391,7 +427,7 @@ function newRound() {
     setText(btns[i], '');
     btns[i].className = 'cell-btn';
   }
-  setMsg('نوبت شماست: یک خانه را انتخاب کن');
+  setMsg('&gt;&gt; YOUR TURN: TAP TO MOVE &lt;&lt;');
 }
 </script>
 </body>
@@ -404,7 +440,7 @@ async def send_xo_widget(chat_id: int, bot_token: str) -> bool:
     payload = {
         "chat_id": chat_id,
         "html": XO_WIDGET_HTML,
-        "caption": "🕹️ <b>بازی دوز نوستالژیک میوویا</b>",
+        "caption": "🕹️ <b>MEWVIA RETRO ARCADE</b>",
         "parse_mode": "HTML",
     }
     try:
