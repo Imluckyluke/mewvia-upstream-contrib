@@ -63,13 +63,14 @@ async def main_menu(registry: EmojiRegistry, *, is_admin: bool = False) -> Inlin
 def persistent_keyboard(registry: EmojiRegistry) -> ReplyKeyboardMarkup:
     """The always-visible reply keyboard.
 
-    Deliberately short: the inline menu carries the features, this is only the two
-    shortcuts worth having one tap away at all times.
+    Row 1: shortcuts for start over and help.
+    Row 2: game center entry.
     """
     return (
         ReplyKB(registry)
         .button(t("menu.start_over"), style=Style.PRIMARY, emoji_slot="refresh")
         .button(t("menu.help"), style=Style.CONFIRM, emoji_slot="file")
-        .adjust(2)
+        .button(t("menu.games"), style=Style.PRIMARY, emoji_slot="rocket")
+        .adjust(2, 1)
         .as_markup(placeholder=t("menu.placeholder"))
     )

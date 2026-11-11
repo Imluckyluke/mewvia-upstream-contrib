@@ -7,7 +7,6 @@ from collections.abc import Sequence
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
-from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +26,9 @@ from app.features.games.xo_engine import (
 from app.features.registry import Feature, register
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB
+from app.ui.labels import ReplyTextFilter
 from app.ui.styles import Style
+from app.ui.texts import t
 
 log = get_logger(__name__)
 
@@ -434,9 +435,9 @@ def render_rules(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
 
 @router.message(
     F.chat.type == ChatType.PRIVATE,
-    Command("games", "game", "xo", "دوز", "بازی"),
+    ReplyTextFilter(lambda: t("menu.games")),
 )
-async def cmd_games(message: Message, session: AsyncSession) -> None:
+async def reply_games(message: Message, session: AsyncSession) -> None:
     if not message.from_user:
         return
     registry = await ready_registry()

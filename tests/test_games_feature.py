@@ -110,6 +110,20 @@ def test_main_menu_includes_games_feature() -> None:
     assert "games" in feature_names
 
 
+def test_persistent_keyboard_has_games_button() -> None:
+    from app.ui.menu import persistent_keyboard
+    from app.ui.texts import t
+
+    registry = EmojiRegistry()
+    kb = persistent_keyboard(registry)
+    # Row 1: start_over, help (2 buttons)
+    # Row 2: games (1 button)
+    assert len(kb.keyboard) == 2
+    assert len(kb.keyboard[0]) == 2
+    assert len(kb.keyboard[1]) == 1
+    assert t("menu.games") in kb.keyboard[1][0].text
+
+
 def test_renderers_output() -> None:
     registry = EmojiRegistry()
     user = User(telegram_id=99999, first_name="تست‌کننده", username="tester")
@@ -119,28 +133,28 @@ def test_renderers_output() -> None:
     stat = GameStat(telegram_id=99999, score=1100, wins=3, losses=1, draws=1)
 
     # Hub
-    text, kb = render_games_hub(user, stat, 1, 10, registry)
+    text, _ = render_games_hub(user, stat, 1, 10, registry)
     assert "مرکز بازی و مسابقات میوویا" in text
     assert "تست‌کننده" in text
 
     # Diff
-    text_d, kb_d = render_diff_picker(registry)
+    text_d, _ = render_diff_picker(registry)
     assert "سطح دشواری" in text_d
 
     # Board
-    text_b, kb_b = render_xo_board(user, stat, "med", "_________", registry)
+    text_b, _ = render_xo_board(user, stat, "med", "_________", registry)
     assert "بازی دوز (XO) با میوویا" in text_b
 
     # Leaderboard
-    text_lb, kb_lb = render_leaderboard(99999, [stat], 1, 1, registry)
+    text_lb, _ = render_leaderboard(99999, [stat], 1, 1, registry)
     assert "جدول رتبه‌بندی" in text_lb
 
     # League
-    text_l, kb_l = render_my_league(user, stat, 1, 1, registry)
+    text_l, _ = render_my_league(user, stat, 1, 1, registry)
     assert "شناسنامه لیگ" in text_l
 
     # Rules
-    text_r, kb_r = render_rules(registry)
+    text_r, _ = render_rules(registry)
     assert "قوانین امتیازدهی" in text_r
 
 
