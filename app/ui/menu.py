@@ -70,7 +70,7 @@ def persistent_keyboard(registry: EmojiRegistry) -> ReplyKeyboardMarkup:
         ReplyKB(registry)
         .button(t("menu.start_over"), style=Style.PRIMARY, emoji_slot="refresh")
         .button(t("menu.help"), style=Style.CONFIRM, emoji_slot="file")
-        .button(t("menu.games"), style=Style.PRIMARY, emoji_slot="rocket")
+        .button(t("menu.games"), style=Style.PRIMARY, emoji_slot="game")
         .adjust(2, 1)
         .as_markup(placeholder=t("menu.placeholder"))
     )

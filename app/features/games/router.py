@@ -64,53 +64,54 @@ def render_games_hub(
     u_name = html.escape(user.first_name or user.username or "بازیکن")
 
     text = (
-        f"🎮 <b>مرکز بازی و مسابقات میوویا</b>\n\n"
+        f"{registry.text('game')} <b>مرکز بازی و مسابقات میوویا</b>\n\n"
         f"👤 بازیکن: <b>{u_name}</b>\n"
-        f"{league.badge} لیگ: <b>{league.name}</b> — <i>«{league.title}»</i>\n"
-        f"🏆 ریتینگ: <b>{stat.score:,}</b> امتیاز\n"
+        f"{league.get_badge(registry)} لیگ: <b>{league.name}</b> — <i>«{league.title}»</i>\n"
+        f"{registry.text('trophy')} ریتینگ: <b>{stat.score:,}</b> امتیاز\n"
         f"📍 رتبه جهانی: <b>#{rank}</b> (از {max(1, total_players):,} بازیکن)\n\n"
         f"📊 <b>کارنامه مسابقات:</b>\n"
         f"• بردها: <b>{stat.wins}</b> | باخت‌ها: <b>{stat.losses}</b> | مساوی: <b>{stat.draws}</b>\n"
         f"• نرخ پیروزی: <b>{stat.win_rate}%</b>\n"
-        f"• زنجیره برد فعلی: <b>{stat.current_streak}</b> 🔥 (بهترین: {stat.max_streak})\n\n"
+        f"• زنجیره برد فعلی: <b>{stat.current_streak}</b> {registry.text('streak_fire')} "
+        f"(بهترین: {stat.max_streak})\n\n"
         f"یک گزینه را انتخاب کنید:"
     )
 
     kb = KB(registry)
     # Row 1: Main Game
     kb.button(
-        "🎮 بازی دوز (XO)",
+        "بازی دوز (XO)",
         callback_data=GameCB(action="diff").pack(),
         style=Style.CONFIRM,
-        emoji_slot="rocket",
+        emoji_slot="game",
     )
     kb.adjust(1)
 
     # Row 2: Competition
     kb.button(
-        "🏆 برترین‌ها و جدول رده‌بندی",
+        "برترین‌ها و جدول رده‌بندی",
         callback_data=GameCB(action="lb").pack(),
         style=Style.PRIMARY,
-        emoji_slot="stats",
+        emoji_slot="trophy",
     )
     kb.button(
-        "🎖 نردبان و وضعیت لیگ من",
+        "نردبان و وضعیت لیگ من",
         callback_data=GameCB(action="profile").pack(),
         style=Style.PRIMARY,
-        emoji_slot="celebrate",
+        emoji_slot="medal",
     )
     kb.adjust(1, 2)
 
     # Row 3: Rules & Math
     kb.button(
-        "📜 قوانین و راهنمای امتیازدهی",
+        "قوانین و راهنمای امتیازدهی",
         callback_data=GameCB(action="rules").pack(),
         style=Style.NEUTRAL,
         emoji_slot="file",
     )
     # Row 4: Back to Main Menu
     kb.button(
-        "◀️ بازگشت به منوی اصلی",
+        "بازگشت به منوی اصلی",
         callback_data=MenuCB(target="root").pack(),
         style=Style.NEUTRAL,
         emoji_slot="back",
@@ -122,7 +123,7 @@ def render_games_hub(
 
 def render_diff_picker(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
     text = (
-        "🎮 <b>بازی دوز هوشمند (Tic-Tac-Toe)</b>\n\n"
+        f"{registry.text('game')} <b>بازی دوز هوشمند (Tic-Tac-Toe)</b>\n\n"
         "حریف شما <b>هوش مصنوعی میوویا</b> است!\n"
         "سطح دشواری بازی را انتخاب کنید:\n\n"
         "🟢 <b>آسان:</b> هوش مصنوعی ساده‌تر (+۱۵ امتیاز برد)\n"
@@ -133,22 +134,25 @@ def render_diff_picker(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMark
 
     kb = KB(registry)
     kb.button(
-        "🟢 سطح آسان (+۱۵)",
+        "سطح آسان (+۱۵)",
         callback_data=GameCB(action="xo", diff="easy").pack(),
         style=Style.NEUTRAL,
+        emoji_slot="on",
     )
     kb.button(
-        "🟡 سطح متوسط (+۲۵)",
+        "سطح متوسط (+۲۵)",
         callback_data=GameCB(action="xo", diff="med").pack(),
         style=Style.CONFIRM,
+        emoji_slot="yellow_circle",
     )
     kb.button(
-        "🔴 سطح سخت و ناممکن (+۴۰)",
+        "سطح سخت و ناممکن (+۴۰)",
         callback_data=GameCB(action="xo", diff="hard").pack(),
         style=Style.DESTRUCTIVE,
+        emoji_slot="off",
     )
     kb.button(
-        "◀️ بازگشت به مرکز بازی",
+        "بازگشت به مرکز بازی",
         callback_data=GameCB(action="menu").pack(),
         style=Style.NEUTRAL,
         emoji_slot="back",
@@ -171,15 +175,17 @@ def render_xo_board(
     league = get_league(stat.score)
 
     header = (
-        f"🎮 <b>بازی دوز (XO) با میوویا</b>\n"
+        f"{registry.text('game')} <b>بازی دوز (XO) با میوویا</b>\n"
         f"سطح رقابت: <b>{diff_title}</b>\n"
-        f"علامت شما: <b>❌</b> ({stat.score:,} امتیاز - {league.badge}) | میوویا: <b>⭕</b>\n"
+        f"علامت شما: <b>{registry.text('xo_x')}</b> "
+        f"({stat.score:,} امتیاز - {league.get_badge(registry)}) | "
+        f"میوویا: <b>{registry.text('xo_o')}</b>\n"
     )
 
     if last_outcome == "win":
         status_line = (
             f"\n🎉 <b>تبریک فراوان! شما برنده شدید!</b>\n"
-            f"🔥 <b>+{score_delta} امتیاز</b> به ریتینگ شما اضافه شد!"
+            f"{registry.text('streak_fire')} <b>+{score_delta} امتیاز</b> به ریتینگ شما اضافه شد!"
         )
     elif last_outcome == "loss":
         delta_str = (
@@ -205,46 +211,62 @@ def render_xo_board(
 
     kb = KB(registry)
 
-    # 3x3 Grid
+    # 3x3 Grid using customizable slots for X, O, and empty
     for i in range(9):
         char = board[i]
         if char == "X":
-            kb.button("❌", callback_data=NoopCB().pack(), style=Style.PRIMARY)
+            kb.button(
+                registry.fallback("xo_x"),
+                callback_data=NoopCB().pack(),
+                style=Style.PRIMARY,
+                emoji_slot="xo_x",
+            )
         elif char == "O":
-            kb.button("⭕", callback_data=NoopCB().pack(), style=Style.DESTRUCTIVE)
+            kb.button(
+                registry.fallback("xo_o"),
+                callback_data=NoopCB().pack(),
+                style=Style.DESTRUCTIVE,
+                emoji_slot="xo_o",
+            )
         else:
             if is_finished:
-                kb.button("⬜", callback_data=NoopCB().pack(), style=Style.NEUTRAL)
+                kb.button(
+                    registry.fallback("xo_empty"),
+                    callback_data=NoopCB().pack(),
+                    style=Style.NEUTRAL,
+                    emoji_slot="xo_empty",
+                )
             else:
                 kb.button(
-                    "⬜",
+                    registry.fallback("xo_empty"),
                     callback_data=GameCB(action="move", diff=diff, cell=i, b=board).pack(),
                     style=Style.NEUTRAL,
+                    emoji_slot="xo_empty",
                 )
 
     widths = [3, 3, 3]
 
     if is_finished:
         kb.button(
-            "🔄 بازی مجدد",
+            "بازی مجدد",
             callback_data=GameCB(action="reset", diff=diff).pack(),
             style=Style.CONFIRM,
             emoji_slot="refresh",
         )
         kb.button(
-            "⚙️ تغییر سطح",
+            "تغییر سطح",
             callback_data=GameCB(action="diff").pack(),
             style=Style.PRIMARY,
             emoji_slot="tool",
         )
         kb.button(
-            "🏆 جدول برترین‌ها",
+            "جدول برترین‌ها",
             callback_data=GameCB(action="lb").pack(),
             style=Style.PRIMARY,
-            emoji_slot="stats",
+            emoji_slot="trophy",
         )
         kb.button(
-            "◀️ مرکز بازی‌ها",
+            "مرکز بازی‌ها",
             callback_data=GameCB(action="menu").pack(),
             style=Style.NEUTRAL,
             emoji_slot="back",
@@ -252,18 +274,19 @@ def render_xo_board(
         widths.extend([2, 1, 1])
     else:
         kb.button(
-            "🔄 شروع مجدد",
+            "شروع مجدد",
             callback_data=GameCB(action="reset", diff=diff).pack(),
             style=Style.DESTRUCTIVE,
             emoji_slot="refresh",
         )
         kb.button(
-            "⚙️ تغییر سطح",
+            "تغییر سطح",
             callback_data=GameCB(action="diff").pack(),
             style=Style.NEUTRAL,
+            emoji_slot="tool",
         )
         kb.button(
-            "◀️ مرکز بازی‌ها",
+            "مرکز بازی‌ها",
             callback_data=GameCB(action="menu").pack(),
             style=Style.NEUTRAL,
             emoji_slot="back",
@@ -282,7 +305,7 @@ def render_leaderboard(
     registry: EmojiRegistry,
 ) -> tuple[str, InlineKeyboardMarkup]:
     lines = [
-        "🏆 <b>جدول رتبه‌بندی برترین بازیکنان میوویا</b>\n",
+        f"{registry.text('trophy')} <b>جدول رتبه‌بندی برترین بازیکنان میوویا</b>\n",
         "۱۰ بازیکن برتر بر اساس بالاترین ریتینگ لیگ:\n",
     ]
 
@@ -302,7 +325,7 @@ def render_leaderboard(
             name_escaped = html.escape(p_name)
             lines.append(
                 f"{badge} <b>{name_escaped}</b>{me_tag} — "
-                f"<b>{s.score:,}</b> امتیاز {league_obj.badge} "
+                f"<b>{s.score:,}</b> امتیاز {league_obj.get_badge(registry)} "
                 f"[برد: {s.wins} | باخت: {s.losses}]"
             )
 
@@ -311,25 +334,25 @@ def render_leaderboard(
 
     kb = KB(registry)
     kb.button(
-        "🎮 بازی دوز (XO)",
+        "بازی دوز (XO)",
         callback_data=GameCB(action="diff").pack(),
         style=Style.CONFIRM,
-        emoji_slot="rocket",
+        emoji_slot="game",
     )
     kb.button(
-        "🔄 به‌روزرسانی",
+        "به‌روزرسانی",
         callback_data=GameCB(action="lb").pack(),
         style=Style.PRIMARY,
         emoji_slot="refresh",
     )
     kb.button(
-        "🎖 نردبان لیگ من",
+        "نردبان لیگ من",
         callback_data=GameCB(action="profile").pack(),
         style=Style.PRIMARY,
-        emoji_slot="celebrate",
+        emoji_slot="medal",
     )
     kb.button(
-        "◀️ مرکز بازی‌ها",
+        "مرکز بازی‌ها",
         callback_data=GameCB(action="menu").pack(),
         style=Style.NEUTRAL,
         emoji_slot="back",
@@ -351,18 +374,19 @@ def render_my_league(
     u_name = html.escape(user.first_name or user.username or "بازیکن")
 
     text = (
-        f"🎖 <b>شناسنامه لیگ و وضعیت شما</b>\n\n"
+        f"{registry.text('medal')} <b>شناسنامه لیگ و وضعیت شما</b>\n\n"
         f"👤 بازیکن: <b>{u_name}</b>\n"
-        f"{league.badge} لیگ فعلی: <b>{league.name}</b>\n"
+        f"{league.get_badge(registry)} لیگ فعلی: <b>{league.name}</b>\n"
         f"🏷 لقب افتخاری: <b>«{league.title}»</b>\n"
-        f"🏆 ریتینگ: <b>{stat.score:,}</b> امتیاز (رتبه #{rank} از {max(1, total_players):,})\n\n"
+        f"{registry.text('trophy')} ریتینگ: <b>{stat.score:,}</b> امتیاز "
+        f"(رتبه #{rank} از {max(1, total_players):,})\n\n"
         f"📈 <b>مسیر ارتقا به لیگ بعدی:</b>\n"
         f"<code>{bar_str}</code>\n\n"
         f"📊 <b>آمار تفصیلی:</b>\n"
         f"• کل مسابقات: <b>{stat.total_games}</b>\n"
         f"• پیروزی‌ها: <b>{stat.wins}</b> (نرخ برد: {stat.win_rate}%)\n"
         f"• شکست‌ها: <b>{stat.losses}</b> | تساوی‌ها: <b>{stat.draws}</b>\n"
-        f"• زنجیره برد پی‌درپی فعلی: <b>{stat.current_streak}</b> 🔥\n"
+        f"• زنجیره برد پی‌درپی فعلی: <b>{stat.current_streak}</b> {registry.text('streak_fire')}\n"
         f"• بالاترین رکورد پیروزی متوالی: <b>{stat.max_streak}</b> ✨\n\n"
         f"🏅 <b>سطوح نردبان لیگ‌های میوویا:</b>\n"
         f"🥉 <b>لیگ برنز:</b> ۱,۰۰۰ تا ۱,۱۴۹ امتیاز\n"
@@ -374,19 +398,19 @@ def render_my_league(
 
     kb = KB(registry)
     kb.button(
-        "🎮 بازی دوز (XO)",
+        "بازی دوز (XO)",
         callback_data=GameCB(action="diff").pack(),
         style=Style.CONFIRM,
-        emoji_slot="rocket",
+        emoji_slot="game",
     )
     kb.button(
-        "🏆 جدول برترین‌ها",
+        "جدول برترین‌ها",
         callback_data=GameCB(action="lb").pack(),
         style=Style.PRIMARY,
-        emoji_slot="stats",
+        emoji_slot="trophy",
     )
     kb.button(
-        "◀️ مرکز بازی‌ها",
+        "مرکز بازی‌ها",
         callback_data=GameCB(action="menu").pack(),
         style=Style.NEUTRAL,
         emoji_slot="back",
@@ -398,13 +422,13 @@ def render_my_league(
 
 def render_rules(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
     text = (
-        "📜 <b>راهنما و قوانین امتیازدهی بازی دوز میوویا</b>\n\n"
+        f"{registry.text('file')} <b>راهنما و قوانین امتیازدهی بازی دوز میوویا</b>\n\n"
         "سیستم رتبه‌بندی بازی‌ها بر پایه ریتینگ هوشمند طراحی شده است:\n\n"
         "🎯 <b>ضرایب امتیاز بر اساس سطح دشواری:</b>\n"
         "• <b>سطح آسان 🟢:</b> برد +۱۵ | مساوی +۲ | باخت -۵\n"
         "• <b>سطح متوسط 🟡:</b> برد +۲۵ | مساوی +۵ | باخت -۱۰\n"
         "• <b>سطح سخت 🔴:</b> برد +۴۰ | مساوی +۱۰ | باخت -۱۵\n\n"
-        "🔥 <b>پاداش زنجیره برد (Streak Bonus):</b>\n"
+        f"{registry.text('streak_fire')} <b>پاداش زنجیره برد (Streak Bonus):</b>\n"
         "با هر برد متوالی، به ازای هر برد +۲ امتیاز پاداش ویژه دریافت می‌کنید!\n\n"
         "🛡 <b>حاشیه امن برنز:</b>\n"
         "امتیاز بازیکنان تازه وارد زیر ۱,۰۰۰ امتیاز کسر نخواهد شد."
@@ -412,13 +436,13 @@ def render_rules(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
 
     kb = KB(registry)
     kb.button(
-        "🎮 شروع بازی دوز",
+        "شروع بازی دوز",
         callback_data=GameCB(action="diff").pack(),
         style=Style.CONFIRM,
-        emoji_slot="rocket",
+        emoji_slot="game",
     )
     kb.button(
-        "◀️ مرکز بازی‌ها",
+        "مرکز بازی‌ها",
         callback_data=GameCB(action="menu").pack(),
         style=Style.NEUTRAL,
         emoji_slot="back",
@@ -716,7 +740,7 @@ feature = register(
         name="games",
         router=router,
         menu_label_key="menu.games",
-        menu_emoji_slot="rocket",
+        menu_emoji_slot="game",
         menu_style=Style.PRIMARY,
         order=140,
     )

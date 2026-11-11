@@ -3,24 +3,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.ui.emoji import EmojiRegistry
 
 
 @dataclass(frozen=True, slots=True)
 class League:
     key: str
     name: str
-    badge: str
+    emoji_slot: str
     title: str
     min_score: int
     max_score: int | None
     next_league_name: str | None
+    fallback_badge: str = ""
+
+    @property
+    def badge(self) -> str:
+        """Fallback unicode badge."""
+        return self.fallback_badge
+
+    def get_badge(self, registry: EmojiRegistry | None = None) -> str:
+        """Resolve dynamic emoji from registry or fallback to unicode."""
+        if registry is not None:
+            return registry.text(self.emoji_slot)
+        return self.fallback_badge
 
 
 LEAGUES: list[League] = [
     League(
         key="bronze",
         name="لیگ برنز",
-        badge="🥉",
+        emoji_slot="league_bronze",
+        fallback_badge="🥉",
         title="تازه‌نفس",
         min_score=1000,
         max_score=1149,
@@ -29,7 +46,8 @@ LEAGUES: list[League] = [
     League(
         key="silver",
         name="لیگ نقره",
-        badge="🥈",
+        emoji_slot="league_silver",
+        fallback_badge="🥈",
         title="شکارچی",
         min_score=1150,
         max_score=1349,
@@ -38,7 +56,8 @@ LEAGUES: list[League] = [
     League(
         key="gold",
         name="لیگ طلا",
-        badge="🥇",
+        emoji_slot="league_gold",
+        fallback_badge="🥇",
         title="استاد استراتژی",
         min_score=1350,
         max_score=1649,
@@ -47,7 +66,8 @@ LEAGUES: list[League] = [
     League(
         key="diamond",
         name="لیگ الماس",
-        badge="💎",
+        emoji_slot="league_diamond",
+        fallback_badge="💎",
         title="قهرمان بورد",
         min_score=1650,
         max_score=1999,
@@ -56,7 +76,8 @@ LEAGUES: list[League] = [
     League(
         key="master",
         name="لیگ افسانه‌ای مستر",
-        badge="👑",
+        emoji_slot="league_master",
+        fallback_badge="👑",
         title="اسطوره میوویا",
         min_score=2000,
         max_score=None,

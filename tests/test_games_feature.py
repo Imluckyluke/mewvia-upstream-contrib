@@ -124,6 +124,27 @@ def test_persistent_keyboard_has_games_button() -> None:
     assert t("menu.games") in kb.keyboard[1][0].text
 
 
+def test_game_slots_in_seed() -> None:
+    from app.db.seed import EMOJI_SLOTS
+
+    slots = {s.slot: s.fallback for s in EMOJI_SLOTS}
+    for expected in [
+        "game",
+        "xo_x",
+        "xo_o",
+        "xo_empty",
+        "trophy",
+        "streak_fire",
+        "medal",
+        "league_bronze",
+        "league_silver",
+        "league_gold",
+        "league_diamond",
+        "league_master",
+    ]:
+        assert expected in slots
+
+
 def test_renderers_output() -> None:
     registry = EmojiRegistry()
     user = User(telegram_id=99999, first_name="تست‌کننده", username="tester")

@@ -121,6 +121,19 @@ EMOJI_SLOTS: tuple[SlotDef, ...] = (
     SlotDef("search", "جستجو", "🔍", 385),
     SlotDef("ban", "مسدود / بن", "🚫", 390),
     SlotDef("unban", "آزادسازی / آن‌بن", "🔓", 395),
+    # Games & XO (Dynamic configurable slots)
+    SlotDef("game", "آیکون بازی و سرگرمی", "🎮", 400),
+    SlotDef("xo_x", "علامت ضربدر دوز (X)", "❌", 401),
+    SlotDef("xo_o", "علامت دایره دوز (O)", "⭕", 402),
+    SlotDef("xo_empty", "خانه خالی دوز", "⬜", 403),
+    SlotDef("trophy", "جام قهرمانی / رتبه‌بندی", "🏆", 404),
+    SlotDef("streak_fire", "آتش زنجیره برد", "🔥", 405),
+    SlotDef("medal", "مدال و رتبه", "🎖", 406),
+    SlotDef("league_bronze", "نشان لیگ برنز", "🥉", 407),
+    SlotDef("league_silver", "نشان لیگ نقره", "🥈", 408),
+    SlotDef("league_gold", "نشان لیگ طلا", "🥇", 409),
+    SlotDef("league_diamond", "نشان لیگ الماس", "💎", 410),
+    SlotDef("league_master", "نشان لیگ مستر", "👑", 411),
 )
 
 
