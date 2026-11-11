@@ -70,5 +70,15 @@ class User(Base):
         parts = [p for p in (self.first_name, self.last_name) if p]
         return " ".join(parts) if parts else str(self.telegram_id)
 
+    @property
+    def full_name(self) -> str:
+        """Human name (first and last name), never contains @handle."""
+        parts = [p for p in (self.first_name, self.last_name) if p]
+        if parts:
+            return " ".join(parts)
+        if self.first_name:
+            return self.first_name
+        return self.username or f"کاربر {self.telegram_id}"
+
     def __repr__(self) -> str:
         return f"<User {self.telegram_id} {self.display_name}>"

@@ -163,6 +163,7 @@ def test_renderers_output() -> None:
     from app.db.models.game_stat import GameStat
 
     stat = GameStat(telegram_id=99999, score=1100, wins=3, losses=1, draws=1)
+    stat.user = user
 
     # Hub
     text, _ = render_games_hub(user, stat, 1, 10, registry)
@@ -177,9 +178,11 @@ def test_renderers_output() -> None:
     text_b, _ = render_xo_board(user, stat, "med", "_________", registry)
     assert "بازی دوز (XO) با میوویا" in text_b
 
-    # Leaderboard
+    # Leaderboard (names only, no @username handles)
     text_lb, _ = render_leaderboard(99999, [stat], 1, 1, registry)
     assert "جدول رتبه‌بندی" in text_lb
+    assert "تست‌کننده" in text_lb
+    assert "@tester" not in text_lb
 
     # League
     text_l, _ = render_my_league(user, stat, 1, 1, registry)

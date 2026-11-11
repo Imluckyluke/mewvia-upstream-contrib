@@ -63,7 +63,7 @@ def render_games_hub(
     registry: EmojiRegistry,
 ) -> tuple[str, InlineKeyboardMarkup]:
     league = get_league(stat.score)
-    u_name = html.escape(user.first_name or user.username or "بازیکن")
+    u_name = html.escape(user.full_name)
 
     text = (
         f"{registry.text('game')} <b>مرکز بازی و مسابقات میوویا</b>\n\n"
@@ -321,7 +321,7 @@ def render_leaderboard(
             league_obj = get_league(s.score)
             p_name = "بازیکن ناشناس"
             if s.user:
-                p_name = s.user.display_name or (s.user.first_name or "بازیکن")
+                p_name = s.user.full_name
             is_me = (s.telegram_id == user_id)
             me_tag = " (شما)" if is_me else ""
             name_escaped = html.escape(p_name)
@@ -373,7 +373,7 @@ def render_my_league(
 ) -> tuple[str, InlineKeyboardMarkup]:
     league = get_league(stat.score)
     bar_str = format_league_progress_bar(stat.score)
-    u_name = html.escape(user.first_name or user.username or "بازیکن")
+    u_name = html.escape(user.full_name)
 
     text = (
         f"{registry.text('medal')} <b>شناسنامه لیگ و وضعیت شما</b>\n\n"
