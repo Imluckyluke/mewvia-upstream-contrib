@@ -12,15 +12,30 @@ XO_WIDGET_HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport"
+  content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  margin: 0;
+  padding: 0;
+  touch-action: manipulation;
+}
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+}
 body {
   background: #060608;
   color: #00ff66;
   font-family: 'Courier New', Courier, monospace;
-  padding: 8px 10px;
+  padding: 6px 8px;
   text-align: center;
   user-select: none;
+  -webkit-user-select: none;
   background-image: repeating-linear-gradient(
     0deg,
     rgba(0,0,0,0.6) 0px,
@@ -30,11 +45,14 @@ body {
   );
 }
 .arcade-cabinet {
-  border: 3px solid #ff0055;
+  border: 3px solid #00f0ff;
   border-radius: 12px;
   padding: 8px;
   background: #0a0a10;
-  box-shadow: 0 0 16px rgba(255,0,85,0.4), inset 0 0 15px rgba(0,0,0,0.8);
+  box-shadow: 0 0 14px rgba(0,240,255,0.35), inset 0 0 14px rgba(0,0,0,0.8);
+  max-width: 280px;
+  margin: 0 auto;
+  overflow: hidden;
 }
 .marquee {
   background: #12121e;
@@ -104,42 +122,52 @@ body {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, 58px);
+  grid-template-rows: repeat(3, 58px);
   gap: 6px;
-  width: 204px;
-  height: 204px;
+  width: 186px;
+  height: 186px;
   margin: 0 auto;
+  overflow: hidden;
+  justify-content: center;
 }
 .cell-btn {
+  width: 58px;
+  height: 58px;
+  min-width: 58px;
+  min-height: 58px;
+  max-width: 58px;
+  max-height: 58px;
   background: #161622;
   border: 2px solid #333;
   border-bottom: 3px solid #0a0a0f;
   border-radius: 7px;
   color: #fff;
   font-family: inherit;
-  font-size: 32px;
+  font-size: 30px;
   font-weight: 900;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  touch-action: none;
-  transition: all 0.08s;
-  box-shadow: inset 0 0 8px rgba(0,0,0,0.6);
+  touch-action: manipulation;
+  box-shadow: inset 0 0 6px rgba(0,0,0,0.6);
   line-height: 1;
+  padding: 0;
+  overflow: hidden;
+  outline: none;
 }
 .cell-btn:active {
-  border-bottom: 2px solid #0a0a0f;
-  transform: translateY(2px);
+  background: #252535;
 }
 .cell-btn.mark-x {
   color: #ff0055;
-  text-shadow: 0 0 12px #ff0055, 0 0 20px #ff0055;
+  text-shadow: 0 0 10px #ff0055;
   border-color: #ff0055;
 }
 .cell-btn.mark-o {
   color: #00ff66;
-  text-shadow: 0 0 12px #00ff66, 0 0 20px #00ff66;
+  text-shadow: 0 0 10px #00ff66;
   border-color: #00ff66;
 }
 .cell-btn.win {
@@ -267,8 +295,12 @@ for (let i = 0; i < 9; i++) {
   const btn = document.createElement('button');
   btn.className = 'cell-btn';
   btn.setAttribute('type', 'button');
-  btn.onclick = function() { onMove(i); };
-  btn.addEventListener('click', function() { onMove(i); });
+  function tapHandler(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    onMove(i);
+  }
+  btn.onclick = tapHandler;
+  btn.addEventListener('click', tapHandler);
   grid.appendChild(btn);
   btns.push(btn);
 }
