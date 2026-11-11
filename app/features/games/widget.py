@@ -70,8 +70,8 @@ body {
 .led-box { display: flex; flex-direction: column; align-items: center; }
 .led-label { font-size: 9px; color: #888; font-weight: bold; }
 .led-val { font-size: 18px; font-weight: 900; }
-.val-1p { color: #00ff66; text-shadow: 0 0 8px #00ff66; }
-.val-cpu { color: #ff0055; text-shadow: 0 0 8px #ff0055; }
+.val-1p { color: #ff0055; text-shadow: 0 0 8px #ff0055; }
+.val-cpu { color: #00ff66; text-shadow: 0 0 8px #00ff66; }
 .vs-badge { font-size: 11px; font-weight: 900; color: #64748b; }
 
 .diff-row {
@@ -105,19 +105,19 @@ body {
 .grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 7px;
-  width: 234px;
-  height: 234px;
+  gap: 6px;
+  width: 204px;
+  height: 204px;
   margin: 0 auto;
 }
 .cell-btn {
   background: #161622;
   border: 2px solid #333;
-  border-bottom: 4px solid #0a0a0f;
-  border-radius: 8px;
+  border-bottom: 3px solid #0a0a0f;
+  border-radius: 7px;
   color: #fff;
   font-family: inherit;
-  font-size: 38px;
+  font-size: 32px;
   font-weight: 900;
   cursor: pointer;
   display: flex;
@@ -133,14 +133,14 @@ body {
   transform: translateY(2px);
 }
 .cell-btn.mark-x {
-  color: #00ff66;
-  text-shadow: 0 0 12px #00ff66, 0 0 20px #00ff66;
-  border-color: #00ff66;
-}
-.cell-btn.mark-o {
   color: #ff0055;
   text-shadow: 0 0 12px #ff0055, 0 0 20px #ff0055;
   border-color: #ff0055;
+}
+.cell-btn.mark-o {
+  color: #00ff66;
+  text-shadow: 0 0 12px #00ff66, 0 0 20px #00ff66;
+  border-color: #00ff66;
 }
 .cell-btn.win {
   background: #ffea00 !important;
