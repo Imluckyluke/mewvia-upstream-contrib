@@ -100,74 +100,72 @@ body {
 }
 .diff-btn {
   flex: 1;
-  max-width: 78px;
-  background: #14141e;
-  border: 1px solid #333;
-  color: #777;
+  max-width: 90px;
+  background: #141420;
+  border: 2px solid #333;
+  color: #888;
   font-family: inherit;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
-  padding: 5px 0;
-  border-radius: 4px;
+  padding: 7px 0;
+  border-radius: 6px;
   cursor: pointer;
-  touch-action: none;
+  touch-action: manipulation;
   transition: all 0.15s;
 }
 .diff-btn.active {
   background: #ffea00;
   color: #000;
   border-color: #fff;
-  box-shadow: 0 0 10px rgba(255,234,0,0.6);
-  font-weight: 900;
+  box-shadow: 0 0 12px rgba(255,234,0,0.6);
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(3, 58px);
-  grid-template-rows: repeat(3, 58px);
-  gap: 6px;
-  width: 186px;
-  height: 186px;
+  grid-template-columns: repeat(3, 80px);
+  grid-template-rows: repeat(3, 80px);
+  gap: 9px;
+  width: 258px;
+  height: 258px;
   margin: 0 auto;
-  overflow: hidden;
   justify-content: center;
 }
 .cell-btn {
-  width: 58px;
-  height: 58px;
-  min-width: 58px;
-  min-height: 58px;
-  max-width: 58px;
-  max-height: 58px;
-  background: #161622;
-  border: 2px solid #333;
-  border-bottom: 3px solid #0a0a0f;
-  border-radius: 7px;
+  width: 80px;
+  height: 80px;
+  min-width: 80px;
+  min-height: 80px;
+  max-width: 80px;
+  max-height: 80px;
+  background: #181826;
+  border: 3px solid #3a3a4c;
+  border-bottom: 4px solid #0f0f18;
+  border-radius: 10px;
   color: #fff;
   font-family: inherit;
-  font-size: 30px;
+  font-size: 44px;
   font-weight: 900;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   touch-action: manipulation;
-  box-shadow: inset 0 0 6px rgba(0,0,0,0.6);
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.7);
   line-height: 1;
   padding: 0;
   overflow: hidden;
   outline: none;
 }
 .cell-btn:active {
-  background: #252535;
+  background: #28283a;
 }
 .cell-btn.mark-x {
   color: #ff0055;
-  text-shadow: 0 0 10px #ff0055;
+  text-shadow: 0 0 14px #ff0055, 0 0 25px #ff0055;
   border-color: #ff0055;
 }
 .cell-btn.mark-o {
   color: #00ff66;
-  text-shadow: 0 0 10px #00ff66;
+  text-shadow: 0 0 14px #00ff66, 0 0 25px #00ff66;
   border-color: #00ff66;
 }
 .cell-btn.win {
