@@ -145,6 +145,17 @@ def test_game_slots_in_seed() -> None:
         assert expected in slots
 
 
+def test_widget_html_size_and_compression() -> None:
+    import zlib
+    from app.features.games.widget import XO_WIDGET_HTML
+
+    raw = XO_WIDGET_HTML.encode("utf-8")
+    comp = zlib.compress(raw, level=9)
+    # Telegram Widgets hard limits: raw <= 32768, compressed <= 4096
+    assert len(raw) <= 32768
+    assert len(comp) <= 4096
+
+
 def test_renderers_output() -> None:
     registry = EmojiRegistry()
     user = User(telegram_id=99999, first_name="تست‌کننده", username="tester")

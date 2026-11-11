@@ -12,12 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.callbacks import MenuCB, NoopCB
 from app.callbacks.game import GameCB
+from app.config import get_settings
 from app.core.logging import get_logger
 from app.db.models.game_stat import GameStat
 from app.db.models.user import User
 from app.db.repo.game import GameRepo
 from app.db.repo.user import UserRepo
 from app.features.games.leagues import format_league_progress_bar, get_league
+from app.features.games.widget import send_xo_widget
 from app.features.games.xo_engine import (
     calculate_score_delta,
     check_winner,
@@ -519,40 +521,17 @@ async def cb_games_menu(query: CallbackQuery, session: AsyncSession) -> None:
         pass
 
 
-@router.callback_query(GameCB.filter(F.action == "diff"))
-async def cb_diff_picker(query: CallbackQuery) -> None:
-    if not isinstance(query.message, Message):
-        return
-    await query.answer()
-    registry = await ready_registry()
-    text, reply_markup = render_diff_picker(registry)
-    try:
-        await query.message.edit_text(text, reply_markup=reply_markup)
-    except Exception:
-        pass
-
-
-@router.callback_query(GameCB.filter(F.action.in_({"xo", "reset"})))
-async def cb_start_xo(
-    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
-) -> None:
+@router.callback_query(GameCB.filter(F.action.in_({"diff", "xo", "reset"})))
+async def cb_start_xo_widget(query: CallbackQuery, callback_data: GameCB) -> None:
     if not query.from_user or not isinstance(query.message, Message):
         return
-    await query.answer("بازی جدید آغاز شد! نوبت شماست.")
-    registry = await ready_registry()
-    user_repo = UserRepo(session)
-    user = await user_repo.upsert_from_telegram(query.from_user)
-
-    game_repo = GameRepo(session)
-    stat = await game_repo.get_or_create(user.telegram_id)
-
-    diff = callback_data.diff or "med"
-    clean_board = "_________"
-    text, reply_markup = render_xo_board(user, stat, diff, clean_board, registry)
-    try:
-        await query.message.edit_text(text, reply_markup=reply_markup)
-    except Exception:
-        pass
+    await query.answer("🎮 در حال ارسال ویجت گرافیکی بازی دوز…")
+    settings = get_settings()
+    sent = await send_xo_widget(query.message.chat.id, settings.bot_token)
+    if not sent:
+        await query.message.answer(
+            "⚠️ ارسال ویجت تلگرام ناموفق بود. مطمئن شوید از نسخه جدید تلگرام استفاده می‌کنید."
+        )
 
 
 @router.callback_query(GameCB.filter(F.action == "move"))
