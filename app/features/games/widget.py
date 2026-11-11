@@ -17,10 +17,11 @@ XO_WIDGET_HTML = """<!DOCTYPE html>
 body {
   background: #08080a;
   color: #00ff66;
-  font-family: 'Courier New', Courier, monospace;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Arial, sans-serif;
   padding: 10px;
   text-align: center;
   user-select: none;
+  direction: rtl;
   background-image: repeating-linear-gradient(
     0deg,
     rgba(0,0,0,0.5) 0px,
@@ -49,13 +50,13 @@ body {
   font-weight: 900;
   color: #ffea00;
   text-shadow: 0 0 8px #ffea00, 2px 2px #ff0055;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
 }
 .sub {
-  font-size: 9px;
+  font-size: 10px;
   color: #00f0ff;
   margin-top: 2px;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
 }
 .led-panel {
   display: flex;
@@ -66,12 +67,18 @@ body {
   margin-bottom: 10px;
   border-radius: 4px;
 }
-.led-box { display: flex; flex-direction: column; }
-.led-label { font-size: 9px; color: #888; font-weight: bold; }
-.led-val { font-size: 16px; font-weight: bold; }
+.led-box { display: flex; flex-direction: column; align-items: center; }
+.led-label { font-size: 10px; color: #888; font-weight: bold; margin-bottom: 2px; }
+.led-val { font-size: 16px; font-weight: bold; font-family: monospace; }
 .val-1p { color: #00ff66; text-shadow: 0 0 6px #00ff66; }
 .val-cpu { color: #ff0055; text-shadow: 0 0 6px #ff0055; }
-.val-diff { color: #ffea00; text-shadow: 0 0 6px #ffea00; cursor: pointer; touch-action: none; }
+.val-diff {
+  color: #ffea00;
+  text-shadow: 0 0 6px #ffea00;
+  cursor: pointer;
+  touch-action: none;
+  font-size: 12px;
+}
 .grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -79,6 +86,7 @@ body {
   width: 230px;
   height: 230px;
   margin: 0 auto;
+  direction: ltr;
 }
 .cell-btn {
   background: #1a1a26;
@@ -86,7 +94,6 @@ body {
   border-bottom: 4px solid #111;
   border-radius: 8px;
   color: #fff;
-  font-family: 'Courier New', Courier, monospace;
   font-size: 38px;
   font-weight: 900;
   cursor: pointer;
@@ -96,6 +103,7 @@ body {
   touch-action: none;
   transition: all 0.08s;
   box-shadow: inset 0 0 8px rgba(0,0,0,0.6);
+  line-height: 1;
 }
 .cell-btn:active {
   border-bottom: 2px solid #111;
@@ -125,14 +133,15 @@ body {
   border: 1px solid #222;
   border-radius: 4px;
   padding: 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: bold;
   color: #ffea00;
   text-shadow: 0 0 6px rgba(255,234,0,0.6);
-  min-height: 26px;
+  min-height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
+  direction: rtl;
 }
 .footer-btns {
   display: flex;
@@ -144,14 +153,12 @@ body {
   border: none;
   border-bottom: 3px solid #88002d;
   color: #fff;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: bold;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: 6px;
   cursor: pointer;
   touch-action: none;
-  letter-spacing: 1px;
   box-shadow: 0 0 8px rgba(255,0,85,0.4);
 }
 .arcade-act-btn:active {
@@ -169,48 +176,54 @@ body {
 <body>
 <div class="arcade-cabinet">
   <div class="marquee">
-    <div class="title">★ MEWVIA ARCADE ★</div>
-    <div class="sub">INSERT COIN - 1P VS CPU</div>
+    <div class="title">★ آرکید نوستالژیک میوویا ★</div>
+    <div class="sub">بازی دوز کلاسیک — ۱ نفره با هوش مصنوعی</div>
   </div>
 
   <div class="led-panel">
     <div class="led-box">
-      <span class="led-label">1P (X)</span>
+      <span class="led-label">شما (X)</span>
       <span class="led-val val-1p" id="sX">00</span>
     </div>
     <div class="led-box">
-      <span class="led-label">DIFFICULTY</span>
+      <span class="led-label">سطح هوش</span>
       <button class="led-val val-diff" id="dBtn"
-        style="background:none;border:none;font-family:inherit;">SMART</button>
+        style="background:none;border:none;font-family:inherit;">هوشمند 🟡</button>
     </div>
     <div class="led-box">
-      <span class="led-label">CPU (O)</span>
+      <span class="led-label">میوویا (O)</span>
       <span class="led-val val-cpu" id="sO">00</span>
     </div>
   </div>
 
   <div class="grid" id="g"></div>
 
-  <div class="msg-screen" id="mBox">&gt;&gt; YOUR TURN: TAP TO MOVE &lt;&lt;</div>
+  <div class="msg-screen" id="mBox">نوبت شماست: یک خانه را انتخاب کن</div>
 
   <div class="footer-btns">
-    <button class="arcade-act-btn" id="rstBtn">[ RESET GAME ]</button>
-    <button class="arcade-act-btn btn-yellow" id="clrBtn">[ CLEAR SCORE ]</button>
+    <button class="arcade-act-btn" id="rstBtn">🔄 بازی جدید</button>
+    <button class="arcade-act-btn btn-yellow" id="clrBtn">0️⃣ ریست امتیاز</button>
   </div>
 </div>
 
 <script>
-let b = Array(9).fill('');
+let b = ['', '', '', '', '', '', '', '', ''];
 let pX = 0, pO = 0;
 let over = false;
 let dLevel = 1;
-const dNames = ['EASY', 'SMART', 'BRUTAL'];
+const dNames = ['ساده 🟢', 'هوشمند 🟡', 'غیرممکن 🔴'];
 
 const W = [
   [0,1,2],[3,4,5],[6,7,8],
   [0,3,6],[1,4,7],[2,5,8],
   [0,4,8],[2,4,6]
 ];
+
+function setText(el, txt) {
+  if (!el) return;
+  try { el.textContent = txt; } catch(e) {}
+  try { el.innerText = txt; } catch(e) {}
+}
 
 function haptic(t) {
   try {
@@ -228,55 +241,64 @@ for (let i = 0; i < 9; i++) {
   const btn = document.createElement('button');
   btn.className = 'cell-btn';
   btn.setAttribute('type', 'button');
+  btn.onclick = function() { onMove(i); };
   btn.addEventListener('click', function() { onMove(i); });
   grid.appendChild(btn);
   btns.push(btn);
 }
 
-document.getElementById('dBtn').addEventListener('click', function() {
+const dBtn = document.getElementById('dBtn');
+dBtn.onclick = function() { toggleDiff(); };
+dBtn.addEventListener('click', function() { toggleDiff(); });
+
+function toggleDiff() {
   dLevel = (dLevel + 1) % 3;
-  this.innerText = dNames[dLevel];
+  setText(dBtn, dNames[dLevel]);
   haptic('tap');
   newRound();
-});
+}
 
-document.getElementById('rstBtn').addEventListener('click', function() {
-  haptic('tap');
-  newRound();
-});
+const rstBtn = document.getElementById('rstBtn');
+rstBtn.onclick = function() { newRound(); haptic('tap'); };
+rstBtn.addEventListener('click', function() { newRound(); haptic('tap'); });
 
-document.getElementById('clrBtn').addEventListener('click', function() {
+const clrBtn = document.getElementById('clrBtn');
+clrBtn.onclick = function() { clearScore(); };
+clrBtn.addEventListener('click', function() { clearScore(); });
+
+function clearScore() {
   haptic('tap');
   pX = 0; pO = 0;
-  document.getElementById('sX').innerText = '00';
-  document.getElementById('sO').innerText = '00';
+  setText(document.getElementById('sX'), '00');
+  setText(document.getElementById('sO'), '00');
   newRound();
-});
+}
 
 function onMove(idx) {
   if (b[idx] !== '' || over) return;
   b[idx] = 'X';
-  btns[idx].innerText = 'X';
-  btns[idx].classList.add('mark-x');
+  setText(btns[idx], 'X');
+  btns[idx].className = 'cell-btn mark-x';
   haptic('tap');
 
   const win = check('X');
   if (win) {
     pX++;
-    document.getElementById('sX').innerText = pX < 10 ? '0' + pX : pX;
-    setMsg('*** YOU WIN! HIGH SCORE! ***');
+    const s = pX < 10 ? '0' + pX : '' + pX;
+    setText(document.getElementById('sX'), s);
+    setMsg('🎉 پیروز شدی! رکورد ثبت شد!');
     flashWin(win);
     haptic('win');
     over = true;
     return;
   }
   if (!b.includes('')) {
-    setMsg('== DRAW GAME! TRY AGAIN ==');
+    setMsg('🤝 مساوی شد! دوباره بازی کن');
     over = true;
     return;
   }
 
-  setMsg('.. CPU CALCULATING ..');
+  setMsg('میوویا در حال محاسبه حرکت...');
   over = true;
   setTimeout(cpuMove, 300);
 }
@@ -285,8 +307,8 @@ function cpuMove() {
   const m = getMove();
   if (m !== -1) {
     b[m] = 'O';
-    btns[m].innerText = 'O';
-    btns[m].classList.add('mark-o');
+    setText(btns[m], 'O');
+    btns[m].className = 'cell-btn mark-o';
   }
   haptic('tap');
   over = false;
@@ -294,24 +316,27 @@ function cpuMove() {
   const win = check('O');
   if (win) {
     pO++;
-    document.getElementById('sO').innerText = pO < 10 ? '0' + pO : pO;
-    setMsg('!!! CPU WINS! GAME OVER !!!');
+    const s = pO < 10 ? '0' + pO : '' + pO;
+    setText(document.getElementById('sO'), s);
+    setMsg('🤖 میوویا برنده شد! دست بعد جبران کن');
     flashWin(win);
     haptic('loss');
     over = true;
     return;
   }
   if (!b.includes('')) {
-    setMsg('== DRAW GAME! TRY AGAIN ==');
+    setMsg('🤝 مساوی شد! دوباره بازی کن');
     over = true;
     return;
   }
-  setMsg('&gt;&gt; YOUR TURN: TAP TO MOVE &lt;&lt;');
+  setMsg('نوبت شماست: یک خانه را انتخاب کن');
 }
 
 function getMove() {
   const free = [];
-  b.forEach(function(v, i) { if (v === '') free.push(i); });
+  for (let i = 0; i < 9; i++) {
+    if (b[i] === '') free.push(i);
+  }
   if (!free.length) return -1;
 
   if (dLevel === 0 && Math.random() < 0.6) {
@@ -334,7 +359,8 @@ function getMove() {
   }
 
   if (free.includes(4)) return 4;
-  const corners = [0,2,6,8].filter(function(c) { return free.includes(c); });
+  const corners = [];
+  [0, 2, 6, 8].forEach(function(c) { if (free.includes(c)) corners.push(c); });
   if (corners.length) return corners[Math.floor(Math.random() * corners.length)];
   return free[0];
 }
@@ -349,22 +375,23 @@ function check(p) {
 
 function flashWin(line) {
   for (let i = 0; i < line.length; i++) {
-    btns[line[i]].classList.add('win');
+    btns[line[i]].className = 'cell-btn win';
   }
 }
 
 function setMsg(t) {
-  document.getElementById('mBox').innerHTML = t;
+  const m = document.getElementById('mBox');
+  setText(m, t);
 }
 
 function newRound() {
-  b = Array(9).fill('');
+  b = ['', '', '', '', '', '', '', '', ''];
   over = false;
   for (let i = 0; i < 9; i++) {
-    btns[i].innerText = '';
+    setText(btns[i], '');
     btns[i].className = 'cell-btn';
   }
-  setMsg('&gt;&gt; YOUR TURN: TAP TO MOVE &lt;&lt;');
+  setMsg('نوبت شماست: یک خانه را انتخاب کن');
 }
 </script>
 </body>
@@ -377,7 +404,7 @@ async def send_xo_widget(chat_id: int, bot_token: str) -> bool:
     payload = {
         "chat_id": chat_id,
         "html": XO_WIDGET_HTML,
-        "caption": "🕹️ <b>MEWVIA RETRO ARCADE (دوز کلاسیک نوستالژیک)</b>\nروی دکمه‌ها لمس کنید!",
+        "caption": "🕹️ <b>بازی دوز نوستالژیک میوویا</b>",
         "parse_mode": "HTML",
     }
     try:
