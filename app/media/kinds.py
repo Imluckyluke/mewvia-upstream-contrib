@@ -73,14 +73,17 @@ def detect_media_kind(message: Message) -> tuple[MediaKind, Any, str, int] | Non
         file_size = doc.file_size or 0
         file_name = (doc.file_name or "").lower()
 
+        # GIFs are animations, not still images. Check them before the generic
+        # image/* branch, otherwise `image/gif` was classified as a document
+        # image and the conversion pipeline turned it into a 1-second still.
+        if mime == "image/gif" or file_name.endswith(".gif"):
+            return MediaKind.DOCUMENT_VIDEO, doc, file_id, file_size
         if mime.startswith("image/") or file_name.endswith(
             (".png", ".jpg", ".jpeg", ".webp", ".bmp")
         ):
             return MediaKind.DOCUMENT_IMAGE, doc, file_id, file_size
-        if (
-            mime.startswith("video/")
-            or mime == "image/gif"
-            or file_name.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".gif"))
+        if mime.startswith("video/") or file_name.endswith(
+            (".mp4", ".mov", ".mkv", ".avi", ".webm")
         ):
             return MediaKind.DOCUMENT_VIDEO, doc, file_id, file_size
         if mime == "application/x-tgsticker" or file_name.endswith(".tgs"):
