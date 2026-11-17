@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from aiogram import Bot, F, Router
-from aiogram.fsm.context import FSMContext
+from aiogram.filters import StateFilter
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,11 +53,10 @@ async def ready_registry() -> EmojiRegistry:
 
 @router.message(
     F.chat.type == "private",
+    StateFilter(None),
     F.sticker | F.animation | F.video_note | F.video | F.photo | F.document,
 )
-async def handle_incoming_media(
-    message: Message, settings: Settings, state: FSMContext
-) -> None:
+async def handle_incoming_media(message: Message, settings: Settings) -> None:
     detected = detect_media_kind(message)
     if not detected:
         return
@@ -67,9 +66,6 @@ async def handle_incoming_media(
     # If it's audio (e.g. sent as uncompressed document), delegate to audio router
     if kind in (MediaKind.AUDIO, MediaKind.VOICE):
         return
-
-    # Clear any stale FSM state so sending new media always opens fresh panel
-    await state.clear()
 
     # Enforce API file download limits (20MB public, 2GB local)
     if file_size > settings.download_limit:
@@ -241,7 +237,10 @@ async def process_conversion(
         )
     except Exception as p_exc:
         log.warning("progress_controller_convert_start_failed", error=str(p_exc))
-        status_edited = await msg.edit_text(t("common.processing"), reply_markup=None)
+        try:
+            status_edited = await msg.edit_text(t("common.processing"), reply_markup=None)
+        except Exception:
+            status_edited = None
         progress = status_edited if isinstance(status_edited, Message) else None
 
     status_msg = progress
@@ -346,7 +345,10 @@ async def process_conversion(
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             err_msg = error_text(exc.code)
             if status_msg is not None:
-                await status_msg.edit_text(err_msg)
+                try:
+                    await status_msg.edit_text(err_msg)
+                except Exception as edit_exc:
+                    log.debug("convert_error_edit_failed", error=str(edit_exc))
 
             await conv_repo.log_conversion(
                 telegram_id=user_id,
@@ -363,7 +365,10 @@ async def process_conversion(
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             err_msg = error_text("unknown")
             if status_msg is not None:
-                await status_msg.edit_text(err_msg)
+                try:
+                    await status_msg.edit_text(err_msg)
+                except Exception as edit_exc:
+                    log.debug("convert_error_edit_failed", error=str(edit_exc))
 
             await conv_repo.log_conversion(
                 telegram_id=user_id,
