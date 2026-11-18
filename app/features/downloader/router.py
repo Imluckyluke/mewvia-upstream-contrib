@@ -55,6 +55,7 @@ from app.media.downloader import (
     download_video,
     extract_first_url,
     get_download_context,
+    is_safe_remote_url,
     is_supported_media_url,
     probe_media_url,
     store_download_context,
@@ -82,6 +83,57 @@ router = Router(name="downloader")
 def _add_to_zip(zip_path: Path, file_path: Path, arcname: str) -> None:
     with zipfile.ZipFile(zip_path, "a", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(file_path, arcname=arcname)
+
+
+# Containers Telegram accepts via sendVideo. After the iOS pass every one of
+# these should normally be `.mp4`, but a failed conversion may leave the
+# original file behind.
+_VIDEO_SUFFIXES = frozenset({".mp4", ".m4v", ".mov", ".mkv", ".webm"})
+
+
+def _is_video_file(path: Path) -> bool:
+    return path.suffix.lower() in _VIDEO_SUFFIXES
+
+
+async def _edit_status(status_msg: ProgressController | Message | None, text: str) -> bool:
+    """Edit the status message, tolerating deleted/uneditable messages."""
+    if status_msg is None:
+        return False
+    try:
+        await status_msg.edit_text(text)
+        return True
+    except Exception as exc:
+        log.debug("download_status_edit_failed", error=str(exc))
+        return False
+
+
+async def _notify_error(
+    status_msg: ProgressController | Message | None,
+    text: str,
+    *,
+    bot: Bot,
+    chat_id: int,
+    fallback_msg: Message | None = None,
+) -> None:
+    """Deliver an error through the status message, reply chain or a fresh DM."""
+    if await _edit_status(status_msg, text):
+        return
+    try:
+        if fallback_msg is not None:
+            await fallback_msg.reply(text)
+        else:
+            await bot.send_message(chat_id=chat_id, text=text)
+    except Exception as exc:
+        log.debug("download_error_notify_failed", error=str(exc))
+
+
+def _context_owner_mismatch(ctx: dict[str, Any], user_id: int, chat_id: int) -> bool:
+    """True when the callback belongs to a different user/chat than the request."""
+    owner = ctx.get("user_id")
+    chat = ctx.get("chat_id")
+    return (isinstance(owner, int) and owner != user_id) or (
+        isinstance(chat, int) and chat != chat_id
+    )
 
 
 async def ready_registry() -> EmojiRegistry:
@@ -162,12 +214,13 @@ async def _perform_download(
                     limit_str = human_bytes(settings.upload_limit)
                     size_str = human_bytes(file_size)
                     err_msg = f"❌ حجم ویدیو ({size_str}) بیشتر از سقف مجاز ({limit_str}) است."
-                    if status_msg:
-                        await status_msg.edit_text(err_msg)
-                    elif fallback_msg:
-                        await fallback_msg.reply(err_msg)
-                    else:
-                        await bot.send_message(chat_id=chat_id, text=err_msg)
+                    await _notify_error(
+                        status_msg,
+                        err_msg,
+                        bot=bot,
+                        chat_id=chat_id,
+                        fallback_msg=fallback_msg,
+                    )
                     return
 
                 caption_lines = []
@@ -234,12 +287,13 @@ async def _perform_download(
                         f"{registry.text('error')} حجم فایل صوتی ({size_str}) "
                         f"بیشتر از سقف مجاز ({limit_str}) است."
                     )
-                    if status_msg:
-                        await status_msg.edit_text(err_msg)
-                    elif fallback_msg:
-                        await fallback_msg.reply(err_msg)
-                    else:
-                        await bot.send_message(chat_id=chat_id, text=err_msg)
+                    await _notify_error(
+                        status_msg,
+                        err_msg,
+                        bot=bot,
+                        chat_id=chat_id,
+                        fallback_msg=fallback_msg,
+                    )
                     return
 
                 uploader = ctx.get("uploader") or "Mewvia"
@@ -335,7 +389,7 @@ async def _perform_download(
 
                 if len(gallery_files) == 1:
                     single_file = gallery_files[0]
-                    if single_file.suffix.lower() == ".mp4":
+                    if _is_video_file(single_file):
                         v_w = None
                         v_h = None
                         v_dur = None
@@ -396,7 +450,7 @@ async def _perform_download(
                         media_group: list[Any] = []
                         for i, p in enumerate(chunk):
                             cap = gallery_caption[:1024] if chunk_idx == 0 and i == 0 else None
-                            if p.suffix.lower() == ".mp4":
+                            if _is_video_file(p):
                                 v_w = None
                                 v_h = None
                                 v_dur = None
@@ -423,7 +477,7 @@ async def _perform_download(
                                 )
                         if len(media_group) == 1:
                             single_item = chunk[0]
-                            if single_item.suffix.lower() == ".mp4":
+                            if _is_video_file(single_item):
                                 v_w = None
                                 v_h = None
                                 v_dur = None
@@ -712,6 +766,13 @@ async def _perform_download(
                 if is_zip and zip_path.is_file() and zip_path.stat().st_size > 0:
                     zip_size = zip_path.stat().st_size
                     total_bytes = zip_size
+                    if zip_size > settings.upload_limit:
+                        limit_str = human_bytes(settings.upload_limit)
+                        raise ConversionError(
+                            "❌ حجم فایل ZIP آلبوم "
+                            f"({human_bytes(zip_size)}) بیشتر از سقف مجاز ({limit_str}) است.\n"
+                            "لطفاً گزینه «ارسال دونه‌دونه ترک‌ها (MP3)» را انتخاب کنید."
+                        )
                     caption = (
                         f"{registry.text('zip')} <b>آلبوم کامل: {html.quote(title)}</b>\n\n"
                         f"{registry.text('bullet')} تعداد: "
@@ -768,12 +829,13 @@ async def _perform_download(
 
                 await sync_active_cookie_to_disk(session)
             err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
-            if status_msg is not None:
-                await status_msg.edit_text(err)
-            elif fallback_msg:
-                await fallback_msg.reply(err)
-            else:
-                await bot.send_message(chat_id=chat_id, text=err)
+            await _notify_error(
+                status_msg,
+                err,
+                bot=bot,
+                chat_id=chat_id,
+                fallback_msg=fallback_msg,
+            )
         except Exception as exc:
             if cookie_record:
                 await repo_cookie.record_usage(cookie_record.id, success=False, error=str(exc))
@@ -782,12 +844,13 @@ async def _perform_download(
                 await sync_active_cookie_to_disk(session)
             log.error("downloader_error", url=url, error=str(exc))
             err = "❌ خطا در دانلود رسانه. ممکن است لینک منقضی یا نامعتبر باشد."
-            if status_msg is not None:
-                await status_msg.edit_text(err)
-            elif fallback_msg:
-                await fallback_msg.reply(err)
-            else:
-                await bot.send_message(chat_id=chat_id, text=err)
+            await _notify_error(
+                status_msg,
+                err,
+                bot=bot,
+                chat_id=chat_id,
+                fallback_msg=fallback_msg,
+            )
 
 
 async def _handle_url_input(
@@ -821,10 +884,7 @@ async def _handle_url_input(
         info = await probe_media_url(url, cookie_file=cookie_file_str)
     except MewviaError as exc:
         err = str(exc) if str(exc) and str(exc) != exc.code else error_text(exc.code)
-        if status_msg:
-            await status_msg.edit_text(err)
-        else:
-            await message.answer(err)
+        await _notify_error(status_msg, err, bot=bot, chat_id=message.chat.id, fallback_msg=message)
         return
     except Exception as exc:
         log.warning("downloader_probe_error", url=url, error=str(exc))
@@ -832,10 +892,7 @@ async def _handle_url_input(
             "❌ نتوانستم اطلاعات این لینک را دریافت کنم.\n"
             "ممکن است لینک خصوصی باشد، یا این سایت پشتیبانی نشود."
         )
-        if status_msg:
-            await status_msg.edit_text(err)
-        else:
-            await message.answer(err)
+        await _notify_error(status_msg, err, bot=bot, chat_id=message.chat.id, fallback_msg=message)
         return
 
     user_id = message.from_user.id if message.from_user else 0
@@ -857,6 +914,9 @@ async def _handle_url_input(
                 "thumbnail_url": info.thumbnail_url,
                 "duration_str": info.duration_str,
                 "reply_to_id": message.message_id,
+                "user_id": user_id,
+                "chat_id": message.chat.id,
+                "user_name": message.from_user.first_name if message.from_user else "کاربر",
                 "is_playlist": info.is_playlist,
                 "playlist_count": info.playlist_count,
                 "playlist_items": list(info.playlist_items),
@@ -1199,17 +1259,15 @@ class ContainsMediaUrlFilter(BaseFilter):
         if not url:
             return False
 
+        if not is_safe_remote_url(url):
+            return False
+
         is_group = message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
         # In groups/supergroups, ONLY react to supported downloader platforms.
-        # Regular chat messages containing non-media links are ignored.
-        if is_group:
-            if not is_supported_media_url(url):
-                return False
-        else:
-            # In private chat, also require supported platform or direct media link
-            key, _name, _icon = detect_platform(url)
-            if key == "other" and not (url.startswith("http://") or url.startswith("https://")):
-                return False
+        # Regular chat messages containing non-media links are ignored. In
+        # private chat any public link is accepted (yt-dlp generic extractor).
+        if is_group and not is_supported_media_url(url):
+            return False
 
         return {"extracted_url": url}
 
@@ -1230,11 +1288,24 @@ async def auto_detect_url_message(
 
 
 @router.callback_query(DownloaderCB.filter(F.action == "cancel"))
-async def cancel_download(query: CallbackQuery) -> None:
-    if isinstance(query.message, Message):
-        edited = await query.message.edit_text("دانلود لغو شد.")
-        if edited is None:
+async def cancel_download(query: CallbackQuery, callback_data: DownloaderCB) -> None:
+    if not isinstance(query.message, Message):
+        await query.answer(t("common.stale_button"), show_alert=True)
+        return
+
+    ctx = await get_download_context(callback_data.token)
+    user_id = query.from_user.id if query.from_user else 0
+    if ctx and _context_owner_mismatch(ctx, user_id, query.message.chat.id):
+        await query.answer(
+            "این دکمه برای درخواست شما ثبت نشده است.", show_alert=True
+        )
+        return
+
+    if not await _edit_status(query.message, "دانلود لغو شد."):
+        try:
             await query.message.answer("دانلود لغو شد.")
+        except Exception as exc:
+            log.debug("cancel_reply_failed", error=str(exc))
     await query.answer()
 
 
@@ -1262,6 +1333,12 @@ async def execute_download(
         return
 
     user_id = query.from_user.id if query.from_user else 0
+    if _context_owner_mismatch(ctx, user_id, msg.chat.id):
+        # A forwarded / shared selection card must not let another account
+        # spend the original requester's download (or trigger it at all).
+        await query.answer("این دکمه برای درخواست شما ثبت نشده است.", show_alert=True)
+        return
+
     if not await check_daily_quota(session, user_id, query):
         return
 
@@ -1281,8 +1358,11 @@ async def execute_download(
         )
     except Exception as p_exc:
         log.warning("progress_controller_start_failed", error=str(p_exc))
-        status = await msg.edit_text("⏳ <b>در حال دانلود رسانه از سرور…</b>", reply_markup=None)
-        progress = status if isinstance(status, Message) else None
+        progress = (
+            msg
+            if await _edit_status(msg, "⏳ <b>در حال دانلود رسانه از سرور…</b>")
+            else None
+        )
 
     await _perform_download(
         chat_id=msg.chat.id,

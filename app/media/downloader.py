@@ -16,11 +16,14 @@ process-wide job concurrency limiter and timeouts.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import re
 import secrets
+import socket
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -146,7 +149,7 @@ def is_direct_media_url(url: str) -> bool:
 
 def is_supported_media_url(url: str) -> bool:
     """Check if the URL belongs to a supported downloader platform or is a direct media file."""
-    if not url:
+    if not url or not is_safe_remote_url(url):
         return False
     key, _, _ = detect_platform(url)
     if key in SUPPORTED_PLATFORMS:
@@ -154,32 +157,97 @@ def is_supported_media_url(url: str) -> bool:
     return is_direct_media_url(url)
 
 
+_LOCAL_HOST_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".internal",
+    ".home.arpa",
+    ".lan",
+)
+
+
+def is_safe_remote_url(url: str) -> bool:
+    """Reject URLs that point at loopback, private, link-local or internal hosts.
+
+    The download engine runs inside the Docker network, next to Postgres,
+    Redis, the Bot API server and the WARP proxy. Letting yt-dlp/gallery-dl
+    fetch ``http://postgres:5432/...`` would turn the bot into an SSRF proxy.
+    Public links stay allowed (the feature intentionally supports thousands of
+    sites); only obviously internal targets are refused.
+    """
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in ("http", "https"):
+        return False
+    # Embedded credentials can be used to confuse host parsing in downstream
+    # tools, and are never needed for a public media link.
+    if parsed.username or parsed.password:
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(_LOCAL_HOST_SUFFIXES):
+        return False
+    # Single-label names are Docker service names / intranet hosts. Public
+    # media platforms always have a dot (youtu.be, x.com, ...).
+    if "." not in host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # libc/glibc also accepts historical IPv4 shorthands such as
+        # ``127.1`` or octal/hex octets; normalise them before deciding.
+        try:
+            packed = socket.inet_aton(host)
+        except OSError:
+            return True
+        ip = ipaddress.ip_address(packed)
+    return bool(ip.is_global)
+
+
+def _host_matches(host: str, *domains: str) -> bool:
+    """True when *host* is exactly one of *domains* or a subdomain of one."""
+    return any(host == domain or host.endswith(f".{domain}") for domain in domains)
+
+
 def detect_platform(url: str) -> tuple[str, str, str]:
-    """Identify the platform from the URL host."""
+    """Identify the platform from the URL host.
+
+    Matching is done on complete domain labels: ``netflix.com`` must not be
+    mistaken for X/Twitter just because it happens to contain ``x.com``.
+    """
     parsed = urlparse(url)
-    host = (parsed.netloc or "").lower()
+    host = (parsed.hostname or "").lower().rstrip(".")
     if host.startswith("www."):
         host = host[4:]
 
-    if any(k in host for k in ("youtube.com", "youtu.be")):
+    if _host_matches(host, "youtube.com", "youtu.be", "youtube-nocookie.com"):
         key = "youtube"
-    elif "instagram.com" in host or "instagr.am" in host:
+    elif _host_matches(host, "instagram.com", "instagr.am"):
         key = "instagram"
-    elif "tiktok.com" in host:
+    elif _host_matches(host, "tiktok.com"):
         key = "tiktok"
-    elif "twitter.com" in host or "x.com" in host or host == "t.co" or host.endswith(".t.co"):
+    elif _host_matches(host, "twitter.com", "x.com", "t.co"):
         key = "twitter"
-    elif "pinterest." in host or "pin.it" in host:
+    elif (
+        host == "pin.it"
+        or host.startswith("pinterest.")
+        or ".pinterest." in host
+    ):
         key = "pinterest"
-    elif "soundcloud.com" in host or "on.soundcloud.com" in host:
+    elif _host_matches(host, "soundcloud.com", "snd.sc"):
         key = "soundcloud"
-    elif "spotify.com" in host or "spotify.link" in host:
+    elif _host_matches(host, "spotify.com", "spotify.link", "spoti.fi"):
         key = "spotify"
-    elif "reddit.com" in host or "redd.it" in host:
+    elif _host_matches(host, "reddit.com", "redd.it"):
         key = "reddit"
-    elif "aparat.com" in host:
+    elif _host_matches(host, "aparat.com"):
         key = "aparat"
-    elif any(k in host for k in ("facebook.com", "fb.watch", "fb.com")):
+    elif _host_matches(host, "facebook.com", "fb.watch", "fb.com", "fb.me"):
         key = "facebook"
     else:
         key = "other"
@@ -762,6 +830,15 @@ async def probe_media_url(url: str, cookie_file: str | None = None) -> DownloadI
     return await asyncio.to_thread(_probe_info_sync, url, cookie_file)
 
 
+_IOS_VIDEO_CODECS = frozenset({"h264", "hevc"})
+_IOS_AUDIO_CODECS = frozenset({"aac", "mp3", "mp2"})
+_IOS_PIX_FMTS = frozenset({"yuv420p", "yuvj420p"})
+_VIDEO_CONTAINERS = frozenset({".mp4", ".m4v", ".mov", ".mkv", ".webm"})
+_GALLERY_MEDIA_SUFFIXES = frozenset(
+    {".jpg", ".jpeg", ".png", ".webp", ".gif"} | _VIDEO_CONTAINERS
+)
+
+
 def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
     """Ensure downloaded video is 100% compatible with Apple iOS Photos/Camera Roll.
 
@@ -770,10 +847,14 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
     - Pixel format: yuv420p (8-bit 4:2:0).
     - Audio codec: AAC or MP3 (or none).
     - Container: MP4 with +faststart (moov atom at beginning of file).
+
+    Both video *and* audio are checked: an H.264 stream muxed with Opus is
+    still unplayable on iOS, and WebM/MKV files were previously returned
+    untouched.
     """
     if not video_path.is_file() or video_path.stat().st_size == 0:
         return video_path
-    if video_path.suffix.lower() != ".mp4":
+    if video_path.suffix.lower() not in _VIDEO_CONTAINERS:
         return video_path
 
     try:
@@ -781,28 +862,40 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
             "ffprobe",
             "-v",
             "error",
-            "-select_streams",
-            "v:0",
             "-show_entries",
-            "stream=codec_name,pix_fmt",
+            "stream=codec_type,codec_name,pix_fmt",
             "-of",
             "json",
             str(video_path),
         ]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        data = json.loads(res.stdout)
+        data = json.loads(res.stdout or "{}")
         streams = data.get("streams", [])
-        if not streams:
+        video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
+        if video_stream is None:
             return video_path
+        audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
 
-        stream = streams[0]
-        vcodec = (stream.get("codec_name") or "").lower()
-        pix_fmt = (stream.get("pix_fmt") or "").lower()
+        vcodec = (video_stream.get("codec_name") or "").lower()
+        acodec = (audio_stream.get("codec_name") or "").lower() if audio_stream else ""
+        pix_fmt = (video_stream.get("pix_fmt") or "").lower()
+        # A video without any audio track is perfectly playable on iOS, so the
+        # missing stream must not force a full re-encode.
+        audio_ok = audio_stream is None or acodec in _IOS_AUDIO_CODECS
 
-        out_path = work_dir / f"ios_{video_path.name}"
+        # Keep the converted file next to its source. Gallery downloads keep
+        # per-site subfolders, and two folders can contain the same filename;
+        # writing every result into `work_dir` would overwrite one of them.
+        out_dir = work_dir
+        if video_path.parent != work_dir and work_dir in video_path.parents:
+            out_dir = video_path.parent
+        out_path = out_dir / f"ios_{video_path.stem}.mp4"
+        if out_path == video_path:
+            out_path = out_dir / f"ios_{video_path.stem}_converted.mp4"
 
-        # If already standard H.264/HEVC with standard yuv420p, ensure faststart stream copy
-        if vcodec in ("h264", "hevc") and pix_fmt in ("yuv420p", "yuvj420p"):
+        # Already H.264/HEVC with a compatible pixel format and audio: only a
+        # faststart remux (and container change for MKV/MOV) is needed.
+        if vcodec in _IOS_VIDEO_CODECS and pix_fmt in _IOS_PIX_FMTS and audio_ok:
             faststart_cmd = [
                 "ffmpeg",
                 "-y",
@@ -810,6 +903,10 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
                 "error",
                 "-i",
                 str(video_path),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",
                 "-c",
                 "copy",
                 "-movflags",
@@ -819,9 +916,10 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
             fs_res = subprocess.run(faststart_cmd, capture_output=True, timeout=30)
             if fs_res.returncode == 0 and out_path.is_file() and out_path.stat().st_size > 0:
                 return out_path
-            return video_path
+            # Fall through to a full transcode; a copy can fail on odd
+            # containers even when the codecs themselves are supported.
 
-        # If VP9/AV1 or non-standard pixel format, transcode to standard H.264 + AAC + yuv420p
+        # Unsupported codec/container: transcode to standard H.264 + AAC + yuv420p.
         log.info("transcoding_video_for_ios_camera_roll", vcodec=vcodec, pix_fmt=pix_fmt)
         transcode_cmd = [
             "ffmpeg",
@@ -830,6 +928,10 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
             "error",
             "-i",
             str(video_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
             "-c:v",
             "libx264",
             "-preset",
@@ -838,14 +940,12 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
             "23",
             "-pix_fmt",
             "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            str(out_path),
         ]
+        if audio_stream is not None:
+            transcode_cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+        else:
+            transcode_cmd.append("-an")
+        transcode_cmd.extend(["-movflags", "+faststart", str(out_path)])
         tc_res = subprocess.run(transcode_cmd, capture_output=True, timeout=120)
         if tc_res.returncode == 0 and out_path.is_file() and out_path.stat().st_size > 0:
             return out_path
@@ -1034,7 +1134,7 @@ def _download_gallery_sync(
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
-        "python",
+        sys.executable,
         "-m",
         "gallery_dl",
         "--proxy",
@@ -1073,15 +1173,24 @@ def _download_gallery_sync(
     except subprocess.TimeoutExpired:
         raise ConversionError("دانلود گالری به دلیل اتمام زمان متوقف شد.") from None
 
-    # Collect downloaded image, animation and video files, ensuring iOS compatibility for videos
-    results = [
-        _ensure_ios_compatibility_sync(p, dest_dir)
-        if p.suffix.lower() in (".mp4", ".webm")
-        else p
+    # Collect downloaded image, animation and video files, ensuring iOS
+    # compatibility for videos. Snapshot the inputs first: the converter writes
+    # `ios_*.mp4` files into the same directory, and a live rglob could pick
+    # those up as duplicates (or return both the WebM original and its MP4).
+    source_files = [
+        p
         for p in dest_dir.rglob("*")
-        if p.is_file()
-        and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".gif", ".webm")
+        if p.is_file() and p.suffix.lower() in _GALLERY_MEDIA_SUFFIXES
     ]
+    results: list[Path] = []
+    for path in source_files:
+        converted = (
+            _ensure_ios_compatibility_sync(path, dest_dir)
+            if path.suffix.lower() in _VIDEO_CONTAINERS
+            else path
+        )
+        if converted not in results:
+            results.append(converted)
 
     if not results:
         err = proc.stderr.decode(errors="replace").strip()
