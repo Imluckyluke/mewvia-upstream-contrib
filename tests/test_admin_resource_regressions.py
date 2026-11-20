@@ -11,6 +11,23 @@ from app.db.models import User
 from app.db.repo.user import UserRepo
 
 
+def test_fallback_records_expire_and_replaced_keys_survive_eviction(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.cache.fallback import FallbackCache
+
+    now = 0
+    monkeypatch.setattr("app.cache.fallback.time.monotonic", lambda: now)
+    cache = FallbackCache(2, 60)
+    cache.put("a", {"n": 1})
+    cache.put("b", {})
+    now = 5
+    cache.put("a", {"n": 2})
+    cache.put("c", {})
+    assert cache.get("b") is None
+    assert cache.get("a") == {"n": 2}
+    now = 65
+    assert cache.get("a") is None
+
+
 @pytest.mark.parametrize("query", ["--12", "²", "9" * 19, "1" * 4000])
 def test_invalid_ids_still_allow_name_search(query: str) -> None:
     stmt = UserRepo(MagicMock())._search_stmt(query)
