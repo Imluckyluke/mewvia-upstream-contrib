@@ -101,6 +101,16 @@ class UserTrackingMiddleware(BaseMiddleware):
         data["is_admin"] = self.settings.is_admin(tg_user.id)
 
         if not is_real_interaction(event):
+            inner = getattr(event, "event", event)
+            if isinstance(inner, Message) and inner.chat.type in (
+                ChatType.GROUP,
+                ChatType.SUPERGROUP,
+            ):
+                text = (inner.text or inner.caption or "").strip()
+                # Commands, bot mentions and in-progress FSM flows may have a
+                # consumer even if they do not count towards usage statistics.
+                if not text.startswith("/") and "@" not in text and not data.get("raw_state"):
+                    return None
             # Group noise: look up the user for the ban check but do NOT
             # create/touch the row — no updates_seen bump, no last_seen_at
             # refresh, so member stats stay clean.

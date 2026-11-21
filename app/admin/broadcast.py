@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
@@ -31,6 +33,8 @@ async def send_broadcast(
     source_message: Message,
     *,
     rate_limit: float = 0.04,  # ~25 messages / sec
+    resume: dict[str, Any] | None = None,
+    checkpoint: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> BroadcastResult:
     """Broadcast source_message to all active users."""
     stmt = (
@@ -38,9 +42,12 @@ async def send_broadcast(
         .where(User.is_banned.is_(False), User.has_blocked_bot.is_(False))
         .order_by(User.telegram_id.asc())
     )
-    ceiling = await session.scalar(select(func.max(User.telegram_id)))
-    last: int | None = None
-    result = BroadcastResult()
+    saved = resume or {}
+    ceiling = (
+        saved.get("ceiling") if saved else await session.scalar(select(func.max(User.telegram_id)))
+    )
+    last: int | None = saved.get("last")
+    result = BroadcastResult(**saved.get("result", {}))
     while ceiling is not None:
         page = stmt.where(User.telegram_id <= ceiling).limit(256)
         if last is not None:
@@ -82,4 +89,6 @@ async def send_broadcast(
             )
             await session.commit()
         last = ids[-1]
+        if checkpoint is not None:
+            await checkpoint({"ceiling": ceiling, "last": last, "result": asdict(result)})
     return result

@@ -16,7 +16,7 @@ from app.features.downloader.router import (
 from app.media.downloader import (
     create_token,
     detect_platform,
-    download_spotify_track,
+    _download_spotify_track_sync,
     extract_spotify_metadata_sync,
     _probe_info_sync,
     store_download_context,
@@ -193,7 +193,7 @@ async def test_download_spotify_track_mocked():
             "app.media.downloader._download_audio_sync",
             return_value=dummy_mp3,
         ):
-            res_file = await download_spotify_track(
+            res_file = _download_spotify_track_sync(
                 title="Test Song",
                 artist="Test Singer",
                 thumbnail_url=None,

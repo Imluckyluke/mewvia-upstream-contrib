@@ -142,6 +142,7 @@ def db_sessionmaker(connection: AsyncConnection) -> async_sessionmaker[AsyncSess
 async def session(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncSession]:
+    current_sessionmaker["maker"] = db_sessionmaker
     async with db_sessionmaker() as db_session:
         yield db_session
 

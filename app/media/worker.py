@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.core.errors import ConversionError
 
 _slots: asyncio.Semaphore | None = None
+_ROOT = Path(__file__).resolve().parents[2]
 
 
 async def run_worker(kind: str, *args: Any) -> Any:
@@ -51,6 +52,7 @@ async def run_worker(kind: str, *args: Any) -> Any:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.DEVNULL,
                 start_new_session=True,
+                cwd=_ROOT,
             )
             try:
                 await proc.communicate(json.dumps(args, default=str).encode())

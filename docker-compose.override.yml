@@ -17,7 +17,6 @@ services:
       - ./deploy_remote.py:/app/deploy_remote.py
       - mewvia_data:/data
       - mewvia_botapi:/var/lib/telegram-bot-api
-      - /usr/local/bin/deno:/usr/local/bin/deno:ro
     environment:
       LOG_LEVEL: INFO
       LOG_JSON: "false"

@@ -12,11 +12,36 @@ import contextlib
 import time
 from pathlib import Path
 
+from aiogram import Bot
+from aiogram.client.session.middlewares.base import BaseRequestMiddleware, NextRequestMiddlewareType
+from aiogram.methods import GetUpdates, Response, TelegramMethod
+from aiogram.methods.base import TelegramType
+
 from app.core.logging import get_logger
 
 log = get_logger(__name__)
 
 HEARTBEAT_INTERVAL = 30
+
+
+class PollReadiness(BaseRequestMiddleware):
+    """Readiness advances on successful long polls, including empty responses."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.last_write = float("-inf")
+
+    async def __call__(
+        self,
+        make_request: NextRequestMiddlewareType[TelegramType],
+        bot: Bot,
+        method: TelegramMethod[TelegramType],
+    ) -> Response[TelegramType]:
+        response = await make_request(bot, method)
+        if isinstance(method, GetUpdates) and time.monotonic() - self.last_write >= 10:
+            await asyncio.to_thread(self.path.touch)
+            self.last_write = time.monotonic()
+        return response
 
 
 async def heartbeat(path: Path, interval: int = HEARTBEAT_INTERVAL) -> None:

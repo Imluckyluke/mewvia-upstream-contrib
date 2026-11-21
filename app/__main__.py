@@ -23,7 +23,7 @@ from app.admin.autobackup import shutdown_autobackup, sync_autobackup_job
 from app.bot import build_bot, build_dispatcher
 from app.cache.redis import close_redis, init_redis
 from app.config import Settings, get_settings
-from app.core.health import heartbeat
+from app.core.health import PollReadiness, heartbeat
 from app.core.logging import get_logger, setup_logging
 from app.core.settings_store import init_settings_store
 from app.db.seed import apply_seed
@@ -121,6 +121,9 @@ async def _run() -> None:
         raise SystemExit(78) from None
 
     bot = build_bot(settings)
+    readiness = settings.health_file.with_suffix(".ready")
+    readiness.unlink(missing_ok=True)
+    bot.session.middleware(PollReadiness(readiness))
     dp = build_dispatcher(settings, get_sessionmaker())
 
     try:

@@ -59,6 +59,7 @@ log = get_logger(__name__)
 
 router = Router(name="admin")
 _stats_snapshot: tuple[float, AdminStats] | None = None
+_active_broadcasts: set[tuple[int, int]] = set()
 router.message.filter(F.chat.type == ChatType.PRIVATE)
 router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
 router.include_router(sponsor_router)
@@ -1026,7 +1027,11 @@ async def cancel_broadcast(query: CallbackQuery, session: AsyncSession, state: F
 @router.message(BroadcastSG.waiting_for_message, IsAdmin())
 async def prompt_broadcast_confirm(message: Message, state: FSMContext) -> None:
     registry = await ready_registry()
-    await state.update_data(broadcast_msg_id=message.message_id, broadcast_chat_id=message.chat.id)
+    await state.update_data(
+        broadcast_msg_id=message.message_id,
+        broadcast_chat_id=message.chat.id,
+        broadcast_progress=None,
+    )
     await state.set_state(BroadcastSG.confirm_broadcast)
 
     kb = KB(registry)
@@ -1060,7 +1065,6 @@ async def execute_broadcast(
     data = await state.get_data()
     msg_id = data.get("broadcast_msg_id")
     chat_id = data.get("broadcast_chat_id")
-    await state.clear()
 
     if not isinstance(query.message, Message) or not msg_id or not chat_id:
         await query.answer(t("common.stale_button"), show_alert=True)
@@ -1071,16 +1075,26 @@ async def execute_broadcast(
         await query.answer(t("common.stale_button"), show_alert=True)
         return
 
-    await query.message.edit_text("<b>⏳ در حال ارسال همگانی پیام… لطفاً شکیبا باشید.</b>")
-
-    source_msg = await bot.forward_message(chat_id=chat_id, from_chat_id=chat_id, message_id=msg_id)
-
-    result = await send_broadcast(bot, session, source_msg)
-
+    key = (chat_id, msg_id)
+    if key in _active_broadcasts or chat_id != query.from_user.id:
+        await query.answer("این درخواست قابل اجرا نیست.", show_alert=True)
+        return
+    _active_broadcasts.add(key)
     try:
-        await source_msg.delete()
-    except Exception:
-        pass
+        await query.answer("ارسال همگانی شروع شد.")
+
+        async def save(progress: dict) -> None:
+            await state.update_data(broadcast_progress=progress)
+
+        # Keep the confirmation keyboard and FSM state until success, so the
+        # admin can resume after a restart. The last unfinished page may retry.
+        source_msg = query.message.model_copy(update={"message_id": msg_id})
+        result = await send_broadcast(
+            bot, session, source_msg, resume=data.get("broadcast_progress"), checkpoint=save
+        )
+        await state.clear()
+    finally:
+        _active_broadcasts.discard(key)
 
     report = (
         "<b>📣 گزارش ارسال پیام همگانی:</b>\n\n"

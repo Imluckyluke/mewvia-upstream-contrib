@@ -69,7 +69,23 @@ async def run_ffmpeg(
     if timeout is None:
         timeout = float(settings.job_timeout) if settings is not None else DEFAULT_TIMEOUT
     slots = _slots(settings.max_concurrent_jobs if settings is not None else None)
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", *args]
+    cmd = [
+        "ffmpeg",
+        "-nostdin",
+        "-y",
+        "-loglevel",
+        "error",
+        "-filter_threads",
+        "2",
+        "-filter_complex_threads",
+        "2",
+        "-threads",
+        "2",
+        *args[:-1],
+        "-threads",
+        "2",
+        *args[-1:],
+    ]
 
     log.debug("ffmpeg_start", cmd=" ".join(cmd))
 

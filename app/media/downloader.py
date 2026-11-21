@@ -1138,6 +1138,10 @@ def _download_gallery_sync(
         "--dest",
         str(dest_dir),
         "--no-mtime",
+        "--range",
+        "1-20",
+        "--filesize-max",
+        str(get_settings().media_max_bytes),
     ]
 
     platform_key, platform_name, _ = detect_platform(url)

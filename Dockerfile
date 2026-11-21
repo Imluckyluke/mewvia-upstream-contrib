@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # ---- builder: build wheels once, keep the runtime image slim ----
-FROM python:3.12-slim AS builder
+FROM denoland/deno:bin-2.5.6@sha256:2f5f9d651af33c337767c423a340f76df35e35ff8ff4734210237b9c6fed94c7 AS deno
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
@@ -12,7 +13,9 @@ RUN pip wheel --wheel-dir=/wheels -r requirements-dev.txt
 
 
 # ---- runtime ----
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS runtime
+
+COPY --from=deno /deno /usr/local/bin/deno
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -31,7 +34,7 @@ RUN printf '%s\n' \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         ffmpeg \
-        iptables util-linux \
+        age iptables util-linux \
         postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 

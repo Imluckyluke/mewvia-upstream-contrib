@@ -349,6 +349,7 @@ async def test_shazam_callback_download(tmp_path: Path) -> None:
     )
 
     with (
+        patch("app.features.shazam.router.check_daily_quota", new=AsyncMock(return_value=True)),
         patch(
             "app.features.shazam.router.ProgressController.start", new_callable=AsyncMock
         ) as mock_pc_cls,

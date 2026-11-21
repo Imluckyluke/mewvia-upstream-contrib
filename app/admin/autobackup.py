@@ -66,12 +66,23 @@ def _prune_disk_cache(settings: Settings) -> None:
 def _prune_old_backups(backup_dir: Path, keep_days: int = _KEEP_DAYS) -> int:
     cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=keep_days)
     pruned = 0
-    for dump in sorted(backup_dir.glob("mewvia_backup_*.dump")):
+    kept_bytes = 0
+    kept_count = 0
+    for dump in sorted(backup_dir.glob("mewvia_backup_*"), reverse=True):
+        if not dump.name.endswith((".dump", ".dump.age", ".partial")):
+            continue
         try:
-            mtime = datetime.datetime.fromtimestamp(dump.stat().st_mtime, tz=datetime.UTC)
+            stat = dump.stat()
+            mtime = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.UTC)
         except OSError:
             continue
-        if mtime < cutoff:
+        stale = mtime < cutoff
+        if not dump.name.endswith(".partial"):
+            stale |= kept_count >= 14 or kept_bytes + stat.st_size > 4 * 1024**3
+            if not stale:
+                kept_count += 1
+                kept_bytes += stat.st_size
+        if stale:
             try:
                 dump.unlink()
                 pruned += 1

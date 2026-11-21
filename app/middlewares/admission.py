@@ -36,6 +36,9 @@ class MediaAdmission(BaseMiddleware):
                 if space.free < self.settings.media_max_bytes:
                     await event.answer("فضای کافی برای پردازش وجود ندارد.")
                     return None
+                session = data.get("session")
+                if session is not None and session.in_transaction():
+                    await session.commit()
                 return await handler(event, data)
         finally:
             self.users.discard(uid)
