@@ -63,8 +63,7 @@ class GroupMediaInvocationFilter(BaseFilter):
         # Match the complete username so mentioning @MewviaBotNews is not
         # mistaken for a call to this bot.
         if any(
-            re.search(rf"@{re.escape(name)}(?!\w)", text, flags=re.IGNORECASE)
-            for name in usernames
+            re.search(rf"@{re.escape(name)}(?!\w)", text, flags=re.IGNORECASE) for name in usernames
         ):
             return True
 

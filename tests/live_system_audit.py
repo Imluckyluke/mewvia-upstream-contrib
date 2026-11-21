@@ -115,7 +115,9 @@ async def audit() -> None:
             await make_video_note(test_video, vn_out, info)
             vn_info = await probe(vn_out)
             assert vn_info.width == 512 and vn_info.height == 512
-            results.append(("Video Note (1:1 Square Round)", True, f"{vn_info.width}x{vn_info.height}"))
+            results.append(
+                ("Video Note (1:1 Square Round)", True, f"{vn_info.width}x{vn_info.height}")
+            )
         except Exception as e:
             results.append(("Video Note (1:1 Square Round)", False, str(e)))
 
@@ -153,7 +155,9 @@ async def audit() -> None:
             await extract_audio_from_video(test_video, ext_out)
             ext_info = await probe(ext_out)
             assert ext_info.has_audio
-            results.append(("Extract Audio from Video", True, f"MP3 created ({ext_info.duration}s)"))
+            results.append(
+                ("Extract Audio from Video", True, f"MP3 created ({ext_info.duration}s)")
+            )
         except Exception as e:
             results.append(("Extract Audio from Video", False, str(e)))
 
@@ -183,7 +187,9 @@ async def audit() -> None:
             await change_audio_speed(test_audio, spd_out, speed_factor=1.5, to_voice=False)
             s_info = await probe(spd_out)
             assert s_info.duration < 2.5
-            results.append(("Audio Speed Change (1.5x)", True, f"New duration: {s_info.duration:.2f}s"))
+            results.append(
+                ("Audio Speed Change (1.5x)", True, f"New duration: {s_info.duration:.2f}s")
+            )
         except Exception as e:
             results.append(("Audio Speed Change (1.5x)", False, str(e)))
 
@@ -227,7 +233,9 @@ async def audit() -> None:
             await make_image_wide(test_image, wide_out)
             w_info = await probe(wide_out)
             assert w_info.width > w_info.height
-            results.append(("Wide Transform (پهنش کن)", True, f"Stretched to {w_info.width}x{w_info.height}"))
+            results.append(
+                ("Wide Transform (پهنش کن)", True, f"Stretched to {w_info.width}x{w_info.height}")
+            )
         except Exception as e:
             results.append(("Wide Transform (پهنش کن)", False, str(e)))
 
@@ -245,7 +253,9 @@ async def audit() -> None:
             ig_url = "https://www.instagram.com/reel/DeO_JgKIVYt/"
             ig_info = _probe_info_sync(ig_url)
             assert ig_info.is_video and ig_info.platform_key == "instagram"
-            results.append(("Instagram Reel Probe (Zero-Cookie)", True, f"Title: {ig_info.title[:25]}..."))
+            results.append(
+                ("Instagram Reel Probe (Zero-Cookie)", True, f"Title: {ig_info.title[:25]}...")
+            )
         except Exception as e:
             results.append(("Instagram Reel Probe (Zero-Cookie)", False, str(e)))
 
@@ -268,7 +278,13 @@ async def audit() -> None:
                 max_bytes=settings.upload_limit,
             )
             assert sp_dl.is_file() and sp_dl.stat().st_size > 1_000_000
-            results.append(("Spotify Track Download & Tagging", True, f"Downloaded: {sp_dl.stat().st_size // 1024} KB"))
+            results.append(
+                (
+                    "Spotify Track Download & Tagging",
+                    True,
+                    f"Downloaded: {sp_dl.stat().st_size // 1024} KB",
+                )
+            )
         except Exception as e:
             results.append(("Spotify Track Download & Tagging", False, str(e)))
 
@@ -276,7 +292,13 @@ async def audit() -> None:
         try:
             shazam_res = await identify_music_from_file(sp_dl, work)
             assert shazam_res is not None and "coldplay" in shazam_res.artist.lower()
-            results.append(("Shazam Music Identification", True, f"Identified: {shazam_res.title} by {shazam_res.artist}"))
+            results.append(
+                (
+                    "Shazam Music Identification",
+                    True,
+                    f"Identified: {shazam_res.title} by {shazam_res.artist}",
+                )
+            )
         except Exception as e:
             results.append(("Shazam Music Identification", False, str(e)))
 

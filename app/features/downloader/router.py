@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import io
 import re
+import shutil
 import tempfile
 import time
 import zipfile
@@ -81,7 +82,7 @@ router = Router(name="downloader")
 
 
 def _add_to_zip(zip_path: Path, file_path: Path, arcname: str) -> None:
-    with zipfile.ZipFile(zip_path, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(zip_path, "a", compression=zipfile.ZIP_STORED) as zf:
         zf.write(file_path, arcname=arcname)
 
 
@@ -590,9 +591,6 @@ async def _perform_download(
                 clean_title = re.sub(r'[\\/*?:"<>|]', "", title)[:30].strip() or "album"
                 zip_path = work_dir / f"{clean_title}.zip"
 
-                # Concurrent worker semaphore (6 parallel workers for blazing throughput)
-                sem = asyncio.Semaphore(6)
-
                 async def _worker(
                     idx: int, it: dict[str, Any]
                 ) -> tuple[int, dict[str, Any], Path | None]:
@@ -602,7 +600,7 @@ async def _perform_download(
                     track_dir = tracks_dir / f"t_{idx}"
                     track_dir.mkdir(parents=True, exist_ok=True)
 
-                    async with sem:
+                    if it_url or platform_key == "spotify":
                         try:
                             item_timeout = min(60, settings.job_timeout)
                             if platform_key == "spotify":
@@ -656,26 +654,32 @@ async def _perform_download(
                             return idx, it, None
                     return idx, it, None
 
-                tasks = [
-                    asyncio.create_task(_worker(idx, it))
-                    for idx, it in enumerate(items_to_download, 1)
-                ]
-
                 last_edit_time = 0.0
-                # Stream results as workers finish
-                for fut in asyncio.as_completed(tasks):
-                    idx, it, file_path = await fut
+                # Backpressure: finish sending/archiving before accepting the next track.
+                for idx, it in enumerate(items_to_download, 1):
+
+                    async def one(
+                        i: int = idx, item: dict[str, Any] = it
+                    ) -> tuple[int, dict[str, Any], Path | None]:
+                        return await _worker(i, item)
+
+                    _, _, file_path = await run_media_job(settings, one, stage="playlist_track")
                     it_title = str(it.get("title") or f"Track {idx}")
                     it_artist = str(it.get("artist") or it.get("uploader") or "")
 
                     if file_path and file_path.is_file():
                         f_size = file_path.stat().st_size
-                        total_bytes += f_size
-                        sent_count += 1
 
                         if is_zip:
-                            arcname = f"{idx:02d} - {it_artist} - {it_title}{file_path.suffix}"
+                            if total_bytes + f_size + 1024 * total_items > settings.upload_limit:
+                                raise ConversionError("حجم آلبوم از سقف فایل ZIP بیشتر است.")
+                            label = re.sub(r"[\\/\x00-\x1f]", "_", f"{it_artist} - {it_title}")[
+                                :120
+                            ]
+                            arcname = f"{idx:02d} - {label}{file_path.suffix}"
                             await asyncio.to_thread(_add_to_zip, zip_path, file_path, arcname)
+                            sent_count += 1
+                            total_bytes += f_size
                         else:
                             try:
                                 if action == "pl_video_all":
@@ -712,12 +716,15 @@ async def _perform_download(
                                         performer=it_artist[:64],
                                         reply_to_message_id=reply_to_id,
                                     )
+                                sent_count += 1
+                                total_bytes += f_size
                                 await asyncio.sleep(0.4)
                             except Exception as send_exc:
                                 log.warning(
                                     "track_send_failed", title=it_title, error=str(send_exc)
                                 )
 
+                    await asyncio.to_thread(shutil.rmtree, tracks_dir / f"t_{idx}", True)
                     now = time.perf_counter()
                     if status_msg is not None and (
                         now - last_edit_time >= 1.5 or sent_count == total_items
@@ -818,7 +825,11 @@ async def _perform_download(
                 in_bytes=file_size,
                 out_bytes=file_size,
                 duration_ms=elapsed_ms,
-                status="success",
+                status=(
+                    "partial"
+                    if action.startswith("pl_") and sent_count < total_items
+                    else "success"
+                ),
             )
             log.info("downloader_success", platform=platform_key, user_id=user_id, size=file_size)
 
@@ -1153,7 +1164,7 @@ async def cmd_download_url(
     await _handle_url_input(message, url, bot, session, settings)
 
 
-@router.message(Command("cookie", "cookies"), IsAdmin())
+@router.message(Command("cookie", "cookies"), F.chat.type == ChatType.PRIVATE, IsAdmin())
 async def cmd_cookie_info(message: Message, session: AsyncSession) -> None:
     """Show Instagram cookies management dashboard for admins."""
     from app.admin.cookies_router import ready_registry, render_cookies_dashboard
@@ -1296,9 +1307,7 @@ async def cancel_download(query: CallbackQuery, callback_data: DownloaderCB) -> 
     ctx = await get_download_context(callback_data.token)
     user_id = query.from_user.id if query.from_user else 0
     if ctx and _context_owner_mismatch(ctx, user_id, query.message.chat.id):
-        await query.answer(
-            "این دکمه برای درخواست شما ثبت نشده است.", show_alert=True
-        )
+        await query.answer("این دکمه برای درخواست شما ثبت نشده است.", show_alert=True)
         return
 
     if not await _edit_status(query.message, "دانلود لغو شد."):
@@ -1359,9 +1368,7 @@ async def execute_download(
     except Exception as p_exc:
         log.warning("progress_controller_start_failed", error=str(p_exc))
         progress = (
-            msg
-            if await _edit_status(msg, "⏳ <b>در حال دانلود رسانه از سرور…</b>")
-            else None
+            msg if await _edit_status(msg, "⏳ <b>در حال دانلود رسانه از سرور…</b>") else None
         )
 
     await _perform_download(

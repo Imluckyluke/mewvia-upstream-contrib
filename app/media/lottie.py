@@ -7,27 +7,15 @@ so rendering is executed in a ProcessPoolExecutor with `mp_context=get_context("
 
 from __future__ import annotations
 
-import asyncio
 import gzip
-from concurrent.futures import ProcessPoolExecutor
-from multiprocessing import get_context
 from pathlib import Path
 from typing import Any
 
 from app.core.errors import ConversionError
 from app.core.logging import get_logger
+from app.media.worker import run_worker
 
 log = get_logger(__name__)
-
-_process_pool: ProcessPoolExecutor | None = None
-
-
-def _init_process_pool() -> ProcessPoolExecutor:
-    global _process_pool
-    if _process_pool is None:
-        ctx = get_context("spawn")
-        _process_pool = ProcessPoolExecutor(max_workers=2, mp_context=ctx)
-    return _process_pool
 
 
 def _render_tgs_worker(
@@ -91,12 +79,8 @@ async def render_tgs_to_frames(
 ) -> dict[str, Any]:
     """Render TGS file to a folder of PNG frames in a dedicated process."""
     out_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
-    pool = _init_process_pool()
-
-    loop = asyncio.get_running_loop()
-    res = await loop.run_in_executor(
-        pool,
-        _render_tgs_worker,
+    res = await run_worker(
+        "lottie",
         str(tgs_path),
         str(out_dir),
         target_width,

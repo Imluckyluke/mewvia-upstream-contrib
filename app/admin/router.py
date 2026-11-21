@@ -11,9 +11,11 @@ Complete admin dashboard:
 from __future__ import annotations
 
 import tempfile
+import time
 from pathlib import Path
 
 from aiogram import Bot, F, Router, html
+from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -28,6 +30,7 @@ from app.admin.cookies_router import router as cookies_router
 from app.admin.loading_gifs_router import router as loading_gifs_router
 from app.admin.sponsor_router import router as sponsor_router
 from app.admin.stats import (
+    AdminStats,
     format_stats_downloader,
     format_stats_media,
     format_stats_overview,
@@ -55,6 +58,9 @@ from app.ui.texts import t
 log = get_logger(__name__)
 
 router = Router(name="admin")
+_stats_snapshot: tuple[float, AdminStats] | None = None
+router.message.filter(F.chat.type == ChatType.PRIVATE)
+router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
 router.include_router(sponsor_router)
 router.include_router(cookies_router)
 router.include_router(loading_gifs_router)
@@ -274,7 +280,10 @@ async def admin_stats_action(query: CallbackQuery, session: AsyncSession) -> Non
     if raw_data.startswith("admin_stats:"):
         tab = raw_data.split(":", 1)[1]
 
-    stats = await get_admin_stats(session)
+    global _stats_snapshot
+    if _stats_snapshot is None or time.monotonic() >= _stats_snapshot[0]:
+        _stats_snapshot = (time.monotonic() + 10, await get_admin_stats(session))
+    stats = _stats_snapshot[1]
     registry = await ready_registry()
 
     if tab == "media":
@@ -730,27 +739,33 @@ async def admin_user_toggle_ban(query: CallbackQuery, session: AsyncSession) -> 
 
 @router.callback_query(F.data == "admin_act:export_json", IsAdmin())
 async def admin_export_json(
-    query: CallbackQuery, session: AsyncSession, settings: Settings
+    query: CallbackQuery, session: AsyncSession, settings: Settings, bot: Bot
 ) -> None:
     await query.answer("در حال ساخت خروجی JSON…")
     with tempfile.TemporaryDirectory(dir=settings.tmp_dir) as tmp_dir:
         file_path = Path(tmp_dir) / "users.json"
         await export_users_json(session, file_path)
         if isinstance(query.message, Message):
-            await query.message.answer_document(
-                FSInputFile(file_path), caption="📄 لیست کامل کاربران (فرمت JSON)"
+            await bot.send_document(
+                query.from_user.id,
+                FSInputFile(file_path),
+                caption="📄 لیست کامل کاربران (فرمت JSON)",
             )
 
 
 @router.callback_query(F.data == "admin_act:export_txt", IsAdmin())
-async def admin_export_txt(query: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+async def admin_export_txt(
+    query: CallbackQuery, session: AsyncSession, settings: Settings, bot: Bot
+) -> None:
     await query.answer("در حال ساخت خروجی TXT…")
     with tempfile.TemporaryDirectory(dir=settings.tmp_dir) as tmp_dir:
         file_path = Path(tmp_dir) / "users.txt"
         await export_users_txt(session, file_path)
         if isinstance(query.message, Message):
-            await query.message.answer_document(
-                FSInputFile(file_path), caption="📝 لیست کامل کاربران (فرمت TXT)"
+            await bot.send_document(
+                query.from_user.id,
+                FSInputFile(file_path),
+                caption="📝 لیست کامل کاربران (فرمت TXT)",
             )
 
 
@@ -763,13 +778,9 @@ async def admin_export_txt(query: CallbackQuery, session: AsyncSession, settings
 async def admin_backup_action(query: CallbackQuery, settings: Settings) -> None:
     await query.answer("در حال پشتیبان‌گیری از دیتابیس…")
     try:
-        with tempfile.TemporaryDirectory(dir=settings.tmp_dir) as tmp_dir:
-            backup_file = await create_db_backup(settings, Path(tmp_dir))
-            if isinstance(query.message, Message):
-                await query.message.answer_document(
-                    FSInputFile(backup_file),
-                    caption="💾 <b>بکاپ کامل دیتابیس Mewvia</b>\n(فرمت pg_dump -Fc)",
-                )
+        await create_db_backup(settings, settings.backup_dir)
+        if isinstance(query.message, Message):
+            await query.message.answer("✅ نسخهٔ پشتیبان روی سرور ذخیره شد.")
     except Exception as exc:
         log.error("admin_backup_error", error=str(exc))
         if isinstance(query.message, Message):

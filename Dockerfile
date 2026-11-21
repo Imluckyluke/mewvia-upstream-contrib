@@ -31,13 +31,13 @@ RUN printf '%s\n' \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         ffmpeg \
+        iptables util-linux \
         postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /wheels /wheels
-COPY requirements.txt requirements-dev.txt /tmp/
-RUN pip install --no-index --find-links=/wheels -r /tmp/requirements-dev.txt \
-    && rm -rf /wheels /tmp/requirements*.txt
+COPY requirements.txt /tmp/
+RUN --mount=type=bind,from=builder,source=/wheels,target=/wheels \
+    pip install --no-index --find-links=/wheels -r /tmp/requirements.txt
 
 # Non-root. Temp workdir for media jobs is owned by the app user.
 # Tool caches live under $HOME, not /app — /app is bind-mounted read-heavy in dev
@@ -52,8 +52,22 @@ RUN useradd --create-home --uid 10001 mewvia \
     && chown -R mewvia:mewvia /data /app /home/mewvia
 
 WORKDIR /app
-COPY --chown=mewvia:mewvia . /app
+COPY --chown=mewvia:mewvia app /app/app
+COPY --chown=mewvia:mewvia migrations /app/migrations
+COPY --chown=mewvia:mewvia assets /app/assets
+COPY --chown=mewvia:mewvia alembic.ini /app/
 
 USER mewvia
 
 CMD ["python", "-m", "app"]
+
+FROM runtime AS test
+USER root
+COPY requirements-dev.txt /tmp/
+RUN --mount=type=bind,from=builder,source=/wheels,target=/wheels \
+    pip install --no-index --find-links=/wheels -r /tmp/requirements-dev.txt
+COPY --chown=mewvia:mewvia tests /app/tests
+COPY pyproject.toml /app/
+USER mewvia
+
+FROM runtime AS production

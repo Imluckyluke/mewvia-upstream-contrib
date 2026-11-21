@@ -240,19 +240,11 @@ def render_xo_board(
         )
     elif last_outcome == "loss":
         delta_str = (
-            f"{score_delta} امتیاز"
-            if score_delta != 0
-            else "بدون کسر امتیاز (حاشیه امن برنز)"
+            f"{score_delta} امتیاز" if score_delta != 0 else "بدون کسر امتیاز (حاشیه امن برنز)"
         )
-        status_line = (
-            f"\n🤖 <b>میوویا پیروز شد!</b>\n"
-            f"🔻 <b>{delta_str}</b> از ریتینگ شما ثبت شد."
-        )
+        status_line = f"\n🤖 <b>میوویا پیروز شد!</b>\n🔻 <b>{delta_str}</b> از ریتینگ شما ثبت شد."
     elif last_outcome == "draw":
-        status_line = (
-            f"\n🤝 <b>بازی مساوی شد!</b>\n"
-            f"✨ <b>+{score_delta} امتیاز</b> ثبت شد."
-        )
+        status_line = f"\n🤝 <b>بازی مساوی شد!</b>\n✨ <b>+{score_delta} امتیاز</b> ثبت شد."
     else:
         status_line = "\nنوبت شماست! یک خانه خالی را لمس کنید:"
 
@@ -371,7 +363,7 @@ def render_leaderboard(
             p_name = "بازیکن ناشناس"
             if s.user:
                 p_name = s.user.full_name
-            is_me = (s.telegram_id == user_id)
+            is_me = s.telegram_id == user_id
             me_tag = " (شما)" if is_me else ""
             name_escaped = html.escape(p_name)
             lines.append(
@@ -596,9 +588,7 @@ async def cb_start_xo_widget(
         text, reply_markup = render_xo_board(user, stat, diff, "_" * 9, registry)
         board_msg = await query.message.answer(text, reply_markup=reply_markup)
         if board_msg is not None:
-            await save_xo_session(
-                query.message.chat.id, board_msg.message_id, "_" * 9, diff
-            )
+            await save_xo_session(query.message.chat.id, board_msg.message_id, "_" * 9, diff)
     except Exception as exc:
         log.error("xo_inline_fallback_failed", error=str(exc))
         await query.message.answer(
@@ -620,11 +610,7 @@ async def cb_handle_move(
     # Validate the callback payload. The board lives in a server-side session:
     # trusting `callback_data.b` let anyone fabricate an almost-won board and
     # farm leaderboard points without ever playing.
-    if (
-        diff not in _VALID_DIFFS
-        or len(board) != 9
-        or any(char not in "_XO" for char in board)
-    ):
+    if diff not in _VALID_DIFFS or len(board) != 9 or any(char not in "_XO" for char in board):
         await query.answer("درخواست نامعتبر است.", show_alert=True)
         return
 
@@ -656,9 +642,7 @@ async def cb_handle_move(
             )
             return
     elif xo_state.get("board") != board or xo_state.get("diff") != diff:
-        await query.answer(
-            "این حرکت معتبر نیست؛ صفحه بازی تغییر کرده است.", show_alert=True
-        )
+        await query.answer("این حرکت معتبر نیست؛ صفحه بازی تغییر کرده است.", show_alert=True)
         return
 
     user_repo = UserRepo(session)
@@ -742,9 +726,7 @@ async def cb_handle_move(
     # Still ongoing
     await save_xo_session(chat_id, message_id, board_after_bot, diff)
     await query.answer()
-    text, reply_markup = render_xo_board(
-        user, stat, diff, board_after_bot, registry, None, 0
-    )
+    text, reply_markup = render_xo_board(user, stat, diff, board_after_bot, registry, None, 0)
     try:
         await query.message.edit_text(text, reply_markup=reply_markup)
     except Exception:

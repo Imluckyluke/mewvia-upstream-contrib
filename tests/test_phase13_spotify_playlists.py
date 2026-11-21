@@ -18,7 +18,7 @@ from app.media.downloader import (
     detect_platform,
     download_spotify_track,
     extract_spotify_metadata_sync,
-    probe_media_url,
+    _probe_info_sync,
     store_download_context,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,8 +66,8 @@ def test_extract_spotify_metadata_track_mocked():
         def __init__(self, data: bytes):
             self.data = data
 
-        def read(self):
-            return self.data
+        def read(self, size=None):
+            return self.data[:size]
 
         def decode(self, enc):
             return self.data.decode(enc)
@@ -127,8 +127,8 @@ def test_extract_spotify_metadata_playlist_mocked():
         def __init__(self, data: bytes):
             self.data = data
 
-        def read(self):
-            return self.data
+        def read(self, size=None):
+            return self.data[:size]
 
         def decode(self, enc):
             return self.data.decode(enc)
@@ -174,7 +174,7 @@ async def test_probe_media_url_spotify_playlist():
         "app.media.downloader.extract_spotify_metadata_sync",
         return_value=fake_sp_data,
     ):
-        info = await probe_media_url("https://open.spotify.com/playlist/12345")
+        info = _probe_info_sync("https://open.spotify.com/playlist/12345")
         assert info.platform_key == "spotify"
         assert info.is_playlist is True
         assert info.playlist_count == 2

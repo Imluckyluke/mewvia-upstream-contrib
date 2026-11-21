@@ -18,7 +18,7 @@ from pathlib import Path
 from aiogram import Bot, F, Router, html
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -284,13 +284,6 @@ async def render_cookie_detail(c: InstagramCookie, registry: EmojiRegistry) -> t
             emoji_slot="edit",
             registry=registry,
         ),
-        inline_button(
-            "خروجی فایل کوکی",
-            callback_data=f"igc:export:{c.id}",
-            style=Style.NEUTRAL,
-            emoji_slot="download",
-            registry=registry,
-        ),
     )
     kb.row(
         inline_button(
@@ -502,20 +495,7 @@ async def delete_cookie_execute(query: CallbackQuery, session: AsyncSession) -> 
 
 @router.callback_query(F.data.startswith("igc:export:"), IsAdmin())
 async def export_cookie_file(query: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
-    cookie_id = int((query.data or "").split(":")[-1])
-    repo = InstagramCookieRepo(session)
-    cookie = await repo.get_by_id(cookie_id)
-    if not cookie or not query.message:
-        await query.answer("اکانت یافت نشد.", show_alert=True)
-        return
-
-    await query.answer()
-    await query.message.answer_document(
-        document=BufferedInputFile(
-            cookie.cookie_text.encode(), filename=f"instagram_{cookie.label}.txt"
-        ),
-        caption=f"🍪 فایل کوکی اکانت: <b>{html.quote(cookie.label)}</b>",
-    )
+    await query.answer("ارسال فایل کوکی غیرفعال است.", show_alert=True)
 
 
 @router.callback_query(F.data == "igc:add", IsAdmin())

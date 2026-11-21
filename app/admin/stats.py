@@ -780,7 +780,6 @@ def format_stats_downloader(stats: AdminStats, registry: EmojiRegistry | None = 
     ic_stats = registry.text("stats") if registry else "📊"
     ic_bullet = registry.text("bullet") if registry else "•"
     ic_tool = registry.text("tool") if registry else "⚙️"
-    ic_ok = registry.text("ok") if registry else "🟢"
 
     lines = [
         f"<b>{ic_download} آمار جامع دانلودر چندرسانه‌ای | Mewvia Downloader</b>\n",
@@ -825,8 +824,8 @@ def format_stats_downloader(stats: AdminStats, registry: EmojiRegistry | None = 
         f"<code>{fa_digits(str(stats.downloader_active_cookies))}</code> از "
         f"<code>{fa_digits(str(stats.downloader_total_cookies))}</code> اکانت"
     )
-    lines.append(f"{ic_bullet} تونل پراکسی WARP: {ic_ok} متصل (SOCKS5)")
-    lines.append(f"{ic_bullet} ارائه‌دهنده PO-Token یوتیوب: {ic_ok} فعال")
+    lines.append(f"{ic_bullet} تونل پراکسی WARP: وضعیت بررسی نشده")
+    lines.append(f"{ic_bullet} ارائه‌دهنده PO-Token یوتیوب: وضعیت بررسی نشده")
 
     return "\n".join(lines)
 

@@ -62,11 +62,20 @@ if [ "$DNS_WORKING" = "false" ]; then
 fi
 
 echo "[+] Starting microsocks on 0.0.0.0:1080"
-microsocks -i 0.0.0.0 -p 1080 &
 
 # Ensure 'warp' resolves to localhost inside this network namespace
 if ! grep -q "warp" /etc/hosts 2>/dev/null; then
   echo "127.0.0.1 warp" >> /etc/hosts 2>/dev/null || true
 fi
 
-tail -f /dev/null
+# Enforce destination policy on the proxy's actual outbound sockets, after DNS
+# resolution. Established client connections must still receive SOCKS replies.
+iptables -A OUTPUT -m owner --uid-owner nobody -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+for proto in tcp udp; do
+  iptables -A OUTPUT -m owner --uid-owner nobody -p "$proto" -d 127.0.0.11 --dport 53 -j ACCEPT
+done
+for net in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.88.99.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4; do
+  iptables -A OUTPUT -m owner --uid-owner nobody -d "$net" -j REJECT
+done
+ip6tables -A OUTPUT -m owner --uid-owner nobody -j REJECT
+exec setpriv --reuid=nobody --regid=nogroup --clear-groups --no-new-privs microsocks -i 0.0.0.0 -p 1080

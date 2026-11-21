@@ -7,7 +7,7 @@
 services:
   bot:
     build:
-      target: runtime
+      target: test
     volumes:
       - ./app:/app/app
       - ./tests:/app/tests

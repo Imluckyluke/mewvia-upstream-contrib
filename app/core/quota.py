@@ -9,7 +9,7 @@ yesterday's work never punish the user.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
@@ -32,13 +32,13 @@ async def remaining_quota(session: AsyncSession, user_id: int) -> int | None:
         return None
     if quota <= 0:
         return None
-    day_ago = datetime.now(UTC) - timedelta(days=1)
+    day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     used = (
         await session.execute(
             select(func.count(Conversion.id)).where(
                 Conversion.telegram_id == user_id,
                 Conversion.status == "success",
-                Conversion.created_at >= day_ago,
+                Conversion.created_at >= day_start,
             )
         )
     ).scalar_one()

@@ -25,7 +25,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       TMP_DIR: /data/tmp
       BACKUP_DIR: /data/backups
+      MEDIA_WORKER_SOCKET: /run/mewvia/media.sock
     depends_on:
+      media-worker:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -36,6 +39,8 @@ services:
         condition: service_started
     volumes:
       - mewvia_data:/data
+      - media_tmp:/data/tmp
+      - worker_socket:/run/mewvia:ro
       - mewvia_botapi:/var/lib/telegram-bot-api
       - /usr/local/bin/deno:/usr/local/bin/deno:ro
     healthcheck:
@@ -44,6 +49,34 @@ services:
       timeout: 5s
       retries: 3
       start_period: 40s
+
+  media-worker:
+    build: .
+    image: mewvia-bot:latest
+    user: '0:0'
+    init: true
+    restart: unless-stopped
+    command: ['sh', '/app/app/media/egress.sh']
+    networks: [media_egress]
+    cap_add: [NET_ADMIN]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2
+    environment:
+      BOT_TOKEN: '1:unused'
+      JOB_TIMEOUT: ${JOB_TIMEOUT:-120}
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-4}
+    volumes:
+      - media_tmp:/data/tmp
+      - worker_socket:/run/mewvia
+    depends_on:
+      warp:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'test', '-S', '/run/mewvia/media.sock']
+      interval: 10s
+      timeout: 3s
+      retries: 6
 
   postgres:
     logging: *default-logging
@@ -91,6 +124,7 @@ services:
     volumes:
       - mewvia_botapi:/var/lib/telegram-bot-api
       - mewvia_data:/data
+      - media_tmp:/data/tmp
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 8081 || exit 1"]
       interval: 15s
@@ -102,6 +136,7 @@ services:
   # Bypasses datacenter IP blocks and YouTube/Instagram login walls.
   # ---------------------------------------------------------------------------
   warp:
+    networks: [default, media_egress]
     logging: *default-logging
     build: ./warp
     image: mewvia-warp:latest
@@ -132,7 +167,17 @@ services:
       warp:
         condition: service_healthy
 
+networks:
+  media_egress:
+
 volumes:
+  media_tmp:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=768m,uid=10001,gid=10001,mode=0755,nosuid,nodev
+  worker_socket:
   mewvia_data:
   mewvia_pgdata:
   mewvia_redisdata:

@@ -127,6 +127,20 @@ class GroupPanelGuardMiddleware(BaseMiddleware):
 
         panel = await get_panel(chat.id, query.message.message_id)
         if not panel:
+            prefix = (query.data or "").partition(":")[0]
+            if prefix in {
+                "conv",
+                "atool",
+                "batch",
+                "flt",
+                "txtov",
+                "wide",
+                "vtool",
+                "vtool_action",
+                "spack_action",
+            }:
+                await query.answer("این پنل منقضی شده است؛ یک پنل جدید باز کنید.", show_alert=True)
+                return None
             return await handler(event, data)
 
         owner_id = panel.get("owner_id")

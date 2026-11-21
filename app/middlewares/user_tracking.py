@@ -114,6 +114,8 @@ class UserTrackingMiddleware(BaseMiddleware):
 
         repo = data["user_repo"]
         db_user = await repo.upsert_from_telegram(tg_user)
+        # Release the row lock before downstream handlers perform network I/O.
+        await repo.session.commit()
 
         data["db_user"] = db_user
 

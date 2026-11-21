@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     health_file: Path = Path("/data/health")
 
     max_concurrent_jobs: int = 6
+    media_max_bytes: int = Field(default=128 * 1024 * 1024, gt=0)
     job_timeout: int = 120
     throttle_seconds: int = 2
 

@@ -11,7 +11,9 @@ from app.db.models import User
 from app.db.repo.user import UserRepo
 
 
-def test_fallback_records_expire_and_replaced_keys_survive_eviction(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fallback_records_expire_and_replaced_keys_survive_eviction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from app.cache.fallback import FallbackCache
 
     now = 0

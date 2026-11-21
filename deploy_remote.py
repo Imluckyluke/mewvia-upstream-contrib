@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
 import paramiko
 
 HOST = os.environ.get("MEWVIA_REMOTE_HOST", "")
-USER = os.environ.get("MEWVIA_REMOTE_USER", "root")
+USER = os.environ.get("MEWVIA_REMOTE_USER", "")
 PASSWORD = os.environ.get("MEWVIA_REMOTE_PASSWORD", "")
-REMOTE_DIR = os.environ.get("MEWVIA_REMOTE_DIR", "/root/Mewvia")
+REMOTE_DIR = os.environ.get("MEWVIA_REMOTE_DIR", "")
 LOCAL_DIR = Path(__file__).parent
 
 # Ensure stdout uses UTF-8 encoding on Windows
@@ -27,12 +28,12 @@ def connect_ssh() -> paramiko.SSHClient:
     ssh.connect(
         HOST,
         username=USER,
-        password=PASSWORD,
+        password=PASSWORD or None,
         timeout=60,
         banner_timeout=60,
         auth_timeout=60,
-        look_for_keys=False,
-        allow_agent=False,
+        look_for_keys=True,
+        allow_agent=True,
     )
     transport = ssh.get_transport()
     if transport:
@@ -54,8 +55,11 @@ def exec_ssh(ssh: paramiko.SSHClient, cmd: str, timeout: float = 300) -> tuple[s
 
 
 def main():
-    if not HOST:
-        sys.exit("Set MEWVIA_REMOTE_HOST and verify the server's key in known_hosts first.")
+    if not HOST or not USER or not REMOTE_DIR.startswith("/"):
+        sys.exit("Set the host, deployment user and absolute remote directory first.")
+    tracked = set(
+        subprocess.check_output(["git", "ls-files", "-z"], cwd=LOCAL_DIR).decode().split("\0")
+    )
     remote_dir = shlex.quote(REMOTE_DIR)
     compose = f"cd {remote_dir} && docker compose -f docker-compose.yml"
     print(f"Connecting via SSH to {USER}@{HOST}...")
@@ -111,7 +115,8 @@ def main():
 
         for file_name in files:
             if (
-                file_name in ignored_files
+                (rel_path / file_name).as_posix() not in tracked
+                or file_name in ignored_files
                 or (file_name.startswith(".env") and file_name != ".env.example")
                 or Path(root, file_name).is_symlink()
                 or file_name.endswith(".pyc")
@@ -136,9 +141,7 @@ def main():
         print("Up stderr:", err)
 
     print("Running database migrations on remote server...")
-    out, err = exec_ssh(
-        ssh, f"{compose} run --rm -T bot alembic upgrade head", timeout=300
-    )
+    out, err = exec_ssh(ssh, f"{compose} run --rm -T bot alembic upgrade head", timeout=300)
     print(out)
     if err:
         print("Migration output:", err)

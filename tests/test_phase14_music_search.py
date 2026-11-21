@@ -285,4 +285,3 @@ async def test_cmd_music_search_group_reply_query():
         mock_exec.assert_awaited_once_with(
             msg, "Mohsen Chavoshi Hosein", platform="spotify", state=state
         )
-

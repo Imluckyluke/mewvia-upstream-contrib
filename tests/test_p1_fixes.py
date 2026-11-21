@@ -104,9 +104,15 @@ async def test_quota_exhausted_blocks_heavy_features(monkeypatch: pytest.MonkeyP
     cb_filter.message = msg
     cb_filter.answer = AsyncMock()
     cb_filter.from_user = TgUser(id=123, is_bot=False, first_name="A")
-    monkeypatch.setattr(sys.modules["app.features.filters.router"], "resolve_panel_media", AsyncMock(return_value=("photo", "f1", 100, None)))
+    monkeypatch.setattr(
+        sys.modules["app.features.filters.router"],
+        "resolve_panel_media",
+        AsyncMock(return_value=("photo", "f1", 100, None)),
+    )
 
-    await process_filter_apply(cb_filter, FilterCB(action="apply", filter_id="bw"), bot, session, settings)
+    await process_filter_apply(
+        cb_filter, FilterCB(action="apply", filter_id="bw"), bot, session, settings
+    )
     assert mock_quota.called
 
     # 2. Wide
@@ -116,7 +122,11 @@ async def test_quota_exhausted_blocks_heavy_features(monkeypatch: pytest.MonkeyP
     cb_wide.message = msg
     cb_wide.answer = AsyncMock()
     cb_wide.from_user = TgUser(id=123, is_bot=False, first_name="A")
-    monkeypatch.setattr(sys.modules["app.features.wide.router"], "resolve_panel_media", AsyncMock(return_value=("photo", "f1", 100, None)))
+    monkeypatch.setattr(
+        sys.modules["app.features.wide.router"],
+        "resolve_panel_media",
+        AsyncMock(return_value=("photo", "f1", 100, None)),
+    )
 
     await process_wide_media(cb_wide, bot, session, settings)
     assert mock_quota.called
@@ -124,7 +134,11 @@ async def test_quota_exhausted_blocks_heavy_features(monkeypatch: pytest.MonkeyP
     # 3. Shazam Download
     mock_quota.reset_mock()
     monkeypatch.setattr(sys.modules["app.features.shazam.router"], "check_daily_quota", mock_quota)
-    monkeypatch.setattr(sys.modules["app.features.shazam.router"], "get_shazam_session", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(
+        sys.modules["app.features.shazam.router"],
+        "get_shazam_session",
+        AsyncMock(return_value=MagicMock()),
+    )
     cb_shz = MagicMock(spec=CallbackQuery)
     cb_shz.data = ShazamCB(action="dl", sid="sid1").pack()
     cb_shz.message = msg
@@ -136,20 +150,28 @@ async def test_quota_exhausted_blocks_heavy_features(monkeypatch: pytest.MonkeyP
 
     # 4. TextOverlay render
     mock_quota.reset_mock()
-    monkeypatch.setattr(sys.modules["app.features.textoverlay.router"], "check_daily_quota", mock_quota)
+    monkeypatch.setattr(
+        sys.modules["app.features.textoverlay.router"], "check_daily_quota", mock_quota
+    )
     cb_txt = MagicMock(spec=CallbackQuery)
     cb_txt.message = msg
     cb_txt.answer = AsyncMock()
     cb_txt.from_user = TgUser(id=123, is_bot=False, first_name="A")
     state = AsyncMock()
-    state.get_data = AsyncMock(return_value={"file_id": "f", "kind": "photo", "overlay_text": "hello"})
+    state.get_data = AsyncMock(
+        return_value={"file_id": "f", "kind": "photo", "overlay_text": "hello"}
+    )
 
-    await render_and_send_overlay(cb_txt, TextOverlayCB(action="render"), state, bot, session, settings)
+    await render_and_send_overlay(
+        cb_txt, TextOverlayCB(action="render"), state, bot, session, settings
+    )
     assert mock_quota.called
 
     # 5. TagEditor save
     mock_quota.reset_mock()
-    monkeypatch.setattr(sys.modules["app.features.tag_editor.router"], "check_daily_quota", mock_quota)
+    monkeypatch.setattr(
+        sys.modules["app.features.tag_editor.router"], "check_daily_quota", mock_quota
+    )
     cb_tag = MagicMock(spec=CallbackQuery)
     cb_tag.message = msg
     cb_tag.answer = AsyncMock()
@@ -173,7 +195,11 @@ def test_twitter_wrapped_entries_detected_as_video(monkeypatch: pytest.MonkeyPat
             {
                 "id": "12345_1",
                 "formats": [
-                    {"vcodec": "avc1.4D400D", "ext": "mp4", "url": "https://video.twimg.com/vid.mp4"},
+                    {
+                        "vcodec": "avc1.4D400D",
+                        "ext": "mp4",
+                        "url": "https://video.twimg.com/vid.mp4",
+                    },
                 ],
             },
             {"id": "12345_2", "url": "https://x.com/tweet"},
@@ -262,7 +288,9 @@ async def test_replying_to_bot_group_message_does_not_open_panel() -> None:
     )
 
     # The bot's own posted download (a video) — replying to it triggers nothing
-    bot_post = Message(message_id=500, date=1, chat=group_chat, from_user=bot_user, text="دانلود شد")
+    bot_post = Message(
+        message_id=500, date=1, chat=group_chat, from_user=bot_user, text="دانلود شد"
+    )
     reply_msg = Message(
         message_id=501,
         date=1,
@@ -343,7 +371,9 @@ def test_cookie_file_upload_filter_ignores_animations_and_media() -> None:
         mime_type="video/mp4",
     )
     anim = Animation(file_id="a1", file_unique_id="u2", width=100, height=100, duration=2)
-    msg_anim = Message(message_id=1, date=1, chat=chat, from_user=user, animation=anim, document=doc_gif)
+    msg_anim = Message(
+        message_id=1, date=1, chat=chat, from_user=user, animation=anim, document=doc_gif
+    )
     assert _is_cookie_file_upload(msg_anim) is False
 
     # Real cookie txt file
@@ -357,7 +387,9 @@ def test_cookie_file_upload_filter_ignores_animations_and_media() -> None:
     assert _is_cookie_file_upload(msg_cookie) is True
 
 
-def test_tiktok_restricted_video_fallback_or_accurate_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tiktok_restricted_video_fallback_or_accurate_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from app.core.errors import ConversionError
     from app.media.downloader import _probe_info_sync
 
@@ -370,7 +402,9 @@ def test_tiktok_restricted_video_fallback_or_accurate_error(monkeypatch: pytest.
             pass
 
         def extract_info(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-            raise RuntimeError("ERROR: [TikTok] 12345: This post may not be comfortable for some audiences. Log in for access.")
+            raise RuntimeError(
+                "ERROR: [TikTok] 12345: This post may not be comfortable for some audiences. Log in for access."
+            )
 
     monkeypatch.setattr("app.media.downloader._make_ydl", lambda *args, **kwargs: FakeFailingYDL())
 
@@ -409,6 +443,3 @@ def test_tiktok_restricted_video_fallback_or_accurate_error(monkeypatch: pytest.
     err_msg = str(exc_info.value)
     assert "محدودیت سنی" in err_msg or "محتوای حساس" in err_msg
     assert "گالری" not in err_msg
-
-
-

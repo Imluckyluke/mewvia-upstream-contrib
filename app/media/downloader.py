@@ -15,7 +15,6 @@ process-wide job concurrency limiter and timeouts.
 
 from __future__ import annotations
 
-import asyncio
 import ipaddress
 import json
 import os
@@ -38,6 +37,7 @@ from app.config import get_settings
 from app.core.errors import ConversionError
 from app.core.logging import get_logger
 from app.core.units import human_duration
+from app.media.worker import run_worker
 
 log = get_logger(__name__)
 
@@ -234,11 +234,7 @@ def detect_platform(url: str) -> tuple[str, str, str]:
         key = "tiktok"
     elif _host_matches(host, "twitter.com", "x.com", "t.co"):
         key = "twitter"
-    elif (
-        host == "pin.it"
-        or host.startswith("pinterest.")
-        or ".pinterest." in host
-    ):
+    elif host == "pin.it" or host.startswith("pinterest.") or ".pinterest." in host:
         key = "pinterest"
     elif _host_matches(host, "soundcloud.com", "snd.sc"):
         key = "soundcloud"
@@ -392,7 +388,7 @@ def extract_spotify_metadata_sync(url: str) -> dict[str, Any]:
 
         req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310
-            oembed_data = json.loads(r.read().decode("utf-8"))
+            oembed_data = json.loads(r.read(256 * 1024).decode("utf-8"))
     except Exception as exc:
         log.warning("spotify_oembed_failed", url=url, error=str(exc))
 
@@ -409,7 +405,7 @@ def extract_spotify_metadata_sync(url: str) -> dict[str, Any]:
 
         req = urllib.request.Request(embed_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310
-            html_text = r.read().decode("utf-8")
+            html_text = r.read(4 * 1024 * 1024).decode("utf-8")
             m = re.search(
                 r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
                 html_text,
@@ -534,7 +530,9 @@ def _download_spotify_track_sync(
 
                 req = urllib.request.Request(thumbnail_url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
-                    thumb_bytes = resp.read()
+                    thumb_bytes = resp.read(4 * 1024 * 1024 + 1)
+                    if len(thumb_bytes) > 4 * 1024 * 1024:
+                        raise ValueError("cover too large")
                 tags.add(
                     APIC(
                         encoding=3,
@@ -561,9 +559,7 @@ async def download_spotify_track(
     max_bytes: int | None = None,
 ) -> Path:
     """Async wrapper for downloading and tagging a Spotify track."""
-    return await asyncio.to_thread(
-        _download_spotify_track_sync, title, artist, thumbnail_url, work_dir, max_bytes
-    )
+    return Path(await run_worker("spotify", title, artist, thumbnail_url, work_dir, max_bytes))
 
 
 def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
@@ -669,8 +665,10 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
         platform_key == "tiktok"
         and ("/photo/" in url.lower() or (info and info.get("_fallback_images")))
     )
-    if can_be_gallery and not is_ig_video and (
-        not info or (info.get("_type") == "playlist" and not info.get("entries"))
+    if (
+        can_be_gallery
+        and not is_ig_video
+        and (not info or (info.get("_type") == "playlist" and not info.get("entries")))
     ):
         is_blocked = False
         if probe_error:
@@ -827,16 +825,14 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
 
 async def probe_media_url(url: str, cookie_file: str | None = None) -> DownloadInfo:
     """Async wrapper for metadata probe."""
-    return await asyncio.to_thread(_probe_info_sync, url, cookie_file)
+    return DownloadInfo(**await run_worker("probe", url, cookie_file))
 
 
 _IOS_VIDEO_CODECS = frozenset({"h264", "hevc"})
 _IOS_AUDIO_CODECS = frozenset({"aac", "mp3", "mp2"})
 _IOS_PIX_FMTS = frozenset({"yuv420p", "yuvj420p"})
 _VIDEO_CONTAINERS = frozenset({".mp4", ".m4v", ".mov", ".mkv", ".webm"})
-_GALLERY_MEDIA_SUFFIXES = frozenset(
-    {".jpg", ".jpeg", ".png", ".webp", ".gif"} | _VIDEO_CONTAINERS
-)
+_GALLERY_MEDIA_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp", ".gif"} | _VIDEO_CONTAINERS)
 
 
 def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
@@ -1253,7 +1249,8 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
             info = ie.extract(clean_url)
         entries = info.get("entries") or [info]
         results: list[Path] = []
-        for idx, e in enumerate(entries, 1):
+        remaining = get_settings().media_max_bytes
+        for idx, e in enumerate(entries[:20], 1):
             formats = e.get("formats") or []
             v_fmts = [
                 f for f in formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("url")
@@ -1271,11 +1268,9 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
                 resp = requests.get(
                     v_url, proxies={"https": "socks5h://warp:1080"}, stream=True, timeout=30
                 )
-                if resp.status_code == 200:
-                    out = dest_dir / f"instagram_media_{idx:02d}.mp4"
-                    with open(out, "wb") as f:
-                        for chunk in resp.iter_content(chunk_size=65536):
-                            f.write(chunk)
+                out = dest_dir / f"instagram_media_{idx:02d}.mp4"
+                if _save_response(resp, out, remaining):
+                    remaining -= out.stat().st_size
                     out = _ensure_ios_compatibility_sync(out, dest_dir)
                     results.append(out)
             else:
@@ -1284,11 +1279,11 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
                 if thumbs:
                     img_url = thumbs[-1]["url"]
                     resp = requests.get(
-                        img_url, proxies={"https": "socks5h://warp:1080"}, timeout=15
+                        img_url, proxies={"https": "socks5h://warp:1080"}, timeout=15, stream=True
                     )
-                    if resp.status_code == 200 and resp.content:
-                        out = dest_dir / f"instagram_media_{idx:02d}.jpg"
-                        out.write_bytes(resp.content)
+                    out = dest_dir / f"instagram_media_{idx:02d}.jpg"
+                    if _save_response(resp, out, remaining):
+                        remaining -= out.stat().st_size
                         results.append(out)
         return results
     except Exception as exc:
@@ -1364,15 +1359,30 @@ def _download_tiktok_via_tikwm(url: str, work_dir: Path) -> Path | None:
                         stream=True,
                         timeout=45,
                     ) as vr:
-                        if vr.status_code == 200:
-                            with open(out, "wb") as f:
-                                for chunk in vr.iter_content(chunk_size=65536):
-                                    f.write(chunk)
+                        if _save_response(vr, out, get_settings().media_max_bytes):
                             if out.is_file() and out.stat().st_size > 0:
                                 return _ensure_ios_compatibility_sync(out, work_dir)
     except Exception as exc:
         log.warning("tiktok_tikwm_download_failed", error=str(exc))
     return None
+
+
+def _save_response(resp: Any, path: Path, limit: int) -> bool:
+    with resp:
+        if resp.status_code != 200:
+            return False
+        total = 0
+        try:
+            with path.open("wb") as out:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    total += len(chunk)
+                    if total > limit:
+                        raise ConversionError("حجم فایل از حد مجاز بیشتر است.")
+                    out.write(chunk)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        return total > 0
 
 
 def _download_tiktok_photos_via_tikwm(url: str, dest_dir: Path) -> list[Path]:
@@ -1390,16 +1400,18 @@ def _download_tiktok_photos_via_tikwm(url: str, dest_dir: Path) -> list[Path]:
             data = r.json()
             if data.get("code") == 0:
                 images = data.get("data", {}).get("images") or []
-                for idx, img_url in enumerate(images, 1):
+                remaining = get_settings().media_max_bytes
+                for idx, img_url in enumerate(images[:20], 1):
                     resp = requests.get(
                         img_url,
                         headers={"User-Agent": "Mozilla/5.0"},
                         proxies={"https": "socks5h://warp:1080"},
                         timeout=20,
+                        stream=True,
                     )
-                    if resp.status_code == 200 and resp.content:
-                        out = dest_dir / f"tiktok_photo_{idx:02d}.jpg"
-                        out.write_bytes(resp.content)
+                    out = dest_dir / f"tiktok_photo_{idx:02d}.jpg"
+                    if _save_response(resp, out, remaining):
+                        remaining -= out.stat().st_size
                         results.append(out)
     except Exception as exc:
         log.warning("tiktok_tikwm_photos_download_failed", error=str(exc))
@@ -1414,9 +1426,7 @@ async def download_video(
     cookie_file: str | None = None,
 ) -> Path:
     """Async wrapper for video downloading."""
-    return await asyncio.to_thread(
-        _download_video_sync, url, work_dir, max_height, max_bytes, cookie_file
-    )
+    return Path(await run_worker("video", url, work_dir, max_height, max_bytes, cookie_file))
 
 
 async def download_audio(
@@ -1426,7 +1436,7 @@ async def download_audio(
     cookie_file: str | None = None,
 ) -> Path:
     """Async wrapper for audio downloading."""
-    return await asyncio.to_thread(_download_audio_sync, url, work_dir, max_bytes, cookie_file)
+    return Path(await run_worker("audio", url, work_dir, max_bytes, cookie_file))
 
 
 async def download_gallery(
@@ -1435,4 +1445,4 @@ async def download_gallery(
     cookie_file: str | None = None,
 ) -> list[Path]:
     """Async wrapper for gallery downloading."""
-    return await asyncio.to_thread(_download_gallery_sync, url, work_dir, cookie_file)
+    return [Path(p) for p in await run_worker("gallery", url, work_dir, cookie_file)]

@@ -158,11 +158,10 @@ async def _run() -> None:
     hb = asyncio.create_task(heartbeat(settings.health_file), name="heartbeat")
     try:
         await sync_autobackup_job(settings, bot)
-        # drop_pending_updates: skip the backlog accumulated while we were down.
+        # Preserve pending updates across restarts; dropping them loses user requests.
         # tasks_concurrency_limit: bound concurrency under burst load (no Redis/DB starvation).
         await dp.start_polling(
             bot,
-            drop_pending_updates=True,
             handle_signals=True,
             tasks_concurrency_limit=32,
         )

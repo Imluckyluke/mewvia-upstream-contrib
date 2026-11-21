@@ -169,9 +169,7 @@ def test_download_context_owner_binding() -> None:
         ("clip.mov", "video/quicktime", MediaKind.DOCUMENT_VIDEO),
     ],
 )
-def test_gif_documents_are_treated_as_video(
-    name: str, mime: str, expected: MediaKind
-) -> None:
+def test_gif_documents_are_treated_as_video(name: str, mime: str, expected: MediaKind) -> None:
     message = Message(
         message_id=9,
         date=datetime.now(UTC),
@@ -184,9 +182,7 @@ def test_gif_documents_are_treated_as_video(
 
 
 async def test_xo_session_memory_fallback_roundtrip() -> None:
-    with patch.object(
-        games_router, "get_redis", side_effect=RuntimeError("redis offline")
-    ):
+    with patch.object(games_router, "get_redis", side_effect=RuntimeError("redis offline")):
         await games_router.save_xo_session(1, 2, "X________", "easy")
         assert await games_router.load_xo_session(1, 2) == {
             "board": "X________",
@@ -228,22 +224,16 @@ async def test_forged_xo_board_is_rejected_before_touching_stats() -> None:
         from_user=TgUser(id=USER_ID, is_bot=False, first_name="Tester"),
         message=_private_message(),
         chat_instance="ci",
-        data=GameCB(
-            action="move", diff="easy", cell=2, b="XX_OO____"
-        ).pack(),
+        data=GameCB(action="move", diff="easy", cell=2, b="XX_OO____").pack(),
     )
     answers: list[str] = []
 
-    async def fake_answer(
-        self: object, text: str = "", show_alert: bool = False
-    ) -> None:
+    async def fake_answer(self: object, text: str = "", show_alert: bool = False) -> None:
         answers.append(text)
 
     with (
         patch.object(CallbackQuery, "answer", fake_answer),
-        patch.object(
-            games_router, "load_xo_session", AsyncMock(return_value=None)
-        ),
+        patch.object(games_router, "load_xo_session", AsyncMock(return_value=None)),
         patch.object(games_router, "UserRepo") as user_repo,
         patch.object(games_router, "GameRepo") as game_repo,
     ):
@@ -268,9 +258,7 @@ async def test_stale_xo_board_mismatch_is_rejected() -> None:
     )
     answers: list[str] = []
 
-    async def fake_answer(
-        self: object, text: str = "", show_alert: bool = False
-    ) -> None:
+    async def fake_answer(self: object, text: str = "", show_alert: bool = False) -> None:
         answers.append(text)
 
     stored = {"board": "_________", "diff": "easy"}
@@ -310,15 +298,8 @@ async def test_group_mention_requires_exact_username() -> None:
     filter_obj = GroupMediaInvocationFilter()
     settings = get_settings()
 
+    assert await filter_obj(_group_message(f"سلام @{settings.bot_username}News"), settings) is False
     assert (
-        await filter_obj(
-            _group_message(f"سلام @{settings.bot_username}News"), settings
-        )
-        is False
-    )
-    assert (
-        await filter_obj(
-            _group_message(f"سلام @{settings.bot_username}، این را ببین"), settings
-        )
+        await filter_obj(_group_message(f"سلام @{settings.bot_username}، این را ببین"), settings)
         is True
     )

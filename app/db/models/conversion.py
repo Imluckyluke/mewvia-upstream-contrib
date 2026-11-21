@@ -15,8 +15,10 @@ class Conversion(TimestampMixin, Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     source_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     target_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    in_bytes: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
-    out_bytes: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    in_bytes: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0", nullable=False)
+    out_bytes: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default="0", nullable=False
+    )
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     status: Mapped[str] = mapped_column(
         String(16), default="success", server_default="success", nullable=False, index=True

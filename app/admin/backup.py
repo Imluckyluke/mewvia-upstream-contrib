@@ -56,7 +56,7 @@ async def create_db_backup(settings: Settings, out_dir: Path) -> Path:
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            _stdout, stderr = await proc.communicate()
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
         finally:
             if proc.returncode is None:
                 try:
