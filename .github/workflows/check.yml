@@ -50,7 +50,7 @@ jobs:
           docker exec media-worker sh -ec 'for i in $(seq 1 20); do test ! -S /run/mewvia/media.sock || exit 0; sleep 1; done; exit 1' || { docker logs media-worker; exit 1; }
           docker run --rm --network none -v audit-ipc:/run/mewvia:ro audit-runtime python -c 'import json,socket; s=socket.socket(socket.AF_UNIX); s.settimeout(5); s.connect("/run/mewvia/media.sock"); s.sendall(b"[\"unknown\",[]]\n"); assert "error" in json.loads(s.makefile().readline())'
       - name: Scan runtime packages
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: audit-runtime
           severity: HIGH,CRITICAL
