@@ -8,6 +8,12 @@ __pycache__
 .mypy_cache
 .ruff_cache
 .env
+.env.*
+*.dump
+*.partial
+*.pem
+*.key
+data/
 *.log
 *.sqlite3
 docs/

@@ -14,7 +14,6 @@ still sends the file on demand.
 from __future__ import annotations
 
 import datetime
-import os
 import shutil
 import time
 from pathlib import Path
@@ -47,7 +46,6 @@ def _prune_disk_cache(settings: Settings) -> None:
     """Purge stale temporary files and cached media older than 24h to protect disk space."""
     now = time.time()
     cutoff_tmp = now - (2 * 3600)  # 2 hours for temp files
-    cutoff_media = now - (24 * 3600)  # 24 hours for downloaded telegram-bot-api media
 
     # 1. Clean /data/tmp leftovers
     if settings.tmp_dir.is_dir():
@@ -61,32 +59,30 @@ def _prune_disk_cache(settings: Settings) -> None:
             except Exception:
                 pass
 
-    # 2. Clean /var/lib/telegram-bot-api media (documents, stickers, videos, temp)
-    bot_api_dir = Path("/var/lib/telegram-bot-api")
-    if bot_api_dir.is_dir():
-        for root, _dirs, files in os.walk(bot_api_dir):
-            if "binlog" in root:
-                continue
-            for f in files:
-                if f.endswith(".binlog"):
-                    continue
-                fp = Path(root) / f
-                try:
-                    if fp.stat().st_mtime < cutoff_media:
-                        fp.unlink(missing_ok=True)
-                except Exception:
-                    pass
+    # Local Bot API owns its volume. Never infer deletability there from mtime.
+    _prune_old_backups(settings.backup_dir)
 
 
 def _prune_old_backups(backup_dir: Path, keep_days: int = _KEEP_DAYS) -> int:
     cutoff = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=keep_days)
     pruned = 0
-    for dump in sorted(backup_dir.glob("mewvia_backup_*.dump")):
+    kept_bytes = 0
+    kept_count = 0
+    for dump in sorted(backup_dir.glob("mewvia_backup_*"), reverse=True):
+        if not dump.name.endswith((".dump", ".dump.age", ".partial")):
+            continue
         try:
-            mtime = datetime.datetime.fromtimestamp(dump.stat().st_mtime, tz=datetime.UTC)
+            stat = dump.stat()
+            mtime = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.UTC)
         except OSError:
             continue
-        if mtime < cutoff:
+        stale = mtime < cutoff
+        if not dump.name.endswith(".partial"):
+            stale |= kept_count >= 14 or kept_bytes + stat.st_size > 4 * 1024**3
+            if not stale:
+                kept_count += 1
+                kept_bytes += stat.st_size
+        if stale:
             try:
                 dump.unlink()
                 pruned += 1

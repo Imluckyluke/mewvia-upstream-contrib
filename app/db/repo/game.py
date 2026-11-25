@@ -77,9 +77,8 @@ class GameRepo:
         """Calculate the 1-based leaderboard rank of the given player."""
         stat = await self.get_or_create(telegram_id)
         # Count how many players have a higher score
-        count_higher_stmt = (
-            select(func.count(GameStat.telegram_id))
-            .where(GameStat.score > stat.score)
+        count_higher_stmt = select(func.count(GameStat.telegram_id)).where(
+            GameStat.score > stat.score
         )
         higher_count = (await self.session.execute(count_higher_stmt)).scalar() or 0
         return higher_count + 1

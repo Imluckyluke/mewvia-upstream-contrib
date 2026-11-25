@@ -25,26 +25,16 @@ class GameStat(Base):
         Integer, default=1000, server_default="1000", nullable=False, index=True
     )
 
-    wins: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0", nullable=False
-    )
-    losses: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0", nullable=False
-    )
-    draws: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0", nullable=False
-    )
+    wins: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    losses: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    draws: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     current_streak: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False
     )
-    max_streak: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0", nullable=False
-    )
+    max_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
-    last_played_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship("User", lazy="joined")  # type: ignore[name-defined] # noqa: F821
 

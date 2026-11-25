@@ -10,6 +10,7 @@ from app.db.models.conversion import Conversion
 from app.db.models.emoji_slot import EmojiSlot
 from app.db.models.game_stat import GameStat
 from app.db.models.instagram_cookie import InstagramCookie
+from app.db.models.quota import QuotaLease
 from app.db.models.setting import Setting
 from app.db.models.sponsor_channel import SponsorChannel
 from app.db.models.sponsor_seen import SponsorSeenMember
@@ -21,6 +22,7 @@ __all__ = [
     "EmojiSlot",
     "GameStat",
     "InstagramCookie",
+    "QuotaLease",
     "Setting",
     "SponsorChannel",
     "SponsorSeenMember",

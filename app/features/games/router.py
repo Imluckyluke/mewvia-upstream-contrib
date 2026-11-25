@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import html
+import json
 from collections.abc import Sequence
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache.fallback import FallbackCache
+from app.cache.redis import get_redis
 from app.callbacks import MenuCB, NoopCB
 from app.callbacks.game import GameCB
 from app.config import get_settings
@@ -41,6 +45,51 @@ DIFF_LABELS: dict[str, str] = {
     "med": "متوسط 🟡",
     "hard": "سخت (ناممکن) 🔴",
 }
+
+_VALID_DIFFS = frozenset(DIFF_LABELS)
+_XO_SESSION_TTL = 2 * 60 * 60
+_XO_SESSION_CAP = 2048
+# Fallback store when Redis is unavailable (tests / local runs).
+_XO_SESSIONS = FallbackCache(_XO_SESSION_CAP, _XO_SESSION_TTL)
+
+
+def _xo_key(chat_id: int, message_id: int) -> str:
+    return f"mewvia:xo:{chat_id}:{message_id}"
+
+
+async def load_xo_session(chat_id: int, message_id: int) -> dict[str, Any] | None:
+    """Return the stored board for a game message, if any."""
+    key = _xo_key(chat_id, message_id)
+    try:
+        raw = await get_redis().get(key)
+        if raw:
+            data: dict[str, Any] = json.loads(raw)
+            return data
+    except Exception as exc:
+        log.warning("xo_session_redis_get_failed", error=str(exc))
+    return _XO_SESSIONS.get(key)
+
+
+async def save_xo_session(chat_id: int, message_id: int, board: str, diff: str) -> None:
+    """Persist the authoritative board so callbacks cannot invent one."""
+    key = _xo_key(chat_id, message_id)
+    payload = {"board": board, "diff": diff}
+    try:
+        await get_redis().set(key, json.dumps(payload), ex=_XO_SESSION_TTL)
+        _XO_SESSIONS.discard(key)
+    except Exception as exc:
+        log.warning("xo_session_redis_set_failed", error=str(exc))
+        _XO_SESSIONS.put(key, payload)
+
+
+async def drop_xo_session(chat_id: int, message_id: int) -> None:
+    """Finish a game so its callbacks cannot be replayed for more points."""
+    key = _xo_key(chat_id, message_id)
+    _XO_SESSIONS.discard(key)
+    try:
+        await get_redis().delete(key)
+    except Exception as exc:
+        log.warning("xo_session_redis_delete_failed", error=str(exc))
 
 
 async def ready_registry() -> EmojiRegistry:
@@ -191,19 +240,11 @@ def render_xo_board(
         )
     elif last_outcome == "loss":
         delta_str = (
-            f"{score_delta} امتیاز"
-            if score_delta != 0
-            else "بدون کسر امتیاز (حاشیه امن برنز)"
+            f"{score_delta} امتیاز" if score_delta != 0 else "بدون کسر امتیاز (حاشیه امن برنز)"
         )
-        status_line = (
-            f"\n🤖 <b>میوویا پیروز شد!</b>\n"
-            f"🔻 <b>{delta_str}</b> از ریتینگ شما ثبت شد."
-        )
+        status_line = f"\n🤖 <b>میوویا پیروز شد!</b>\n🔻 <b>{delta_str}</b> از ریتینگ شما ثبت شد."
     elif last_outcome == "draw":
-        status_line = (
-            f"\n🤝 <b>بازی مساوی شد!</b>\n"
-            f"✨ <b>+{score_delta} امتیاز</b> ثبت شد."
-        )
+        status_line = f"\n🤝 <b>بازی مساوی شد!</b>\n✨ <b>+{score_delta} امتیاز</b> ثبت شد."
     else:
         status_line = "\nنوبت شماست! یک خانه خالی را لمس کنید:"
 
@@ -322,7 +363,7 @@ def render_leaderboard(
             p_name = "بازیکن ناشناس"
             if s.user:
                 p_name = s.user.full_name
-            is_me = (s.telegram_id == user_id)
+            is_me = s.telegram_id == user_id
             me_tag = " (شما)" if is_me else ""
             name_escaped = html.escape(p_name)
             lines.append(
@@ -522,13 +563,34 @@ async def cb_games_menu(query: CallbackQuery, session: AsyncSession) -> None:
 
 
 @router.callback_query(GameCB.filter(F.action.in_({"diff", "xo", "reset"})))
-async def cb_start_xo_widget(query: CallbackQuery, callback_data: GameCB) -> None:
+async def cb_start_xo_widget(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
     if not query.from_user or not isinstance(query.message, Message):
         return
     await query.answer("🎮 در حال ارسال ویجت گرافیکی بازی دوز…")
     settings = get_settings()
-    sent = await send_xo_widget(query.message.chat.id, settings.bot_token)
-    if not sent:
+    sent = await send_xo_widget(
+        query.message.chat.id, settings.bot_token, settings.telegram_api_url
+    )
+    if sent:
+        return
+
+    # The graphical widget is unavailable (old client / Bot API without
+    # sendWidget): fall back to the classic inline board instead of leaving the
+    # user with an error. The board is tracked server-side by cb_handle_move.
+    log.warning("xo_widget_unavailable_using_inline_board", chat_id=query.message.chat.id)
+    diff = callback_data.diff if callback_data.diff in _VALID_DIFFS else "med"
+    try:
+        registry = await ready_registry()
+        user = await UserRepo(session).upsert_from_telegram(query.from_user)
+        stat = await GameRepo(session).get_or_create(user.telegram_id)
+        text, reply_markup = render_xo_board(user, stat, diff, "_" * 9, registry)
+        board_msg = await query.message.answer(text, reply_markup=reply_markup)
+        if board_msg is not None:
+            await save_xo_session(query.message.chat.id, board_msg.message_id, "_" * 9, diff)
+    except Exception as exc:
+        log.error("xo_inline_fallback_failed", error=str(exc))
         await query.message.answer(
             "⚠️ ارسال ویجت تلگرام ناموفق بود. مطمئن شوید از نسخه جدید تلگرام استفاده می‌کنید."
         )
@@ -545,8 +607,14 @@ async def cb_handle_move(
     board = callback_data.b
     diff = callback_data.diff
 
-    # Validate cell
-    if not (0 <= cell <= 8) or len(board) != 9:
+    # Validate the callback payload. The board lives in a server-side session:
+    # trusting `callback_data.b` let anyone fabricate an almost-won board and
+    # farm leaderboard points without ever playing.
+    if diff not in _VALID_DIFFS or len(board) != 9 or any(char not in "_XO" for char in board):
+        await query.answer("درخواست نامعتبر است.", show_alert=True)
+        return
+
+    if not 0 <= cell <= 8:
         await query.answer("حرکت نامعتبر است.")
         return
 
@@ -558,6 +626,23 @@ async def cb_handle_move(
     w_now, _ = check_winner(board)
     if w_now is not None:
         await query.answer("بازی به پایان رسیده است.")
+        return
+
+    chat_id = query.message.chat.id
+    message_id = query.message.message_id
+    xo_state = await load_xo_session(chat_id, message_id)
+    if xo_state is None:
+        # Boards rendered before the server-side session existed (or games
+        # started from the inline menu) have no stored state. A pristine board
+        # is the only payload we can accept without verification.
+        if board != "_" * 9:
+            await query.answer(
+                "این بازی منقضی یا نامعتبر شده است. لطفاً از منوی بازی شروع کنید.",
+                show_alert=True,
+            )
+            return
+    elif xo_state.get("board") != board or xo_state.get("diff") != diff:
+        await query.answer("این حرکت معتبر نیست؛ صفحه بازی تغییر کرده است.", show_alert=True)
         return
 
     user_repo = UserRepo(session)
@@ -577,6 +662,7 @@ async def cb_handle_move(
     if winner == "X":
         delta = calculate_score_delta("win", diff, stat.score, stat.current_streak)
         stat = await game_repo.record_result(user.telegram_id, "win", delta)
+        await drop_xo_session(chat_id, message_id)
         await query.answer("🎉 تبریک! برنده شدید!")
         text, reply_markup = render_xo_board(
             user, stat, diff, board_after_player, registry, "win", delta
@@ -590,6 +676,7 @@ async def cb_handle_move(
     if winner == "draw":
         delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
         stat = await game_repo.record_result(user.telegram_id, "draw", delta)
+        await drop_xo_session(chat_id, message_id)
         await query.answer("🤝 بازی مساوی شد!")
         text, reply_markup = render_xo_board(
             user, stat, diff, board_after_player, registry, "draw", delta
@@ -611,6 +698,7 @@ async def cb_handle_move(
     if winner_bot == "O":
         delta = calculate_score_delta("loss", diff, stat.score, stat.current_streak)
         stat = await game_repo.record_result(user.telegram_id, "loss", delta)
+        await drop_xo_session(chat_id, message_id)
         await query.answer("🤖 میوویا برنده شد!")
         text, reply_markup = render_xo_board(
             user, stat, diff, board_after_bot, registry, "loss", delta
@@ -624,6 +712,7 @@ async def cb_handle_move(
     if winner_bot == "draw":
         delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
         stat = await game_repo.record_result(user.telegram_id, "draw", delta)
+        await drop_xo_session(chat_id, message_id)
         await query.answer("🤝 بازی مساوی شد!")
         text, reply_markup = render_xo_board(
             user, stat, diff, board_after_bot, registry, "draw", delta
@@ -635,10 +724,9 @@ async def cb_handle_move(
         return
 
     # Still ongoing
+    await save_xo_session(chat_id, message_id, board_after_bot, diff)
     await query.answer()
-    text, reply_markup = render_xo_board(
-        user, stat, diff, board_after_bot, registry, None, 0
-    )
+    text, reply_markup = render_xo_board(user, stat, diff, board_after_bot, registry, None, 0)
     try:
         await query.message.edit_text(text, reply_markup=reply_markup)
     except Exception:

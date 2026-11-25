@@ -162,16 +162,22 @@ async def reverse_video(input_file: Path, output_file: Path, info: MediaInfo) ->
             "معکوس کردن ویدیو فقط برای ویدیوهای تا ۲۰ ثانیه امکان‌پذیر است تا حافظه سرور اشباع نشود."
         )
 
-    if info.has_audio:
-        vf_args = ["-vf", "reverse", "-af", "areverse"]
-    else:
-        vf_args = ["-vf", "reverse", "-an"]
+    vf_args = [
+        "-vf",
+        "fps=15,scale='min(iw,640)':'min(ih,480)':force_original_aspect_ratio=decrease:"
+        "force_divisible_by=2,format=yuv420p,reverse",
+    ]
+    vf_args += (
+        ["-af", "aresample=44100,aformat=channel_layouts=stereo,areverse"]
+        if info.has_audio
+        else ["-an"]
+    )
 
     args = [
-        "-i",
-        str(input_file),
         "-t",
         "20",
+        "-i",
+        str(input_file),
         "-c:v",
         "libx264",
         "-preset",

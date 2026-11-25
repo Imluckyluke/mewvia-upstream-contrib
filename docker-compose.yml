@@ -25,7 +25,11 @@ services:
       REDIS_URL: redis://redis:6379/0
       TMP_DIR: /data/tmp
       BACKUP_DIR: /data/backups
+      BACKUP_REQUIRE_ENCRYPTION: 'true'
+      MEDIA_WORKER_SOCKET: /run/mewvia/media.sock
     depends_on:
+      media-worker:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -36,18 +40,47 @@ services:
         condition: service_started
     volumes:
       - mewvia_data:/data
+      - media_tmp:/data/tmp
+      - worker_socket:/run/mewvia:ro
       - mewvia_botapi:/var/lib/telegram-bot-api
-      - /usr/local/bin/deno:/usr/local/bin/deno:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import pathlib,sys,time; p=pathlib.Path('/data/health'); sys.exit(0 if p.exists() and time.time()-p.stat().st_mtime < 90 else 1)"]
+      test: ["CMD", "python", "-c", "import pathlib,sys,time; sys.exit(not all(p.exists() and time.time()-p.stat().st_mtime < 90 for p in map(pathlib.Path, ['/data/health','/data/health.ready'])))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 40s
 
+  media-worker:
+    build: .
+    image: mewvia-bot:latest
+    user: '0:0'
+    init: true
+    restart: unless-stopped
+    command: ['sh', '/app/app/media/egress.sh']
+    networks: [media_egress]
+    cap_add: [NET_ADMIN]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2
+    environment:
+      BOT_TOKEN: '1:unused'
+      JOB_TIMEOUT: ${JOB_TIMEOUT:-120}
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-4}
+    volumes:
+      - media_tmp:/data/tmp
+      - worker_socket:/run/mewvia
+    depends_on:
+      warp:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'test', '-S', '/run/mewvia/media.sock']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
   postgres:
     logging: *default-logging
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mewvia}
@@ -64,7 +97,7 @@ services:
 
   redis:
     logging: *default-logging
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
@@ -82,7 +115,7 @@ services:
   # ---------------------------------------------------------------------------
   telegram-bot-api:
     logging: *default-logging
-    image: aiogram/telegram-bot-api:latest
+    image: aiogram/telegram-bot-api@sha256:67fc1c033fab0ed8266cb76bbeadbafe1924c25b6515f7ca4e6d398ece8e9372
     restart: unless-stopped
     environment:
       TELEGRAM_API_ID: ${TELEGRAM_API_ID}
@@ -91,6 +124,7 @@ services:
     volumes:
       - mewvia_botapi:/var/lib/telegram-bot-api
       - mewvia_data:/data
+      - media_tmp:/data/tmp
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 8081 || exit 1"]
       interval: 15s
@@ -102,12 +136,15 @@ services:
   # Bypasses datacenter IP blocks and YouTube/Instagram login walls.
   # ---------------------------------------------------------------------------
   warp:
+    networks: [default, media_egress]
     logging: *default-logging
     build: ./warp
     image: mewvia-warp:latest
     container_name: mewvia-warp
     restart: unless-stopped
-    privileged: true
+    cap_add: [NET_ADMIN]
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: '1'
     expose:
       - "1080"
       - "4416"
@@ -125,14 +162,24 @@ services:
   # ---------------------------------------------------------------------------
   bgutil-provider:
     logging: *default-logging
-    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    image: brainicism/bgutil-ytdlp-pot-provider@sha256:d7d34108b76e52c7d3b575fe9e797e4bf41c1b2a08f80c5292eff6f851ce8472
     restart: unless-stopped
     network_mode: "service:warp"
     depends_on:
       warp:
         condition: service_healthy
 
+networks:
+  media_egress:
+
 volumes:
+  media_tmp:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=768m,uid=10001,gid=10001,mode=0755,nosuid,nodev
+  worker_socket:
   mewvia_data:
   mewvia_pgdata:
   mewvia_redisdata:

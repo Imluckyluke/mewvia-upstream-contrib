@@ -8,10 +8,12 @@ Creates the viral meme 'Wide' effect for photos, stickers, GIFs, and videos:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from PIL import Image
 
+from app.core.errors import ConversionError
 from app.core.logging import get_logger
 from app.media.ffmpeg import run_ffmpeg
 from app.media.probe import probe
@@ -21,14 +23,20 @@ log = get_logger(__name__)
 
 
 async def make_image_wide(src_path: Path, out_path: Path) -> Path:
+    await asyncio.to_thread(_resize_wide, src_path, out_path)
+    await add_watermark_to_image(out_path, out_path)
+    return out_path
+
+
+def _resize_wide(src_path: Path, out_path: Path) -> None:
     """Make a static photo/WEBP image wide (balanced squashed height, stretched width)."""
     with Image.open(src_path) as img:
         orig_w, orig_h = img.size
+        if orig_w * orig_h > 16_000_000:
+            raise ConversionError("تعداد پیکسل‌های تصویر بیش از حد مجاز است.")
         # Balanced proportions: 1.4x width, 0.65x height (natural meme look)
         new_w = max(100, int(orig_w * 1.4))
         new_h = max(30, int(orig_h * 0.65))
-
-        resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
         if out_path.suffix.lower() == ".webp":
             # Scale to Telegram sticker bounding box (max 512px) preserving wide ratio
@@ -36,13 +44,10 @@ async def make_image_wide(src_path: Path, out_path: Path) -> Path:
             scale = 512.0 / max_side
             stk_w = max(2, int(new_w * scale) // 2 * 2)
             stk_h = max(2, int(new_h * scale) // 2 * 2)
-            stk_img = resized.resize((stk_w, stk_h), Image.Resampling.LANCZOS)
+            stk_img = img.resize((stk_w, stk_h), Image.Resampling.LANCZOS)
             stk_img.save(out_path, "WEBP", quality=85)
         else:
-            resized.save(out_path, "PNG")
-
-    await add_watermark_to_image(out_path, out_path)
-    return out_path
+            img.resize((new_w, new_h), Image.Resampling.LANCZOS).save(out_path, "PNG")
 
 
 async def make_video_wide(src_path: Path, out_path: Path) -> Path:

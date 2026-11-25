@@ -11,15 +11,17 @@ Provides multi-account Instagram cookie management:
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 from aiogram import Bot, F, Router, html
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, FSInputFile, Message
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.logging import get_logger
 from app.core.units import fa_digits
 from app.db.models.instagram_cookie import InstagramCookie
@@ -93,13 +95,19 @@ def _format_datetime(dt: datetime | None) -> str:
 
 
 def _sync_cookie_file_sync(text: str | None) -> None:
-    cookie_dir = Path("/data/cookies")
-    cookie_dir.mkdir(parents=True, exist_ok=True)
+    cookie_dir = get_settings().cookie_dir
     target = cookie_dir / "instagram.txt"
-    legacy = Path("/data/cookies.txt")
+    legacy = cookie_dir.parent / "cookies.txt"
     if text and text.strip():
-        target.write_text(text, encoding="utf-8")
-        legacy.write_text(text, encoding="utf-8")
+        cookie_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for path in (target, legacy):
+            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as tmp:
+                staging = Path(tmp.name)
+            try:
+                staging.write_text(text, encoding="utf-8")
+                staging.replace(path)
+            finally:
+                staging.unlink(missing_ok=True)
     else:
         if target.exists():
             target.unlink(missing_ok=True)
@@ -274,13 +282,6 @@ async def render_cookie_detail(c: InstagramCookie, registry: EmojiRegistry) -> t
             callback_data=f"igc:edit_label:{c.id}",
             style=Style.PRIMARY,
             emoji_slot="edit",
-            registry=registry,
-        ),
-        inline_button(
-            "خروجی فایل کوکی",
-            callback_data=f"igc:export:{c.id}",
-            style=Style.NEUTRAL,
-            emoji_slot="download",
             registry=registry,
         ),
     )
@@ -492,30 +493,9 @@ async def delete_cookie_execute(query: CallbackQuery, session: AsyncSession) -> 
             pass
 
 
-def _write_tmp_cookie_file_sync(cookie_id: int, text: str) -> Path:
-    tmp_path = Path(f"/data/tmp/ig_cookie_{cookie_id}.txt")
-    tmp_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path.write_text(text, encoding="utf-8")
-    return tmp_path
-
-
 @router.callback_query(F.data.startswith("igc:export:"), IsAdmin())
 async def export_cookie_file(query: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
-    cookie_id = int((query.data or "").split(":")[-1])
-    repo = InstagramCookieRepo(session)
-    cookie = await repo.get_by_id(cookie_id)
-    if not cookie or not query.message:
-        await query.answer("اکانت یافت نشد.", show_alert=True)
-        return
-
-    tmp_path = await asyncio.to_thread(_write_tmp_cookie_file_sync, cookie.id, cookie.cookie_text)
-
-    await query.answer()
-    await query.message.answer_document(
-        document=FSInputFile(tmp_path, filename=f"instagram_{cookie.label}.txt"),
-        caption=f"🍪 فایل کوکی اکانت: <b>{html.quote(cookie.label)}</b>",
-    )
-    await asyncio.to_thread(lambda: tmp_path.unlink(missing_ok=True))
+    await query.answer("ارسال فایل کوکی غیرفعال است.", show_alert=True)
 
 
 @router.callback_query(F.data == "igc:add", IsAdmin())

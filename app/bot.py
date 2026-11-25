@@ -21,7 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import Settings
 from app.core.logging import get_logger
 from app.features import load_features
+from app.media.telegram import MediaBot
 from app.middlewares import setup_middlewares
+from app.middlewares.admission import MediaAdmission
 from app.ui.premium_guard import PremiumEmojiGuard
 
 log = get_logger(__name__)
@@ -44,7 +46,7 @@ def build_bot(settings: Settings) -> Bot:
     else:
         session = AiohttpSession(timeout=300)
 
-    bot = Bot(
+    bot = MediaBot(
         token=settings.bot_token,
         session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -116,7 +118,24 @@ def build_dispatcher(
         setup_middlewares(dp, settings, sessionmaker)
 
     features = load_features()
+    admission = MediaAdmission(settings)
     for feature in features:
+        if feature.router.name in {
+            "audio",
+            "batch",
+            "convert",
+            "downloader",
+            "filters",
+            "music_search",
+            "shazam",
+            "stickerpack",
+            "tag_editor",
+            "text_overlay",
+            "videotools",
+            "wide",
+        }:
+            feature.router.message.middleware(admission)
+            feature.router.callback_query.middleware(admission)
         dp.include_router(feature.router)
     log.info("features_loaded", count=len(features), names=[f.name for f in features])
 

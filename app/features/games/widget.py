@@ -437,9 +437,15 @@ function resetScore() {
 </html>"""
 
 
-async def send_xo_widget(chat_id: int, bot_token: str) -> bool:
-    """Send the interactive retro arcade Tic-Tac-Toe widget to the user."""
-    url = f"https://api.telegram.org/bot{bot_token}/sendWidget"
+async def send_xo_widget(chat_id: int, bot_token: str, api_base_url: str = "") -> bool:
+    """Send the interactive retro arcade Tic-Tac-Toe widget to the user.
+
+    `api_base_url` mirrors the Bot's configured server (empty = public
+    api.telegram.org) so deployments behind the local Bot API keep working
+    even when Telegram's public endpoint is unreachable.
+    """
+    base = (api_base_url or "https://api.telegram.org").rstrip("/")
+    url = f"{base}/bot{bot_token}/sendWidget"
     payload = {
         "chat_id": chat_id,
         "html": XO_WIDGET_HTML,

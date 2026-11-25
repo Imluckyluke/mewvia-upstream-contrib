@@ -64,10 +64,13 @@ TEST_ENV = {
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     """Pin the environment and drop the Settings cache around every test."""
     for key, value in TEST_ENV.items():
         monkeypatch.setenv(key, value)
+    monkeypatch.setenv("COOKIE_DIR", str(tmp_path / "cookies"))
+    monkeypatch.setenv("TMP_DIR", str(tmp_path / "tmp"))
+    monkeypatch.setenv("BACKUP_DIR", str(tmp_path / "backups"))
     # Settings reads .env as a fallback; tests must not.
     monkeypatch.chdir(Path(__file__).parent)
 
@@ -139,6 +142,7 @@ def db_sessionmaker(connection: AsyncConnection) -> async_sessionmaker[AsyncSess
 async def session(
     db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[AsyncSession]:
+    current_sessionmaker["maker"] = db_sessionmaker
     async with db_sessionmaker() as db_session:
         yield db_session
 

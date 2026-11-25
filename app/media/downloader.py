@@ -15,12 +15,14 @@ process-wide job concurrency limiter and timeouts.
 
 from __future__ import annotations
 
-import asyncio
+import ipaddress
 import json
 import os
 import re
 import secrets
+import socket
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,10 +31,13 @@ from urllib.parse import urlparse
 
 import yt_dlp
 
+from app.cache.fallback import FallbackCache
 from app.cache.redis import get_redis
+from app.config import get_settings
 from app.core.errors import ConversionError
 from app.core.logging import get_logger
 from app.core.units import human_duration
+from app.media.worker import run_worker
 
 log = get_logger(__name__)
 
@@ -46,8 +51,7 @@ def _make_ydl(opts: dict[str, Any]) -> yt_dlp.YoutubeDL:
 
 
 # Fallback in-memory token cache (token -> payload dict, capped).
-_IN_MEMORY_TOKENS: dict[str, dict[str, Any]] = {}
-_IN_MEMORY_TOKENS_CAP = 1024
+_IN_MEMORY_TOKENS = FallbackCache(1024, 3600)
 
 URL_REGEX = re.compile(
     r"https?://(?:www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_+.~#?&/=]*)",
@@ -71,9 +75,9 @@ PLATFORM_INFO: dict[str, tuple[str, str]] = {
 
 def find_cookie_file(platform_key: str | None = None) -> Path | None:
     """Check for platform-specific cookie file."""
-    if not platform_key or platform_key in ("spotify", "other"):
+    if platform_key not in PLATFORM_INFO or platform_key in ("spotify", "other"):
         return None
-    p = Path(f"/data/cookies/{platform_key}.txt")
+    p = get_settings().cookie_dir / f"{platform_key}.txt"
     try:
         if p.is_file() and p.stat().st_size > 0 and os.access(p, os.R_OK):
             return p
@@ -146,7 +150,7 @@ def is_direct_media_url(url: str) -> bool:
 
 def is_supported_media_url(url: str) -> bool:
     """Check if the URL belongs to a supported downloader platform or is a direct media file."""
-    if not url:
+    if not url or not is_safe_remote_url(url):
         return False
     key, _, _ = detect_platform(url)
     if key in SUPPORTED_PLATFORMS:
@@ -154,32 +158,93 @@ def is_supported_media_url(url: str) -> bool:
     return is_direct_media_url(url)
 
 
+_LOCAL_HOST_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".internal",
+    ".home.arpa",
+    ".lan",
+)
+
+
+def is_safe_remote_url(url: str) -> bool:
+    """Reject URLs that point at loopback, private, link-local or internal hosts.
+
+    The download engine runs inside the Docker network, next to Postgres,
+    Redis, the Bot API server and the WARP proxy. Letting yt-dlp/gallery-dl
+    fetch ``http://postgres:5432/...`` would turn the bot into an SSRF proxy.
+    Public links stay allowed (the feature intentionally supports thousands of
+    sites); only obviously internal targets are refused.
+    """
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in ("http", "https"):
+        return False
+    # Embedded credentials can be used to confuse host parsing in downstream
+    # tools, and are never needed for a public media link.
+    if parsed.username or parsed.password:
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(_LOCAL_HOST_SUFFIXES):
+        return False
+    # Single-label names are Docker service names / intranet hosts. Public
+    # media platforms always have a dot (youtu.be, x.com, ...).
+    if "." not in host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # libc/glibc also accepts historical IPv4 shorthands such as
+        # ``127.1`` or octal/hex octets; normalise them before deciding.
+        try:
+            packed = socket.inet_aton(host)
+        except OSError:
+            return True
+        ip = ipaddress.ip_address(packed)
+    return bool(ip.is_global)
+
+
+def _host_matches(host: str, *domains: str) -> bool:
+    """True when *host* is exactly one of *domains* or a subdomain of one."""
+    return any(host == domain or host.endswith(f".{domain}") for domain in domains)
+
+
 def detect_platform(url: str) -> tuple[str, str, str]:
-    """Identify the platform from the URL host."""
+    """Identify the platform from the URL host.
+
+    Matching is done on complete domain labels: ``netflix.com`` must not be
+    mistaken for X/Twitter just because it happens to contain ``x.com``.
+    """
     parsed = urlparse(url)
-    host = (parsed.netloc or "").lower()
+    host = (parsed.hostname or "").lower().rstrip(".")
     if host.startswith("www."):
         host = host[4:]
 
-    if any(k in host for k in ("youtube.com", "youtu.be")):
+    if _host_matches(host, "youtube.com", "youtu.be", "youtube-nocookie.com"):
         key = "youtube"
-    elif "instagram.com" in host or "instagr.am" in host:
+    elif _host_matches(host, "instagram.com", "instagr.am"):
         key = "instagram"
-    elif "tiktok.com" in host:
+    elif _host_matches(host, "tiktok.com"):
         key = "tiktok"
-    elif "twitter.com" in host or "x.com" in host or host == "t.co" or host.endswith(".t.co"):
+    elif _host_matches(host, "twitter.com", "x.com", "t.co"):
         key = "twitter"
-    elif "pinterest." in host or "pin.it" in host:
+    elif host == "pin.it" or host.startswith("pinterest.") or ".pinterest." in host:
         key = "pinterest"
-    elif "soundcloud.com" in host or "on.soundcloud.com" in host:
+    elif _host_matches(host, "soundcloud.com", "snd.sc"):
         key = "soundcloud"
-    elif "spotify.com" in host or "spotify.link" in host:
+    elif _host_matches(host, "spotify.com", "spotify.link", "spoti.fi"):
         key = "spotify"
-    elif "reddit.com" in host or "redd.it" in host:
+    elif _host_matches(host, "reddit.com", "redd.it"):
         key = "reddit"
-    elif "aparat.com" in host:
+    elif _host_matches(host, "aparat.com"):
         key = "aparat"
-    elif any(k in host for k in ("facebook.com", "fb.watch", "fb.com")):
+    elif _host_matches(host, "facebook.com", "fb.watch", "fb.com", "fb.me"):
         key = "facebook"
     else:
         key = "other"
@@ -224,11 +289,10 @@ async def store_download_context(token: str, payload: dict[str, Any]) -> None:
     try:
         redis = get_redis()
         await redis.set(key, json.dumps(payload), ex=3600)
+        _IN_MEMORY_TOKENS.discard(token)
     except Exception as exc:
         log.warning("downloader_token_redis_failed", error=str(exc))
-        _IN_MEMORY_TOKENS[token] = payload
-        while len(_IN_MEMORY_TOKENS) > _IN_MEMORY_TOKENS_CAP:
-            _IN_MEMORY_TOKENS.pop(next(iter(_IN_MEMORY_TOKENS)))
+        _IN_MEMORY_TOKENS.put(token, payload)
 
 
 async def get_download_context(token: str) -> dict[str, Any] | None:
@@ -324,7 +388,7 @@ def extract_spotify_metadata_sync(url: str) -> dict[str, Any]:
 
         req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310
-            oembed_data = json.loads(r.read().decode("utf-8"))
+            oembed_data = json.loads(r.read(256 * 1024).decode("utf-8"))
     except Exception as exc:
         log.warning("spotify_oembed_failed", url=url, error=str(exc))
 
@@ -341,7 +405,7 @@ def extract_spotify_metadata_sync(url: str) -> dict[str, Any]:
 
         req = urllib.request.Request(embed_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310
-            html_text = r.read().decode("utf-8")
+            html_text = r.read(4 * 1024 * 1024).decode("utf-8")
             m = re.search(
                 r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
                 html_text,
@@ -466,7 +530,9 @@ def _download_spotify_track_sync(
 
                 req = urllib.request.Request(thumbnail_url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
-                    thumb_bytes = resp.read()
+                    thumb_bytes = resp.read(4 * 1024 * 1024 + 1)
+                    if len(thumb_bytes) > 4 * 1024 * 1024:
+                        raise ValueError("cover too large")
                 tags.add(
                     APIC(
                         encoding=3,
@@ -493,9 +559,7 @@ async def download_spotify_track(
     max_bytes: int | None = None,
 ) -> Path:
     """Async wrapper for downloading and tagging a Spotify track."""
-    return await asyncio.to_thread(
-        _download_spotify_track_sync, title, artist, thumbnail_url, work_dir, max_bytes
-    )
+    return Path(await run_worker("spotify", title, artist, thumbnail_url, work_dir, max_bytes))
 
 
 def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
@@ -567,8 +631,8 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
 
             # 2. If tried anonymously and failed, retry with disk cookie if available
             elif not opts.get("cookiefile"):
-                disk_cookie = Path("/data/cookies/instagram.txt")
-                if disk_cookie.is_file() and disk_cookie.stat().st_size > 0:
+                disk_cookie = find_cookie_file("instagram")
+                if disk_cookie:
                     opts_cookie = dict(opts)
                     opts_cookie["cookiefile"] = str(disk_cookie)
                     try:
@@ -601,8 +665,10 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
         platform_key == "tiktok"
         and ("/photo/" in url.lower() or (info and info.get("_fallback_images")))
     )
-    if can_be_gallery and not is_ig_video and (
-        not info or (info.get("_type") == "playlist" and not info.get("entries"))
+    if (
+        can_be_gallery
+        and not is_ig_video
+        and (not info or (info.get("_type") == "playlist" and not info.get("entries")))
     ):
         is_blocked = False
         if probe_error:
@@ -759,7 +825,14 @@ def _probe_info_sync(url: str, cookie_file: str | None = None) -> DownloadInfo:
 
 async def probe_media_url(url: str, cookie_file: str | None = None) -> DownloadInfo:
     """Async wrapper for metadata probe."""
-    return await asyncio.to_thread(_probe_info_sync, url, cookie_file)
+    return DownloadInfo(**await run_worker("probe", url, cookie_file))
+
+
+_IOS_VIDEO_CODECS = frozenset({"h264", "hevc"})
+_IOS_AUDIO_CODECS = frozenset({"aac", "mp3", "mp2"})
+_IOS_PIX_FMTS = frozenset({"yuv420p", "yuvj420p"})
+_VIDEO_CONTAINERS = frozenset({".mp4", ".m4v", ".mov", ".mkv", ".webm"})
+_GALLERY_MEDIA_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp", ".gif"} | _VIDEO_CONTAINERS)
 
 
 def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
@@ -770,10 +843,14 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
     - Pixel format: yuv420p (8-bit 4:2:0).
     - Audio codec: AAC or MP3 (or none).
     - Container: MP4 with +faststart (moov atom at beginning of file).
+
+    Both video *and* audio are checked: an H.264 stream muxed with Opus is
+    still unplayable on iOS, and WebM/MKV files were previously returned
+    untouched.
     """
     if not video_path.is_file() or video_path.stat().st_size == 0:
         return video_path
-    if video_path.suffix.lower() != ".mp4":
+    if video_path.suffix.lower() not in _VIDEO_CONTAINERS:
         return video_path
 
     try:
@@ -781,28 +858,40 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
             "ffprobe",
             "-v",
             "error",
-            "-select_streams",
-            "v:0",
             "-show_entries",
-            "stream=codec_name,pix_fmt",
+            "stream=codec_type,codec_name,pix_fmt",
             "-of",
             "json",
             str(video_path),
         ]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        data = json.loads(res.stdout)
+        data = json.loads(res.stdout or "{}")
         streams = data.get("streams", [])
-        if not streams:
+        video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
+        if video_stream is None:
             return video_path
+        audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
 
-        stream = streams[0]
-        vcodec = (stream.get("codec_name") or "").lower()
-        pix_fmt = (stream.get("pix_fmt") or "").lower()
+        vcodec = (video_stream.get("codec_name") or "").lower()
+        acodec = (audio_stream.get("codec_name") or "").lower() if audio_stream else ""
+        pix_fmt = (video_stream.get("pix_fmt") or "").lower()
+        # A video without any audio track is perfectly playable on iOS, so the
+        # missing stream must not force a full re-encode.
+        audio_ok = audio_stream is None or acodec in _IOS_AUDIO_CODECS
 
-        out_path = work_dir / f"ios_{video_path.name}"
+        # Keep the converted file next to its source. Gallery downloads keep
+        # per-site subfolders, and two folders can contain the same filename;
+        # writing every result into `work_dir` would overwrite one of them.
+        out_dir = work_dir
+        if video_path.parent != work_dir and work_dir in video_path.parents:
+            out_dir = video_path.parent
+        out_path = out_dir / f"ios_{video_path.stem}.mp4"
+        if out_path == video_path:
+            out_path = out_dir / f"ios_{video_path.stem}_converted.mp4"
 
-        # If already standard H.264/HEVC with standard yuv420p, ensure faststart stream copy
-        if vcodec in ("h264", "hevc") and pix_fmt in ("yuv420p", "yuvj420p"):
+        # Already H.264/HEVC with a compatible pixel format and audio: only a
+        # faststart remux (and container change for MKV/MOV) is needed.
+        if vcodec in _IOS_VIDEO_CODECS and pix_fmt in _IOS_PIX_FMTS and audio_ok:
             faststart_cmd = [
                 "ffmpeg",
                 "-y",
@@ -810,6 +899,10 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
                 "error",
                 "-i",
                 str(video_path),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",
                 "-c",
                 "copy",
                 "-movflags",
@@ -819,9 +912,10 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
             fs_res = subprocess.run(faststart_cmd, capture_output=True, timeout=30)
             if fs_res.returncode == 0 and out_path.is_file() and out_path.stat().st_size > 0:
                 return out_path
-            return video_path
+            # Fall through to a full transcode; a copy can fail on odd
+            # containers even when the codecs themselves are supported.
 
-        # If VP9/AV1 or non-standard pixel format, transcode to standard H.264 + AAC + yuv420p
+        # Unsupported codec/container: transcode to standard H.264 + AAC + yuv420p.
         log.info("transcoding_video_for_ios_camera_roll", vcodec=vcodec, pix_fmt=pix_fmt)
         transcode_cmd = [
             "ffmpeg",
@@ -830,6 +924,10 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
             "error",
             "-i",
             str(video_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
             "-c:v",
             "libx264",
             "-preset",
@@ -838,14 +936,12 @@ def _ensure_ios_compatibility_sync(video_path: Path, work_dir: Path) -> Path:
             "23",
             "-pix_fmt",
             "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            str(out_path),
         ]
+        if audio_stream is not None:
+            transcode_cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+        else:
+            transcode_cmd.append("-an")
+        transcode_cmd.extend(["-movflags", "+faststart", str(out_path)])
         tc_res = subprocess.run(transcode_cmd, capture_output=True, timeout=120)
         if tc_res.returncode == 0 and out_path.is_file() and out_path.stat().st_size > 0:
             return out_path
@@ -1034,7 +1130,7 @@ def _download_gallery_sync(
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
-        "python",
+        sys.executable,
         "-m",
         "gallery_dl",
         "--proxy",
@@ -1042,6 +1138,10 @@ def _download_gallery_sync(
         "--dest",
         str(dest_dir),
         "--no-mtime",
+        "--range",
+        "1-20",
+        "--filesize-max",
+        str(get_settings().media_max_bytes),
     ]
 
     platform_key, platform_name, _ = detect_platform(url)
@@ -1073,15 +1173,24 @@ def _download_gallery_sync(
     except subprocess.TimeoutExpired:
         raise ConversionError("دانلود گالری به دلیل اتمام زمان متوقف شد.") from None
 
-    # Collect downloaded image, animation and video files, ensuring iOS compatibility for videos
-    results = [
-        _ensure_ios_compatibility_sync(p, dest_dir)
-        if p.suffix.lower() in (".mp4", ".webm")
-        else p
+    # Collect downloaded image, animation and video files, ensuring iOS
+    # compatibility for videos. Snapshot the inputs first: the converter writes
+    # `ios_*.mp4` files into the same directory, and a live rglob could pick
+    # those up as duplicates (or return both the WebM original and its MP4).
+    source_files = [
+        p
         for p in dest_dir.rglob("*")
-        if p.is_file()
-        and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp", ".mp4", ".gif", ".webm")
+        if p.is_file() and p.suffix.lower() in _GALLERY_MEDIA_SUFFIXES
     ]
+    results: list[Path] = []
+    for path in source_files:
+        converted = (
+            _ensure_ios_compatibility_sync(path, dest_dir)
+            if path.suffix.lower() in _VIDEO_CONTAINERS
+            else path
+        )
+        if converted not in results:
+            results.append(converted)
 
     if not results:
         err = proc.stderr.decode(errors="replace").strip()
@@ -1144,7 +1253,8 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
             info = ie.extract(clean_url)
         entries = info.get("entries") or [info]
         results: list[Path] = []
-        for idx, e in enumerate(entries, 1):
+        remaining = get_settings().media_max_bytes
+        for idx, e in enumerate(entries[:20], 1):
             formats = e.get("formats") or []
             v_fmts = [
                 f for f in formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("url")
@@ -1162,11 +1272,9 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
                 resp = requests.get(
                     v_url, proxies={"https": "socks5h://warp:1080"}, stream=True, timeout=30
                 )
-                if resp.status_code == 200:
-                    out = dest_dir / f"instagram_media_{idx:02d}.mp4"
-                    with open(out, "wb") as f:
-                        for chunk in resp.iter_content(chunk_size=65536):
-                            f.write(chunk)
+                out = dest_dir / f"instagram_media_{idx:02d}.mp4"
+                if _save_response(resp, out, remaining):
+                    remaining -= out.stat().st_size
                     out = _ensure_ios_compatibility_sync(out, dest_dir)
                     results.append(out)
             else:
@@ -1175,11 +1283,11 @@ def _download_instagram_photos_via_ytdlp(url: str, dest_dir: Path) -> list[Path]
                 if thumbs:
                     img_url = thumbs[-1]["url"]
                     resp = requests.get(
-                        img_url, proxies={"https": "socks5h://warp:1080"}, timeout=15
+                        img_url, proxies={"https": "socks5h://warp:1080"}, timeout=15, stream=True
                     )
-                    if resp.status_code == 200 and resp.content:
-                        out = dest_dir / f"instagram_media_{idx:02d}.jpg"
-                        out.write_bytes(resp.content)
+                    out = dest_dir / f"instagram_media_{idx:02d}.jpg"
+                    if _save_response(resp, out, remaining):
+                        remaining -= out.stat().st_size
                         results.append(out)
         return results
     except Exception as exc:
@@ -1255,15 +1363,30 @@ def _download_tiktok_via_tikwm(url: str, work_dir: Path) -> Path | None:
                         stream=True,
                         timeout=45,
                     ) as vr:
-                        if vr.status_code == 200:
-                            with open(out, "wb") as f:
-                                for chunk in vr.iter_content(chunk_size=65536):
-                                    f.write(chunk)
+                        if _save_response(vr, out, get_settings().media_max_bytes):
                             if out.is_file() and out.stat().st_size > 0:
                                 return _ensure_ios_compatibility_sync(out, work_dir)
     except Exception as exc:
         log.warning("tiktok_tikwm_download_failed", error=str(exc))
     return None
+
+
+def _save_response(resp: Any, path: Path, limit: int) -> bool:
+    with resp:
+        if resp.status_code != 200:
+            return False
+        total = 0
+        try:
+            with path.open("wb") as out:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    total += len(chunk)
+                    if total > limit:
+                        raise ConversionError("حجم فایل از حد مجاز بیشتر است.")
+                    out.write(chunk)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        return total > 0
 
 
 def _download_tiktok_photos_via_tikwm(url: str, dest_dir: Path) -> list[Path]:
@@ -1281,16 +1404,18 @@ def _download_tiktok_photos_via_tikwm(url: str, dest_dir: Path) -> list[Path]:
             data = r.json()
             if data.get("code") == 0:
                 images = data.get("data", {}).get("images") or []
-                for idx, img_url in enumerate(images, 1):
+                remaining = get_settings().media_max_bytes
+                for idx, img_url in enumerate(images[:20], 1):
                     resp = requests.get(
                         img_url,
                         headers={"User-Agent": "Mozilla/5.0"},
                         proxies={"https": "socks5h://warp:1080"},
                         timeout=20,
+                        stream=True,
                     )
-                    if resp.status_code == 200 and resp.content:
-                        out = dest_dir / f"tiktok_photo_{idx:02d}.jpg"
-                        out.write_bytes(resp.content)
+                    out = dest_dir / f"tiktok_photo_{idx:02d}.jpg"
+                    if _save_response(resp, out, remaining):
+                        remaining -= out.stat().st_size
                         results.append(out)
     except Exception as exc:
         log.warning("tiktok_tikwm_photos_download_failed", error=str(exc))
@@ -1305,9 +1430,7 @@ async def download_video(
     cookie_file: str | None = None,
 ) -> Path:
     """Async wrapper for video downloading."""
-    return await asyncio.to_thread(
-        _download_video_sync, url, work_dir, max_height, max_bytes, cookie_file
-    )
+    return Path(await run_worker("video", url, work_dir, max_height, max_bytes, cookie_file))
 
 
 async def download_audio(
@@ -1317,7 +1440,7 @@ async def download_audio(
     cookie_file: str | None = None,
 ) -> Path:
     """Async wrapper for audio downloading."""
-    return await asyncio.to_thread(_download_audio_sync, url, work_dir, max_bytes, cookie_file)
+    return Path(await run_worker("audio", url, work_dir, max_bytes, cookie_file))
 
 
 async def download_gallery(
@@ -1326,4 +1449,4 @@ async def download_gallery(
     cookie_file: str | None = None,
 ) -> list[Path]:
     """Async wrapper for gallery downloading."""
-    return await asyncio.to_thread(_download_gallery_sync, url, work_dir, cookie_file)
+    return [Path(p) for p in await run_worker("gallery", url, work_dir, cookie_file)]

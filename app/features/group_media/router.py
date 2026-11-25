@@ -7,6 +7,8 @@ Builds and sends interactive inline menus with ownership protection.
 
 from __future__ import annotations
 
+import re
+
 from aiogram import Router
 from aiogram.enums import ChatType
 from aiogram.filters import BaseFilter
@@ -34,22 +36,35 @@ class GroupMediaInvocationFilter(BaseFilter):
     """Matches group messages that explicitly invoke the media assistant."""
 
     SUPPORTED_COMMANDS = frozenset({"media", "mewvia", "edit", "tools", "ابزار", "پنل"})
+    # Historical public username; kept as an alias because deployments and
+    # older group posts may use it even if BOT_USERNAME drifts.
+    LEGACY_USERNAME = "mewvia_bot"
 
     async def __call__(self, message: Message, settings: Settings) -> bool:
         if message.chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
             return False
 
         text = (message.text or message.caption or "").strip()
-        bot_user = (settings.bot_username or "").lower()
+        bot_user = (settings.bot_username or "").lower().lstrip("@")
+        usernames = {self.LEGACY_USERNAME}
+        if bot_user:
+            usernames.add(bot_user)
 
-        # 1. Explicit slash commands
+        # 1. Explicit slash commands, addressed to this bot (or to nobody).
         if text.startswith("/"):
-            cmd = text.split()[0][1:].lower().split("@")[0]
-            if cmd in self.SUPPORTED_COMMANDS:
+            command_part = text.split()[0][1:].lower()
+            cmd_name, _, at_bot = command_part.partition("@")
+            if at_bot and at_bot not in usernames:
+                return False
+            if cmd_name in self.SUPPORTED_COMMANDS:
                 return True
 
-        # 2. Explicit bot mention in text or caption (e.g. @Mewvia_bot or configured username)
-        if (bot_user and f"@{bot_user}" in text.lower()) or "@mewvia_bot" in text.lower():
+        # 2. Explicit bot mention in text or caption (e.g. @Mewvia_bot).
+        # Match the complete username so mentioning @MewviaBotNews is not
+        # mistaken for a call to this bot.
+        if any(
+            re.search(rf"@{re.escape(name)}(?!\w)", text, flags=re.IGNORECASE) for name in usernames
+        ):
             return True
 
         # NOTE: replying to a bot message is deliberately NOT a trigger.

@@ -192,9 +192,11 @@ def test_find_cookie_file_instagram(tmp_path: Any, monkeypatch: pytest.MonkeyPat
     cookie_dir = tmp_path / "data" / "cookies"
     cookie_dir.mkdir(parents=True)
     ig_cookie = cookie_dir / "instagram.txt"
-    ig_cookie.write_text("# Netscape HTTP Cookie File\n.instagram.com TRUE / TRUE 0 sessionid test\n")
+    ig_cookie.write_text(
+        "# Netscape HTTP Cookie File\n.instagram.com TRUE / TRUE 0 sessionid test\n"
+    )
 
-    monkeypatch.setattr("app.media.downloader.Path", lambda p: ig_cookie if "instagram.txt" in str(p) else tmp_path / str(p).lstrip("/"))
+    monkeypatch.setenv("COOKIE_DIR", str(cookie_dir))
 
     found = find_cookie_file("instagram")
     assert found is not None

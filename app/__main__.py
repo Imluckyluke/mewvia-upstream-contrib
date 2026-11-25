@@ -23,7 +23,7 @@ from app.admin.autobackup import shutdown_autobackup, sync_autobackup_job
 from app.bot import build_bot, build_dispatcher
 from app.cache.redis import close_redis, init_redis
 from app.config import Settings, get_settings
-from app.core.health import heartbeat
+from app.core.health import PollReadiness, heartbeat
 from app.core.logging import get_logger, setup_logging
 from app.core.settings_store import init_settings_store
 from app.db.seed import apply_seed
@@ -121,6 +121,9 @@ async def _run() -> None:
         raise SystemExit(78) from None
 
     bot = build_bot(settings)
+    readiness = settings.health_file.with_suffix(".ready")
+    readiness.unlink(missing_ok=True)
+    bot.session.middleware(PollReadiness(readiness))
     dp = build_dispatcher(settings, get_sessionmaker())
 
     try:
@@ -158,11 +161,10 @@ async def _run() -> None:
     hb = asyncio.create_task(heartbeat(settings.health_file), name="heartbeat")
     try:
         await sync_autobackup_job(settings, bot)
-        # drop_pending_updates: skip the backlog accumulated while we were down.
+        # Preserve pending updates across restarts; dropping them loses user requests.
         # tasks_concurrency_limit: bound concurrency under burst load (no Redis/DB starvation).
         await dp.start_polling(
             bot,
-            drop_pending_updates=True,
             handle_signals=True,
             tasks_concurrency_limit=32,
         )

@@ -14,6 +14,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.quota import release_quota
 from app.db.repo import UserRepo
 
 
@@ -32,9 +33,12 @@ class DbSessionMiddleware(BaseMiddleware):
             data["user_repo"] = UserRepo(session)
             try:
                 result = await handler(event, data)
-            except Exception:
+            except BaseException:
                 await session.rollback()
+                await release_quota(session)
+                await session.commit()
                 raise
             else:
+                await release_quota(session)
                 await session.commit()
                 return result

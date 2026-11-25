@@ -50,10 +50,15 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
     tmp_dir: Path = Path("/data/tmp")
+    cookie_dir: Path = Path("/data/cookies")
     backup_dir: Path = Path("/data/backups")
+    backup_age_recipient: str = ""
+    backup_require_encryption: bool = False
+    backup_max_bytes: int = Field(default=512 * 1024 * 1024, gt=0)
     health_file: Path = Path("/data/health")
 
     max_concurrent_jobs: int = 6
+    media_max_bytes: int = Field(default=128 * 1024 * 1024, gt=0)
     job_timeout: int = 120
     throttle_seconds: int = 2
 

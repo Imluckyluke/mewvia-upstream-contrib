@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import asdict, dataclass
+from typing import Any
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import Message
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -31,48 +33,62 @@ async def send_broadcast(
     source_message: Message,
     *,
     rate_limit: float = 0.04,  # ~25 messages / sec
+    resume: dict[str, Any] | None = None,
+    checkpoint: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> BroadcastResult:
     """Broadcast source_message to all active users."""
     stmt = (
-        select(User)
+        select(User.telegram_id)
         .where(User.is_banned.is_(False), User.has_blocked_bot.is_(False))
         .order_by(User.telegram_id.asc())
     )
-    users = (await session.execute(stmt)).scalars().all()
-
-    result = BroadcastResult(total=len(users))
-
-    for user in users:
-        try:
-            await bot.copy_message(
-                chat_id=user.telegram_id,
-                from_chat_id=source_message.chat.id,
-                message_id=source_message.message_id,
-            )
-            result.successful += 1
-        except TelegramRetryAfter as exc:
-            log.warning("broadcast_rate_limited", retry_after=exc.retry_after)
-            await asyncio.sleep(exc.retry_after)
+    saved = resume or {}
+    ceiling = (
+        saved.get("ceiling") if saved else await session.scalar(select(func.max(User.telegram_id)))
+    )
+    last: int | None = saved.get("last")
+    result = BroadcastResult(**saved.get("result", {}))
+    while ceiling is not None:
+        page = stmt.where(User.telegram_id <= ceiling).limit(256)
+        if last is not None:
+            page = page.where(User.telegram_id > last)
+        ids = (await session.scalars(page)).all()
+        await session.commit()  # release the connection before Telegram calls/sleeps
+        if not ids:
+            break
+        blocked = []
+        for uid in ids:
+            result.total += 1
             try:
-                await bot.copy_message(
-                    chat_id=user.telegram_id,
-                    from_chat_id=source_message.chat.id,
-                    message_id=source_message.message_id,
-                )
+                for attempt in range(2):
+                    try:
+                        await bot.copy_message(
+                            chat_id=uid,
+                            from_chat_id=source_message.chat.id,
+                            message_id=source_message.message_id,
+                        )
+                        break
+                    except TelegramRetryAfter as exc:
+                        if attempt:
+                            raise
+                        await asyncio.sleep(exc.retry_after)
                 result.successful += 1
+            except (TelegramForbiddenError, TelegramAPIError) as exc:
+                err = str(exc).lower()
+                if "blocked" in err or "user is deactivated" in err:
+                    blocked.append(uid)
+                    result.blocked += 1
+                else:
+                    result.failed += 1
             except Exception:
                 result.failed += 1
-        except (TelegramForbiddenError, TelegramAPIError) as exc:
-            err_str = str(exc).lower()
-            if "blocked" in err_str or "user is deactivated" in err_str:
-                user.has_blocked_bot = True
-                result.blocked += 1
-            else:
-                result.failed += 1
-        except Exception:
-            result.failed += 1
-
-        await asyncio.sleep(rate_limit)
-
-    await session.commit()
+            await asyncio.sleep(rate_limit)
+        if blocked:
+            await session.execute(
+                update(User).where(User.telegram_id.in_(blocked)).values(has_blocked_bot=True)
+            )
+            await session.commit()
+        last = ids[-1]
+        if checkpoint is not None:
+            await checkpoint({"ceiling": ceiling, "last": last, "result": asdict(result)})
     return result

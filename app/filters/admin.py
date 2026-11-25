@@ -7,8 +7,9 @@ the list has to work before any migration has run.
 
 from __future__ import annotations
 
+from aiogram.enums import ChatType
 from aiogram.filters import BaseFilter
-from aiogram.types import TelegramObject, User
+from aiogram.types import CallbackQuery, Message, TelegramObject, User
 
 from app.config import Settings
 
@@ -23,4 +24,10 @@ class IsAdmin(BaseFilter):
     ) -> bool:
         if event_from_user is None or settings is None:
             return False
-        return settings.is_admin(event_from_user.id)
+        msg = event.message if isinstance(event, CallbackQuery) else event
+        return (
+            isinstance(msg, Message)
+            and msg.chat.type == ChatType.PRIVATE
+            and msg.chat.id == event_from_user.id
+            and settings.is_admin(event_from_user.id)
+        )
