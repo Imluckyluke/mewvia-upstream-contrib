@@ -339,3 +339,72 @@ async def test_stale_move_callback_uses_server_board(
     # The move landed on cell 2 of the *server* board, not on a fresh board.
     assert state["board"][2] == "X"
     assert state["board"][0] == "X" and state["board"][3] == "O"
+
+
+@pytest.mark.asyncio
+async def test_private_gol_three_rounds_and_leaderboard(
+    session: AsyncSession, app_dispatcher: object
+) -> None:
+    """Private 1-player Gol: 3 rounds, one point each, both leaderboards updated."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiogram.enums import ChatType
+    from aiogram.types import Chat, Message, User as TgUser
+
+    from app.callbacks import GameCB
+    from app.db.repo.group_game import GroupGameRepo
+    from app.db.repo.user import UserRepo
+    from app.features.games.router import (
+        _load_pgol,
+        cb_gol_leaderboard,
+        cb_private_gol_guess,
+        cb_private_gol_next,
+        cb_private_gol_start,
+    )
+
+    chat = Chat(id=-777002, type=ChatType.PRIVATE)
+    user = TgUser(id=777002, is_bot=False, first_name="سحر")
+    await UserRepo(session).upsert_from_telegram(user)
+
+    msg = MagicMock(spec=Message)
+    msg.chat = chat
+    msg.message_id = 556
+    msg.edit_text = AsyncMock()
+
+    class Q:
+        def __init__(self, cb: GameCB) -> None:
+            self.from_user = user
+            self.message = msg
+            self.data = cb.pack()
+
+        async def answer(self, *a: object, **kw: object) -> None:
+            return None
+
+    await cb_private_gol_start(Q(GameCB(action="gol")), GameCB(action="gol"), session)  # type: ignore[arg-type]
+    st = await _load_pgol(chat.id, msg.message_id)
+    assert st is not None and st["round"] == 1 and st["owner"] == user.id
+
+    for n in (1, 2, 3):
+        st = await _load_pgol(chat.id, msg.message_id)
+        assert st is not None and st["round"] == n
+        side = st["gol_side"]
+        cb = GameCB(action="gol_guess", side=side)
+        await cb_private_gol_guess(Q(cb), cb, session)  # type: ignore[arg-type]
+        st = await _load_pgol(chat.id, msg.message_id)
+        assert st is not None and st["reveal"] is True and st["points"] == n
+        nxt = GameCB(action="gol_next")
+        await cb_private_gol_next(Q(nxt), nxt, session)  # type: ignore[arg-type]
+
+    st = await _load_pgol(chat.id, msg.message_id)
+    assert st is not None and st["finished"] and st["result"] == "win" and st["points"] == 3
+
+    from app.db.repo.game import GameRepo
+
+    gstat = await GameRepo(session).get_or_create(user.id)
+    assert gstat.wins == 1
+    pstat = await GroupGameRepo(session).get_or_create(0, "gol", user.id)
+    assert pstat.wins == 1
+
+    lb = GameCB(action="gol_lb")
+    await cb_gol_leaderboard(Q(lb), lb, session)  # type: ignore[arg-type]
+    assert msg.edit_text.await_count >= 1

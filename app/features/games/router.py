@@ -6,8 +6,9 @@ import asyncio
 import contextlib
 import html
 import json
+import random
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -19,9 +20,11 @@ from app.cache.redis import get_redis
 from app.callbacks import MenuCB, NoopCB
 from app.callbacks.game import GameCB
 from app.core.logging import get_logger
+from app.core.units import fa_digits
 from app.db.models.game_stat import GameStat
 from app.db.models.user import User
 from app.db.repo.game import GameRepo
+from app.db.repo.group_game import GroupGameRepo
 from app.db.repo.user import UserRepo
 from app.features.games.leagues import format_league_progress_bar, get_league
 from app.features.games.xo_engine import (
@@ -103,6 +106,115 @@ async def drop_xo_session(chat_id: int, message_id: int) -> None:
         log.warning("xo_session_redis_delete_failed", error=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Gol ya Pooch (private, single player against the bot)
+# ---------------------------------------------------------------------------
+_PGOL_TTL = 2 * 60 * 60
+_PGOL_SESSIONS = FallbackCache(1024, _PGOL_TTL)
+_PGOL_ROUNDS = 3
+
+
+def _pgol_key(chat_id: int, message_id: int) -> str:
+    return f"mewvia:pgol:{chat_id}:{message_id}"
+
+
+async def _load_pgol(chat_id: int, message_id: int) -> dict[str, Any] | None:
+    key = _pgol_key(chat_id, message_id)
+    try:
+        raw = await get_redis().get(key)
+        if raw:
+            data: dict[str, Any] = json.loads(raw)
+            return data
+    except Exception as exc:
+        log.warning("pgol_session_redis_get_failed", error=str(exc))
+    return _PGOL_SESSIONS.get(key)
+
+
+async def _save_pgol(chat_id: int, message_id: int, payload: dict[str, Any]) -> None:
+    key = _pgol_key(chat_id, message_id)
+    try:
+        await get_redis().set(key, json.dumps(payload), ex=_PGOL_TTL)
+        _PGOL_SESSIONS.discard(key)
+    except Exception as exc:
+        log.warning("pgol_session_redis_set_failed", error=str(exc))
+        _PGOL_SESSIONS.put(key, payload)
+
+
+async def _drop_pgol(chat_id: int, message_id: int) -> None:
+    key = _pgol_key(chat_id, message_id)
+    _PGOL_SESSIONS.discard(key)
+    try:
+        await get_redis().delete(key)
+    except Exception as exc:
+        log.warning("pgol_session_redis_delete_failed", error=str(exc))
+
+
+def _render_pgol(state: dict[str, Any], registry: EmojiRegistry) -> tuple[str, Any]:
+    round_no = int(state.get("round", 1))
+    points = int(state.get("points", 0))
+    finished = bool(state.get("finished"))
+    reveal = bool(state.get("reveal"))
+
+    lines = [
+        f"{em('fist')} <b>گل یا پوچ — تک نفره</b>",
+        f"نوبت <b>{fa_digits(str(round_no))}</b> از {fa_digits(str(_PGOL_ROUNDS))}",
+        f"امتیاز você: <b>{fa_digits(str(points))}</b>",
+    ]
+    kb = KB(registry)
+    if finished:
+        result = state.get("result", "draw")
+        if result == "win":
+            lines.append(f"\n🎉 <b>برنده شدی!</b> {registry.text('trophy')}")
+        elif result == "loss":
+            lines.append("\n😔 باختی — دفعه بعد گل رو پیدا میکنی.")
+        else:
+            lines.append("\n🤝 مساوی!")
+        lines.append(f"\nنتیجه نهایی: <b>{points}</b> از {_PGOL_ROUNDS}")
+        kb.button(
+            "بازی دوباره",
+            callback_data=GameCB(action="gol").pack(),
+            style=Style.CONFIRM,
+            emoji_slot="refresh",
+        )
+        kb.button(
+            "جدول گل یا پوچ",
+            callback_data=GameCB(action="gol_lb").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="fist",
+        )
+        kb.adjust(1, 1)
+    elif reveal:
+        side = state.get("gol_side", "left")
+        good = state.get("last_correct", False)
+        lines.append(
+            f"\n{registry.text('ok') if good else registry.text('error')} "
+            f"گل تو دست <b>{'چپ' if side == 'left' else 'راست'}</b> بود!"
+        )
+        kb.button(
+            "نوبت بعدی",
+            callback_data=GameCB(action="gol_next").pack(),
+            style=Style.CONFIRM,
+            emoji_slot="next",
+        )
+        kb.adjust(1)
+    else:
+        lines.append(f"\n{em('gol_ball')} گل تو کدوم مشته؟")
+        kb.button(
+            "دست چپ",
+            callback_data=GameCB(action="gol_guess", side="left").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="fist",
+        )
+        kb.button(
+            "دست راست",
+            callback_data=GameCB(action="gol_guess", side="right").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="fist",
+        )
+        kb.adjust(2)
+    return "\n".join(lines), kb.as_markup()
+
+
 async def ready_registry() -> EmojiRegistry:
     registry = get_emoji_registry()
     await registry.refresh_premium_flag()
@@ -147,7 +259,13 @@ def render_games_hub(
         style=Style.CONFIRM,
         emoji_slot="game",
     )
-    kb.adjust(1)
+    kb.button(
+        "گل یا پوچ (تک نفره)",
+        callback_data=GameCB(action="gol").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="fist",
+    )
+    kb.adjust(1, 1)
 
     # Row 2: Competition
     kb.button(
@@ -178,7 +296,7 @@ def render_games_hub(
         style=Style.NEUTRAL,
         emoji_slot="back",
     )
-    kb.adjust(1, 2, 1, 1)
+    kb.adjust(1, 1, 2, 1, 1)
 
     return text, kb.as_markup()
 
@@ -411,6 +529,12 @@ def render_leaderboard(
         callback_data=GameCB(action="profile").pack(),
         style=Style.PRIMARY,
         emoji_slot="medal",
+    )
+    kb.button(
+        "جدول گل یا پوچ",
+        callback_data=GameCB(action="gol_lb").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="fist",
     )
     kb.button(
         "مرکز بازی‌ها",
@@ -818,3 +942,177 @@ feature = register(
         order=140,
     )
 )
+
+
+@router.callback_query(GameCB.filter(F.action == "gol"))
+async def cb_private_gol_start(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
+    if not isinstance(query.message, Message) or not query.from_user:
+        return
+    if query.message.chat.type != ChatType.PRIVATE:
+        await query.answer("این بازی فقط در پیوی است.", show_alert=True)
+        return
+    state = {
+        "round": 1,
+        "points": 0,
+        "gol_side": random.choice(("left", "right")),
+        "reveal": False,
+        "finished": False,
+        "last_correct": False,
+        "owner": query.from_user.id,
+    }
+    await _save_pgol(query.message.chat.id, query.message.message_id, state)
+    registry = await ready_registry()
+    text, kb = _render_pgol(state, registry)
+    await query.message.edit_text(text, reply_markup=kb)
+    await query.answer("👊 گل یا پوچ شروع شد!")
+
+
+@router.callback_query(GameCB.filter(F.action == "gol_guess"))
+async def cb_private_gol_guess(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
+    if not isinstance(query.message, Message) or not query.from_user:
+        return
+    if query.message.chat.type != ChatType.PRIVATE:
+        await query.answer()
+        return
+    state = await _load_pgol(query.message.chat.id, query.message.message_id)
+    if not state or state.get("finished") or state.get("reveal"):
+        await query.answer("این بازی تمام شده یا نوبت دیگهای است.", show_alert=True)
+        return
+    if state.get("owner") != query.from_user.id:
+        await query.answer("فقط بازیکن بازی میتواند حدس بزند.", show_alert=True)
+        return
+    side = callback_data.side
+    if side not in ("left", "right"):
+        return
+    correct = side == state.get("gol_side")
+    state["last_correct"] = correct
+    state["reveal"] = True
+    if correct:
+        state["points"] = int(state.get("points", 0)) + 1
+    await _save_pgol(query.message.chat.id, query.message.message_id, state)
+    registry = await ready_registry()
+    text, kb = _render_pgol(state, registry)
+    await query.message.edit_text(text, reply_markup=kb)
+    await query.answer("🎉 درست!" if correct else "❌ پوچ بود!")
+
+
+@router.callback_query(GameCB.filter(F.action == "gol_next"))
+async def cb_private_gol_next(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
+    if not isinstance(query.message, Message) or not query.from_user:
+        return
+    if query.message.chat.type != ChatType.PRIVATE:
+        await query.answer()
+        return
+    state = await _load_pgol(query.message.chat.id, query.message.message_id)
+    if not state or not state.get("reveal") or state.get("finished"):
+        await query.answer("نوبت جدید آماده نیست.", show_alert=True)
+        return
+    if state.get("owner") != query.from_user.id:
+        await query.answer("فقط بازیکن بازی میتواند ادامه دهد.", show_alert=True)
+        return
+    round_no = int(state.get("round", 1))
+    if round_no < _PGOL_ROUNDS:
+        state.update(
+            {
+                "round": round_no + 1,
+                "gol_side": random.choice(("left", "right")),
+                "reveal": False,
+                "last_correct": False,
+            }
+        )
+        await _save_pgol(query.message.chat.id, query.message.message_id, state)
+        registry = await ready_registry()
+        text, kb = _render_pgol(state, registry)
+        await query.message.edit_text(text, reply_markup=kb)
+        await query.answer("👊 نوبت بعدی!")
+        return
+
+    # Finish — record into the global gol ladder (chat_id = 0) plus the
+    # ordinary ratings table so the existing leaderboard stays coherent.
+    points = int(state.get("points", 0))
+    outcome: Literal["win", "loss", "draw"] = (
+        "win" if points > _PGOL_ROUNDS / 2 else "loss" if points < _PGOL_ROUNDS / 2 else "draw"
+    )
+    uid = query.from_user.id
+    gstat = await GameRepo(session).get_or_create(uid)
+    gdelta = calculate_score_delta(outcome, "med", gstat.score, gstat.current_streak)
+    await GameRepo(session).record_result(uid, outcome, gdelta)
+    pstat = await GroupGameRepo(session).get_or_create(0, "gol", uid)
+    pdelta = calculate_score_delta(outcome, "med", pstat.score, pstat.current_streak)
+    await GroupGameRepo(session).record_result(0, "gol", uid, outcome, pdelta)
+    state.update({"finished": True, "result": outcome})
+    await _save_pgol(query.message.chat.id, query.message.message_id, state)
+    registry = await ready_registry()
+    text, kb = _render_pgol(state, registry)
+    await query.message.edit_text(text, reply_markup=kb)
+    await query.answer("🏁 بازی تمام شد!")
+
+
+def render_gol_leaderboard(
+    user_id: int,
+    top_stats: Sequence[Any],
+    user_rank: int,
+    total_players: int,
+    registry: EmojiRegistry,
+) -> tuple[str, Any]:
+    lines = [
+        f"{em('fist')} <b>جدول گل یا پوچ — تک نفره</b>\\n",
+        " هر بازی ۳ نوبت، هر نوبت درست = ۱ امتیاز\\n",
+    ]
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    if not top_stats:
+        lines.append("<i>هنوز کسی بازی نکرده — اولین قهرمان باشید!</i>")
+    else:
+        for idx, s in enumerate(top_stats, start=1):
+            name = html.escape(s.user.full_name) if getattr(s, "user", None) else "بازیکن ناشناس"
+            rank_num = medals.get(idx, f"{idx}.")
+            lines.append(
+                f"{rank_num} <b>{name}</b> — "
+                f"<b>{s.score:,}</b> امتیاز [برد: {s.wins} | باخت: {s.losses}]"
+            )
+    lines.append("\\n──────────────")
+    lines.append(f"{em('pin')} <b>رتبه شما:</b> #{user_rank} از {max(1, total_players):,} بازیکن")
+    kb = KB(registry)
+    kb.button(
+        "بازی گل یا پوچ",
+        callback_data=GameCB(action="gol").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="fist",
+    )
+    kb.button(
+        "جدول دوز (XO)",
+        callback_data=GameCB(action="lb").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="trophy",
+    )
+    kb.button(
+        "مرکز بازیها",
+        callback_data=GameCB(action="menu").pack(),
+        style=Style.NEUTRAL,
+        emoji_slot="back",
+    )
+    kb.adjust(1, 1, 1)
+    return "\\n".join(lines), kb.as_markup()
+
+
+@router.callback_query(GameCB.filter(F.action == "gol_lb"))
+async def cb_gol_leaderboard(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
+    if not isinstance(query.message, Message) or not query.from_user:
+        return
+    repo = GroupGameRepo(session)
+    top = await repo.leaderboard(0, "gol", 10)
+    uid = query.from_user.id
+    rank = await repo.rank(0, "gol", uid)
+    total = await repo.total_players(0, "gol")
+    registry = await ready_registry()
+    text, kb = render_gol_leaderboard(uid, top, rank, total, registry)
+    await query.message.edit_text(text, reply_markup=kb)
+    await query.answer()

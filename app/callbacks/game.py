@@ -20,6 +20,9 @@ class GameCB(CallbackData, prefix="gm"):
     b: str = "_________"
     """Board state string: 9 chars composed of _, X, O"""
 
+    side: str = ""
+    """Gol ya Pooch: left/right."""
+
 
 class GroupGameCB(CallbackData, prefix="gg"):
     """Group lobby / multiplayer game callbacks.

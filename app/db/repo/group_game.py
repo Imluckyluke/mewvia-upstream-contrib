@@ -77,6 +77,13 @@ class GroupGameRepo:
         )
         return (await self.session.execute(stmt)).scalars().all()
 
+    async def total_players(self, chat_id: int, game_type: str) -> int:
+        stmt = select(func.count(GroupGameStat.telegram_id)).where(
+            GroupGameStat.chat_id == chat_id,
+            GroupGameStat.game_type == game_type,
+        )
+        return int((await self.session.execute(stmt)).scalar() or 0)
+
     async def rank(self, chat_id: int, game_type: str, telegram_id: int) -> int:
         stat = await self.get_or_create(chat_id, game_type, telegram_id)
         higher = (

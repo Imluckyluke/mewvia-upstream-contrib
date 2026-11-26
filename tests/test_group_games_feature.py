@@ -206,11 +206,11 @@ async def test_group_game_panel_blocks_other_owners_except_join_and_move() -> No
         q.answer = AsyncMock()
         return q
 
-    for action in ("start", "cancel", "lb", "lobby"):
+    for action in ("start", "cancel", "lb", "lobby", "gol_next"):
         result = await guard(handler, make_query(other, action), {})  # type: ignore[arg-type]
         assert result is None, f"{action} must be blocked for non-owner"
 
-    for action in ("join", "move"):
+    for action in ("join", "move", "gol_guess"):
         result = await guard(handler, make_query(other, action), {})  # type: ignore[arg-type]
         assert result == "passed", f"{action} must stay reachable"
 

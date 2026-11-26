@@ -152,6 +152,7 @@ EMOJI_SLOTS: tuple[SlotDef, ...] = (
     SlotDef("down", "کاهش / پایین", "🔻", 416),
     SlotDef("label", "برچسب / لقب", "🏷", 435),
     SlotDef("shield", "سپر / حاشیه امن", "🛡", 417),
+    SlotDef("gol_ball", "گل (شی مخفی)", "🎾", 418),
     SlotDef("eye", "چشم / پیشنمایش", "👁", 437),
     SlotDef("check", "تیک", "✓", 438),
     SlotDef("question", "علامت سوال", "❓", 439),

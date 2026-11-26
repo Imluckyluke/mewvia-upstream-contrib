@@ -150,7 +150,7 @@ class GroupPanelGuardMiddleware(BaseMiddleware):
         # Group game panels are owned by whoever opened them. «ورود به بازی»
         # must stay open to everyone, and «move» is allowed here because the
         # game handler itself enforces whose turn it is.
-        if prefix == "gg" and action in {"join", "move"}:
+        if prefix == "gg" and action in {"join", "move", "gol_guess"}:
             return await handler(event, data)
 
         owner_id = panel.get("owner_id")
