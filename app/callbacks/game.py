@@ -19,3 +19,14 @@ class GameCB(CallbackData, prefix="gm"):
 
     b: str = "_________"
     """Board state string: 9 chars composed of _, X, O"""
+
+
+class GroupGameCB(CallbackData, prefix="gg"):
+    """Group lobby / multiplayer game callbacks.
+
+    action: lobby, join, start, move, lb, cancel, refresh
+    """
+
+    action: str
+    game: str = "xo"
+    cell: int = -1

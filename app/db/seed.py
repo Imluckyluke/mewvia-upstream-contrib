@@ -153,6 +153,7 @@ SETTINGS: tuple[SettingDef, ...] = (
     SettingDef("daily_quota", "0", "سهمیه تبدیل روزانه هر کاربر (۰ = بی‌نهایت)"),
     SettingDef("loading_gifs", "[]", "لیست گیف‌های لودینگ برای نوار پیشرفت"),
     SettingDef("loading_gifs_enabled", "true", "فعال بودن گیف‌های متحرک لودینگ"),
+    SettingDef("games_group_enabled", "false", "فعال بودن بازیها در گروهها (چندنفره)"),
 )
 
 #: Keys whose runtime value must stay in sync with the env-provided default on

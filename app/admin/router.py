@@ -800,7 +800,9 @@ async def render_settings_panel() -> tuple[str, KB]:
     maintenance = await store.get_bool("maintenance", False)
     quota = await store.get_int("daily_quota", 0)
     cron = (await store.get("autobackup_cron", "")).strip()
+    group_games = await store.get_bool("games_group_enabled", False)
 
+    group_icon = "🟢 روشن" if group_games else "🔴 خاموش"
     maint_icon = "🟢 روشن" if maintenance else "🔴 خاموش"
     quota_text = f"{fa_digits(str(quota))} تبدیل/روز" if quota > 0 else "نامحدود ♾️"
     cron_text = cron if cron else "خاموش"
@@ -810,6 +812,7 @@ async def render_settings_panel() -> tuple[str, KB]:
         f"• حالت تعمیر: <b>{maint_icon}</b>\n"
         f"• سهمیه روزانه هر کاربر: <b>{quota_text}</b>\n"
         f"• بکاپ خودکار: <b><code>{cron_text}</code></b>\n"
+        f"• بازیها در گروه: <b>{group_icon}</b>\n"
         "<i>(کرون مثل 0 4 * * * یعنی هر شب ساعت ۴ — خالی = خاموش)</i>"
     )
 
@@ -820,6 +823,15 @@ async def render_settings_panel() -> tuple[str, KB]:
             callback_data="admin_settings:toggle_maintenance",
             style=Style.CONFIRM if not maintenance else Style.DESTRUCTIVE,
             emoji_slot="tool",
+            registry=registry,
+        ),
+    )
+    kb.row(
+        inline_button(
+            f"بازیها در گروه: {group_icon}",
+            callback_data="admin_settings:toggle_group_games",
+            style=Style.CONFIRM if not group_games else Style.DESTRUCTIVE,
+            emoji_slot="game",
             registry=registry,
         ),
     )
@@ -889,6 +901,15 @@ async def admin_toggle_maintenance(query: CallbackQuery) -> None:
     new_value = await store.toggle("maintenance")
     log.info("maintenance_toggled", enabled=new_value)
     await query.answer("حالت تعمیر روشن شد 🔧" if new_value else "حالت تعمیر خاموش شد ✅")
+    await _show_settings(query)
+
+
+@router.callback_query(F.data == "admin_settings:toggle_group_games", IsAdmin())
+async def admin_toggle_group_games(query: CallbackQuery) -> None:
+    store = get_settings_store()
+    new_value = await store.toggle("games_group_enabled")
+    log.info("group_games_toggled", enabled=new_value)
+    await query.answer("بازیهای گروهی روشن شد 🎮" if new_value else "بازیهای گروهی خاموش شد ✅")
     await _show_settings(query)
 
 
