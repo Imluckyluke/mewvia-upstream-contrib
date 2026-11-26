@@ -238,3 +238,85 @@ def test_games_category_contains_only_game_slots() -> None:
     assert "handshake" in names and "bot_robot" in names
     # Generic UI icons must not pollute the games category.
     assert "calendar" not in names and "reddit" not in names and "settings" not in names
+
+
+@pytest.mark.asyncio
+async def test_gol_ya_pooch_three_rounds(session: AsyncSession, app_dispatcher: object) -> None:
+    """Three rounds, two players, one point per correct guess, ratings recorded."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiogram.enums import ChatType
+    from aiogram.types import Chat, Message, User as TgUser
+
+    from app.callbacks import GroupGameCB
+    from app.db.repo.group_game import GroupGameRepo
+    from app.db.repo.user import UserRepo
+    from app.features.games import group_session
+    from app.features.games.group_router import cb_gol_guess, cb_gol_next, cb_start
+
+    chat = Chat(id=CHAT_ID - 1, type=ChatType.SUPERGROUP)
+    p1 = TgUser(id=ALICE + 10, is_bot=False, first_name="علی")
+    p2 = TgUser(id=BOB + 10, is_bot=False, first_name="مریم")
+    for u in (p1, p2):
+        await UserRepo(session).upsert_from_telegram(u)
+
+    msg = MagicMock(spec=Message)
+    msg.chat = chat
+    msg.message_id = 700
+    msg.edit_text = AsyncMock()
+
+    class Q:
+        def __init__(self, user: TgUser, cb: GroupGameCB) -> None:
+            self.from_user = user
+            self.message = msg
+            self.data = cb.pack()
+
+        async def answer(self, *a: object, **kw: object) -> None:
+            return None
+
+    cid = chat.id
+    await group_session.drop(cid)
+    await group_session.save(
+        cid,
+        {
+            "game": "gol",
+            "status": "lobby",
+            "host": p1.id,
+            "players": [
+                {"id": p1.id, "name": p1.full_name},
+                {"id": p2.id, "name": p2.full_name},
+            ],
+        },
+    )
+
+    await cb_start(Q(p1, GroupGameCB(action="start", game="gol")), session)  # type: ignore[arg-type]
+    state = await group_session.load(cid)
+    assert state is not None and state["round"] == 1
+    assert state["gol_side"] in ("left", "right")
+
+    for round_no in (1, 2, 3):
+        state = await group_session.load(cid)
+        assert state is not None and state["round"] == round_no
+        side = state["gol_side"]
+        wrong = "right" if side == "left" else "left"
+        await cb_gol_guess(
+            Q(p1, GroupGameCB(action="gol_guess", game="gol", side=side)),  # type: ignore[arg-type]
+            GroupGameCB(action="gol_guess", game="gol", side=side),
+            session,
+        )
+        await cb_gol_guess(
+            Q(p2, GroupGameCB(action="gol_guess", game="gol", side=wrong)),  # type: ignore[arg-type]
+            GroupGameCB(action="gol_guess", game="gol", side=wrong),
+            session,
+        )
+        state = await group_session.load(cid)
+        assert state is not None and state.get("reveal") is True
+        assert state["points"][str(p1.id)] == round_no
+
+        await cb_gol_next(Q(p1, GroupGameCB(action="gol_next", game="gol")), session)  # type: ignore[arg-type]
+
+    stat = await GroupGameRepo(session).get_or_create(cid, "gol", p1.id)
+    assert stat.wins == 1
+    stat2 = await GroupGameRepo(session).get_or_create(cid, "gol", p2.id)
+    assert stat2.losses == 1
+    await group_session.drop(cid)

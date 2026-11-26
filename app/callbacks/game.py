@@ -30,3 +30,4 @@ class GroupGameCB(CallbackData, prefix="gg"):
     action: str
     game: str = "xo"
     cell: int = -1
+    side: str = ""

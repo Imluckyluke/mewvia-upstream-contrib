@@ -10,6 +10,7 @@ per group+game, so later games get their own ladder automatically.
 from __future__ import annotations
 
 import html
+import random
 from typing import Any, Literal
 
 from aiogram import F, Router
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.callbacks import GroupGameCB
 from app.core.logging import get_logger
 from app.core.settings_store import get_settings_store
+from app.core.units import fa_digits
 from app.db.models.user import User
 from app.db.repo.game import GameRepo
 from app.db.repo.group_game import GroupGameRepo
@@ -39,9 +41,14 @@ log = get_logger(__name__)
 router = Router(name="games_group")
 
 GAMES_GROUP_SETTING = "games_group_enabled"
-SUPPORTED_GAMES = {"xo": "دوز (XO)"}
-PLAYERS_PER_GAME = {"xo": 2}
-COMMANDS = frozenset({"game", "games", "بازی", "بازی_گروهی", "game_lb", "lb", "لیدربرد"})
+SUPPORTED_GAMES = {"xo": "دوز (XO)", "gol": "گل یا پوچ"}
+PLAYERS_PER_GAME = {"xo": 2, "gol": 2}
+COMMANDS = frozenset({
+    "game", "games", "بازی", "بازی_گروهی",
+    "game_gol", "گل_یا_پوچ",
+    "game_lb", "lb", "لیدربرد",
+})
+GOL_ROUNDS = 3
 Outcome = Literal["win", "loss", "draw"]
 
 
@@ -242,9 +249,10 @@ async def cmd_group_game(
             await _lock_panel(sent, owner_id, owner_name)
         return
 
+    game_type = "gol" if command in {"game_gol", "گل_یا_پوچ"} else "xo"
     user = await UserRepo(session).upsert_from_telegram(message.from_user)
     lobby: dict[str, Any] = {
-        "game": "xo",
+        "game": game_type,
         "status": "lobby",
         "host": user.telegram_id,
         "players": [{"id": user.telegram_id, "name": user.full_name}],
@@ -364,11 +372,28 @@ async def cb_start(query: CallbackQuery, session: AsyncSession) -> None:
     if len(state.get("players", [])) < need:
         await query.answer("هنوز بازیکن کافی وارد نشده است.", show_alert=True)
         return
+    registry = await _registry()
+    if game == "gol":
+        state.update(
+            {
+                "status": "playing",
+                "round": 1,
+                "gol_side": random.choice(("left", "right")),
+                "guesses": {},
+                "points": {str(p["id"]): 0 for p in state["players"]},
+                "finished": False,
+            }
+        )
+        await group_session.save(chat_id, state)
+        text, kb = await _render_gol(state, registry)
+        await query.message.edit_text(text, reply_markup=kb)
+        await query.answer("👊 گل یا پوچ شروع شد!")
+        return
+
     state.update(
         {"status": "playing", "board": "_" * 9, "turn": 0, "finished": False}
     )
     await group_session.save(chat_id, state)
-    registry = await _registry()
     text, kb = await _render_board(state, registry)
     await query.message.edit_text(text, reply_markup=kb)
     await query.answer("🎮 بازی شروع شد!")
@@ -482,3 +507,176 @@ async def cb_cancel(query: CallbackQuery) -> None:
         reply_markup=KB(registry).as_markup(),
     )
     await query.answer("لغو شد.")
+
+
+# ---------------------------------------------------------------------------
+# Gol ya Pooch — three simple rounds, no extra stages
+# ---------------------------------------------------------------------------
+
+
+async def _render_gol(state: dict[str, Any], registry: EmojiRegistry) -> tuple[str, Any]:
+    players: list[dict[str, Any]] = state["players"]
+    round_no = int(state.get("round", 1))
+    points: dict[str, int] = state.get("points", {})
+    guesses: dict[str, str] = state.get("guesses", {})
+    reveal = bool(state.get("reveal"))
+
+    lines = [
+        f"{registry.text('game')} <b>گل یا پوچ — دو نفره</b>",
+        f"نوبت <b>{fa_digits(str(round_no))}</b> از {fa_digits(str(GOL_ROUNDS))}",
+        "",
+        f"{_name(players[0])}: <b>{points.get(str(players[0]['id']), 0)}</b> امتیاز",
+        f"{_name(players[1])}: <b>{points.get(str(players[1]['id']), 0)}</b> امتیاز",
+    ]
+
+    kb = KB(registry)
+    if reveal:
+        side = state.get("gol_side", "left")
+        label = "چپ" if side == "left" else "راست"
+        lines.extend(["", f"🎯 گل تو دست <b>{label}</b> بود!", ""])
+        for pid, guess in guesses.items():
+            name = next((p["name"] for p in players if str(p["id"]) == pid), "بازیکن")
+            mark = registry.text("ok") if guess == side else registry.text("error")
+            lines.append(f"{mark} {_name({'name': name})} — {guess}")
+        kb.button(
+            "نوبت بعدی" if round_no < GOL_ROUNDS else "نتیجه نهایی",
+            callback_data=GroupGameCB(action="gol_next", game="gol").pack(),
+            style=Style.CONFIRM,
+            emoji_slot="next",
+        )
+    else:
+        lines.extend(["", "گل تو کدوم مشته؟", ""])
+        kb.button(
+            "👊 دست چپ",
+            callback_data=GroupGameCB(action="gol_guess", game="gol", side="left").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="fist",
+        )
+        kb.button(
+            "👊 دست راست",
+            callback_data=GroupGameCB(action="gol_guess", game="gol", side="right").pack(),
+            style=Style.PRIMARY,
+            emoji_slot="fist",
+        )
+        if guesses:
+            lines.append("\n⏳ منتظر حدس بازیکن دوم…")
+    kb.adjust(2, 1)
+    return "\n".join(lines), kb.as_markup()
+
+
+@router.callback_query(GroupGameCB.filter(F.action == "gol_guess"))
+async def cb_gol_guess(
+    query: CallbackQuery, callback_data: GroupGameCB, session: AsyncSession
+) -> None:
+    if not isinstance(query.message, Message) or not query.from_user:
+        return
+    chat_id = query.message.chat.id
+    state = await group_session.load(chat_id)
+    if not state or state.get("status") != "playing" or state.get("game") != "gol":
+        await query.answer("بازی تمام شده است.", show_alert=True)
+        return
+    if state.get("reveal"):
+        await query.answer("این نوبت تمام شده است.")
+        return
+    pid = str(query.from_user.id)
+    if pid not in {str(p["id"]) for p in state.get("players", [])}:
+        await query.answer("شما بازیکن این بازی نیستید.", show_alert=True)
+        return
+    guesses: dict[str, str] = state.setdefault("guesses", {})
+    if pid in guesses:
+        await query.answer("شما absthya حدس زدید.")
+        return
+    side = callback_data.side
+    if side not in ("left", "right"):
+        return
+    guesses[pid] = side
+    points: dict[str, int] = state.setdefault("points", {})
+    if side == state.get("gol_side"):
+        points[pid] = points.get(pid, 0) + 1
+        await query.answer("🎉 درست حدس زدی! +۱ امتیاز")
+    else:
+        await query.answer("❌ پوچ بود!")
+    if len(guesses) >= 2:
+        state["reveal"] = True
+    await group_session.save(chat_id, state)
+    registry = await _registry()
+    text, kb = await _render_gol(state, registry)
+    await query.message.edit_text(text, reply_markup=kb)
+
+
+@router.callback_query(GroupGameCB.filter(F.action == "gol_next"))
+async def cb_gol_next(
+    query: CallbackQuery, session: AsyncSession
+) -> None:
+    if not isinstance(query.message, Message) or not query.from_user:
+        return
+    chat_id = query.message.chat.id
+    state = await group_session.load(chat_id)
+    if not state or not state.get("reveal"):
+        await query.answer("نوبت جدید آماده نیست.", show_alert=True)
+        return
+    round_no = int(state.get("round", 1))
+    if round_no < GOL_ROUNDS:
+        state.update(
+            {
+                "round": round_no + 1,
+                "gol_side": random.choice(("left", "right")),
+                "guesses": {},
+                "reveal": False,
+            }
+        )
+        await group_session.save(chat_id, state)
+        registry = await _registry()
+        text, kb = await _render_gol(state, registry)
+        await query.message.edit_text(text, reply_markup=kb)
+        await query.answer("👊 نوبت بعدی!")
+        return
+
+    # Finished — write ratings to both the global and the per-group tables.
+    players: list[dict[str, Any]] = state["players"]
+    points: dict[str, int] = state.get("points", {})
+    a, b = str(players[0]["id"]), str(players[1]["id"])
+    pa, pb = points.get(a, 0), points.get(b, 0)
+    if pa == pb:
+        outcomes: dict[int, Outcome] = {players[0]["id"]: "draw", players[1]["id"]: "draw"}
+    elif pa > pb:
+        outcomes = {players[0]["id"]: "win", players[1]["id"]: "loss"}
+    else:
+        outcomes = {players[0]["id"]: "loss", players[1]["id"]: "win"}
+
+    global_repo = GameRepo(session)
+    group_repo = GroupGameRepo(session)
+    deltas: dict[str, int] = {}
+    for pid, outcome in outcomes.items():
+        gstat = await global_repo.get_or_create(pid)
+        gdelta = calculate_score_delta(outcome, "med", gstat.score, gstat.current_streak)
+        await global_repo.record_result(pid, outcome, gdelta)
+        pstat = await group_repo.get_or_create(chat_id, "gol", pid)
+        pdelta = calculate_score_delta(outcome, "med", pstat.score, pstat.current_streak)
+        await group_repo.record_result(chat_id, "gol", pid, outcome, pdelta)
+        deltas[str(pid)] = pdelta
+
+    winner = players[0] if pa > pb else players[1] if pb > pa else None
+    registry = await _registry()
+    lines = [
+        f"{registry.text('trophy')} <b>پایان گل یا پوچ</b>",
+        f"{_name(players[0])}: <b>{pa}</b> | {_name(players[1])}: <b>{pb}</b>",
+    ]
+    if winner:
+        lines.append(f"\n🎉 برنده: <b>{_name(winner)}</b>")
+    else:
+        lines.append("\n🤝 مساوی!")
+    lines.append(
+        f"\nامتیاز ریتینگ: {_name(players[0])} "
+        f"<b>{deltas[a]:+,}</b> | {_name(players[1])} <b>{deltas[b]:+,}</b>"
+    )
+    kb = KB(registry)
+    kb.button(
+        "جدول گروه",
+        callback_data=GroupGameCB(action="lb", game="gol").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="trophy",
+    )
+    await query.message.edit_text("\n".join(lines), reply_markup=kb.as_markup())
+    await group_session.drop(chat_id)
+    await query.answer("🏁 بازی تمام شد!")

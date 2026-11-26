@@ -47,6 +47,7 @@ GROUP_BOT_COMMANDS = [
     BotCommand(command="music", description="جستجوی مستقیم موزیک (اسپاتیفای و ساندکلاد)"),
     BotCommand(command="shazam", description="تشخیص آهنگ (ریپلای روی ویس یا ویدیو)"),
     BotCommand(command="game", description="شروع بازی گروهی (دوز، دو نفره)"),
+    BotCommand(command="game_gol", description="گل یا پوچ — سه نوبت، دو نفره"),
     BotCommand(command="game_lb", description="جدول بازی در این گروه"),
 ]
 

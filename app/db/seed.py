@@ -169,6 +169,7 @@ EMOJI_SLOTS: tuple[SlotDef, ...] = (
     SlotDef("check_mark", "تیک سبز", "✔", 451),
     SlotDef("reddit", "ردیت", "🟧", 452),
     SlotDef("facebook", "فیسبوک", "🔷", 453),
+    SlotDef("fist", "مشت / گل یا پوچ", "👊", 454),
 )
 
 
