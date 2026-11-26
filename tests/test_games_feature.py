@@ -294,3 +294,48 @@ def test_difficulty_callback_renders_picker() -> None:
     cb = GameCB(action="diff")
     assert cb.action == "diff"
     assert GameCB(action="xo", diff="hard").diff == "hard"
+
+
+@pytest.mark.asyncio
+async def test_stale_move_callback_uses_server_board(
+    session: AsyncSession, app_dispatcher: object
+) -> None:
+    """A stale `b` in callback data must not raise the 'page changed' alert."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiogram.types import Message, User as TgUser
+
+    from app.callbacks import GameCB
+    from app.features.games.router import cb_handle_move, save_xo_session
+    from app.db.repo.user import UserRepo
+
+    chat = Chat(id=-777001, type=ChatType.PRIVATE)
+    user = TgUser(id=777001, is_bot=False, first_name="تستر")
+    await UserRepo(session).upsert_from_telegram(user)
+
+    msg = MagicMock(spec=Message)
+    msg.chat = chat
+    msg.message_id = 555
+    msg.edit_text = AsyncMock()
+
+    class Q:
+        from_user = user
+        message = msg
+
+        async def answer(self, *a: object, **kw: object) -> None:
+            return None
+
+    # Server board is mid-game; callback carries an invented/stale board.
+    await save_xo_session(chat.id, msg.message_id, "X__O_____", "med")
+    await cb_handle_move(
+        Q(),  # type: ignore[arg-type]
+        GameCB(action="move", cell=2, b="_________", diff="med"),
+        session,
+    )
+    state = await __import__(
+        "app.features.games.router", fromlist=["load_xo_session"]
+    ).load_xo_session(chat.id, msg.message_id)
+    assert state is not None
+    # The move landed on cell 2 of the *server* board, not on a fresh board.
+    assert state["board"][2] == "X"
+    assert state["board"][0] == "X" and state["board"][3] == "O"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import html
 import json
 from collections.abc import Sequence
@@ -49,6 +51,17 @@ _XO_SESSION_TTL = 2 * 60 * 60
 _XO_SESSION_CAP = 2048
 # Fallback store when Redis is unavailable (tests / local runs).
 _XO_SESSIONS = FallbackCache(_XO_SESSION_CAP, _XO_SESSION_TTL)
+# Serialise moves on the same board: a double-tap must not process two updates
+# against the same stale board.
+_move_locks: dict[str, asyncio.Lock] = {}
+
+
+def _move_lock(key: str) -> asyncio.Lock:
+    lock = _move_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _move_locks[key] = lock
+    return lock
 
 
 def _xo_key(chat_id: int, message_id: int) -> str:
@@ -592,9 +605,8 @@ async def cb_start_xo(
         user = await UserRepo(session).upsert_from_telegram(query.from_user)
         stat = await GameRepo(session).get_or_create(user.telegram_id)
         text, reply_markup = render_xo_board(user, stat, diff, "_" * 9, registry)
-        board_msg = await query.message.edit_text(text, reply_markup=reply_markup)
-        if isinstance(board_msg, Message):
-            await save_xo_session(query.message.chat.id, board_msg.message_id, "_" * 9, diff)
+        await query.message.edit_text(text, reply_markup=reply_markup)
+        await save_xo_session(query.message.chat.id, query.message.message_id, "_" * 9, diff)
     except Exception as exc:
         log.error("xo_board_start_failed", error=str(exc))
         await query.answer("⚠️ شروع بازی ناموفق بود. دوباره تلاش کنید.", show_alert=True)
@@ -608,134 +620,118 @@ async def cb_handle_move(
         return
 
     cell = callback_data.cell
-    board = callback_data.b
-    diff = callback_data.diff
-
-    # Validate the callback payload. The board lives in a server-side session:
-    # trusting `callback_data.b` let anyone fabricate an almost-won board and
-    # farm leaderboard points without ever playing.
-    if diff not in _VALID_DIFFS or len(board) != 9 or any(char not in "_XO" for char in board):
-        await query.answer("درخواست نامعتبر است.", show_alert=True)
-        return
-
     if not 0 <= cell <= 8:
         await query.answer("حرکت نامعتبر است.")
         return
 
-    if board[cell] != "_":
-        await query.answer("این خانه قبلاً انتخاب شده است!")
-        return
-
-    # Check if game already ended
-    w_now, _ = check_winner(board)
-    if w_now is not None:
-        await query.answer("بازی به پایان رسیده است.")
-        return
-
     chat_id = query.message.chat.id
     message_id = query.message.message_id
-    xo_state = await load_xo_session(chat_id, message_id)
-    if xo_state is None:
-        # Boards rendered before the server-side session existed (or games
-        # started from the inline menu) have no stored state. A pristine board
-        # is the only payload we can accept without verification.
-        if board != "_" * 9:
-            await query.answer(
-                "این بازی منقضی یا نامعتبر شده است. لطفاً از منوی بازی شروع کنید.",
-                show_alert=True,
-            )
+    async with _move_lock(f"{chat_id}:{message_id}"):
+        # The stored board is the only authority. `callback_data.b` is a hint
+        # from the button that was rendered; using it directly let a stale
+        # double-tap (or an edited message) produce the "page changed" alert.
+        xo_state = await load_xo_session(chat_id, message_id)
+        if xo_state is None:
+            # No authoritative state: a pristine board is the only payload we
+            # may accept. A fabricated almost-won board must still be rejected.
+            if callback_data.b != "_" * 9:
+                await query.answer(
+                    "این بازی منقضی یا نامعتبر شده است. لطفاً از منوی بازی شروع کنید.",
+                    show_alert=True,
+                )
+                return
+            board = "_" * 9
+            diff = callback_data.diff
+        else:
+            # A stale hint (double-tap / edited message) is ignored; the
+            # server's board is the sole authority, so no alert is needed.
+            board = str(xo_state.get("board", "_" * 9))
+            diff = str(xo_state.get("diff", callback_data.diff))
+        if diff not in _VALID_DIFFS:
+            diff = "med"
+        if len(board) != 9 or any(char not in "_XO" for char in board):
+            board = "_" * 9
+
+        winner_now, _ = check_winner(board)
+        if winner_now is not None:
+            await query.answer("بازی به پایان رسیده است.")
             return
-    elif xo_state.get("board") != board or xo_state.get("diff") != diff:
-        await query.answer("این حرکت معتبر نیست؛ صفحه بازی تغییر کرده است.", show_alert=True)
-        return
+        if board[cell] != "_":
+            await query.answer("این خانه قبلاً انتخاب شده است!")
+            return
 
-    user_repo = UserRepo(session)
-    user = await user_repo.upsert_from_telegram(query.from_user)
-    game_repo = GameRepo(session)
-    stat = await game_repo.get_or_create(user.telegram_id)
+        user_repo = UserRepo(session)
+        user = await user_repo.upsert_from_telegram(query.from_user)
+        game_repo = GameRepo(session)
+        stat = await game_repo.get_or_create(user.telegram_id)
 
-    # 1. Player move
-    b_list = list(board)
-    b_list[cell] = "X"
-    board_after_player = "".join(b_list)
+        b_list = list(board)
+        b_list[cell] = "X"
+        board_after_player = "".join(b_list)
 
-    # Check player win/draw
-    winner, _ = check_winner(board_after_player)
-    registry = await ready_registry()
-    old_score = stat.score
+        winner, _ = check_winner(board_after_player)
+        registry = await ready_registry()
+        old_score = stat.score
 
-    if winner == "X":
-        delta = calculate_score_delta("win", diff, stat.score, stat.current_streak)
-        stat = await game_repo.record_result(user.telegram_id, "win", delta)
-        await drop_xo_session(chat_id, message_id)
-        await query.answer("🎉 تبریک! برنده شدید!")
-        text, reply_markup = render_xo_board(
-            user, stat, diff, board_after_player, registry, "win", delta, old_score
-        )
-        try:
+        if winner == "X":
+            delta = calculate_score_delta("win", diff, stat.score, stat.current_streak)
+            stat = await game_repo.record_result(user.telegram_id, "win", delta)
+            await drop_xo_session(chat_id, message_id)
+            await query.answer("🎉 تبریک! برنده شدید!")
+            text, reply_markup = render_xo_board(
+                user, stat, diff, board_after_player, registry, "win", delta, old_score
+            )
+            with contextlib.suppress(Exception):
+                await query.message.edit_text(text, reply_markup=reply_markup)
+            return
+
+        if winner == "draw":
+            delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
+            stat = await game_repo.record_result(user.telegram_id, "draw", delta)
+            await drop_xo_session(chat_id, message_id)
+            await query.answer("🤝 بازی مساوی شد!")
+            text, reply_markup = render_xo_board(
+                user, stat, diff, board_after_player, registry, "draw", delta, old_score
+            )
+            with contextlib.suppress(Exception):
+                await query.message.edit_text(text, reply_markup=reply_markup)
+            return
+
+        bot_move = find_best_move(board_after_player, diff)
+        if bot_move != -1:
+            b_list[bot_move] = "O"
+        board_after_bot = "".join(b_list)
+        winner_bot, _ = check_winner(board_after_bot)
+
+        if winner_bot == "O":
+            delta = calculate_score_delta("loss", diff, stat.score, stat.current_streak)
+            stat = await game_repo.record_result(user.telegram_id, "loss", delta)
+            await drop_xo_session(chat_id, message_id)
+            await query.answer("🤖 میوویا برنده شد!")
+            text, reply_markup = render_xo_board(
+                user, stat, diff, board_after_bot, registry, "loss", delta, old_score
+            )
+            with contextlib.suppress(Exception):
+                await query.message.edit_text(text, reply_markup=reply_markup)
+            return
+
+        if winner_bot == "draw":
+            delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
+            stat = await game_repo.record_result(user.telegram_id, "draw", delta)
+            await drop_xo_session(chat_id, message_id)
+            await query.answer("🤝 بازی مساوی شد!")
+            text, reply_markup = render_xo_board(
+                user, stat, diff, board_after_bot, registry, "draw", delta, old_score
+            )
+            with contextlib.suppress(Exception):
+                await query.message.edit_text(text, reply_markup=reply_markup)
+            return
+
+        await save_xo_session(chat_id, message_id, board_after_bot, diff)
+        await query.answer()
+        text, reply_markup = render_xo_board(user, stat, diff, board_after_bot, registry, None, 0)
+        with contextlib.suppress(Exception):
             await query.message.edit_text(text, reply_markup=reply_markup)
-        except Exception:
-            pass
-        return
-
-    if winner == "draw":
-        delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
-        stat = await game_repo.record_result(user.telegram_id, "draw", delta)
-        await drop_xo_session(chat_id, message_id)
-        await query.answer("🤝 بازی مساوی شد!")
-        text, reply_markup = render_xo_board(
-            user, stat, diff, board_after_player, registry, "draw", delta, old_score
-        )
-        try:
-            await query.message.edit_text(text, reply_markup=reply_markup)
-        except Exception:
-            pass
-        return
-
-    # 2. Bot move
-    bot_move = find_best_move(board_after_player, diff)
-    if bot_move != -1:
-        b_list[bot_move] = "O"
-
-    board_after_bot = "".join(b_list)
-    winner_bot, _ = check_winner(board_after_bot)
-
-    if winner_bot == "O":
-        delta = calculate_score_delta("loss", diff, stat.score, stat.current_streak)
-        stat = await game_repo.record_result(user.telegram_id, "loss", delta)
-        await drop_xo_session(chat_id, message_id)
-        await query.answer("🤖 میوویا برنده شد!")
-        text, reply_markup = render_xo_board(
-            user, stat, diff, board_after_bot, registry, "loss", delta, old_score
-        )
-        try:
-            await query.message.edit_text(text, reply_markup=reply_markup)
-        except Exception:
-            pass
-        return
-
-    if winner_bot == "draw":
-        delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
-        stat = await game_repo.record_result(user.telegram_id, "draw", delta)
-        await drop_xo_session(chat_id, message_id)
-        await query.answer("🤝 بازی مساوی شد!")
-        text, reply_markup = render_xo_board(
-            user, stat, diff, board_after_bot, registry, "draw", delta, old_score
-        )
-        try:
-            await query.message.edit_text(text, reply_markup=reply_markup)
-        except Exception:
-            pass
-        return
-
-    # Still ongoing
-    await save_xo_session(chat_id, message_id, board_after_bot, diff)
-    await query.answer()
-    text, reply_markup = render_xo_board(user, stat, diff, board_after_bot, registry, None, 0)
-    try:
-        await query.message.edit_text(text, reply_markup=reply_markup)
-    except Exception:
-        pass
 
 
 @router.callback_query(GameCB.filter(F.action == "lb"))

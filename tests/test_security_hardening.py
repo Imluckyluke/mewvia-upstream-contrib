@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from aiogram.types import CallbackQuery, Chat, Document, Message
 from aiogram.types import User as TgUser
+from app.db.models.game_stat import GameStat
 from app.callbacks.game import GameCB
 from app.config import get_settings
 from app.features.downloader.router import _context_owner_mismatch
@@ -261,22 +262,38 @@ async def test_stale_xo_board_mismatch_is_rejected() -> None:
     async def fake_answer(self: object, text: str = "", show_alert: bool = False) -> None:
         answers.append(text)
 
-    stored = {"board": "_________", "diff": "easy"}
+    stored = {"board": "X__O_____", "diff": "easy"}
+    stat = GameStat(telegram_id=USER_ID, score=1000)
+    from app.db.models.user import User as DbUser
+
+    player = DbUser(telegram_id=USER_ID, first_name="Tester")
     with (
         patch.object(CallbackQuery, "answer", fake_answer),
         patch.object(games_router, "load_xo_session", AsyncMock(return_value=stored)),
+        patch.object(games_router, "save_xo_session", AsyncMock()),
+        patch.object(games_router, "drop_xo_session", AsyncMock()),
+        patch.object(
+            games_router,
+            "ready_registry",
+            AsyncMock(return_value=__import__(
+                "app.ui.emoji", fromlist=["EmojiRegistry"]
+            ).EmojiRegistry()),
+        ),
         patch.object(games_router, "UserRepo") as user_repo,
         patch.object(games_router, "GameRepo") as game_repo,
     ):
+        user_repo.return_value.upsert_from_telegram = AsyncMock(return_value=player)
+        game_repo.return_value.get_or_create = AsyncMock(return_value=stat)
+        game_repo.return_value.record_result = AsyncMock(return_value=stat)
         await games_router.cb_handle_move(
             query,
             GameCB(action="move", diff="easy", cell=1, b="X________"),
             AsyncMock(),
         )
 
-    assert answers and "تغییر کرده" in answers[0]
-    user_repo.assert_not_called()
-    game_repo.assert_not_called()
+    # A stale board hint is ignored: no "page changed" alert, and the move is
+    # applied to the authoritative server board instead of the fabricated one.
+    assert not any("تغییر کرده" in a for a in answers)
 
 
 async def test_group_command_addressed_to_other_bot_is_ignored() -> None:
