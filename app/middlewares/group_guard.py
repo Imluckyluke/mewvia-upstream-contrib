@@ -138,9 +138,18 @@ class GroupPanelGuardMiddleware(BaseMiddleware):
                 "vtool",
                 "vtool_action",
                 "spack_action",
+                "gg",
             }:
                 await query.answer("این پنل منقضی شده است؛ یک پنل جدید باز کنید.", show_alert=True)
                 return None
+            return await handler(event, data)
+
+        prefix = (query.data or "").partition(":")[0]
+        action = (query.data or "").split(":")[1] if ":" in (query.data or "") else ""
+        # Group game panels are owned by whoever opened them. «ورود به بازی»
+        # must stay open to everyone, and «move» is allowed here because the
+        # game handler itself enforces whose turn it is.
+        if prefix == "gg" and action in {"join", "move"}:
             return await handler(event, data)
 
         owner_id = panel.get("owner_id")

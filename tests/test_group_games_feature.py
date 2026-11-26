@@ -171,3 +171,48 @@ def test_group_command_menu_includes_games() -> None:
     names = {cmd.command for cmd in GROUP_BOT_COMMANDS}
     assert "game" in names
     assert "game_lb" in names
+
+
+@pytest.mark.asyncio
+async def test_group_game_panel_blocks_other_owners_except_join_and_move() -> None:
+    """A lobby opened by one user is locked to them; join stays public."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from aiogram.enums import ChatType
+    from aiogram.types import CallbackQuery, Chat, Message, User as TgUser
+
+    from app.callbacks import GroupGameCB
+    from app.middlewares.group_guard import GroupPanelGuardMiddleware, store_panel
+
+    chat = Chat(id=CHAT_ID, type=ChatType.SUPERGROUP)
+    opened_by = TgUser(id=ALICE, is_bot=False, first_name="علی")
+    other = TgUser(id=BOB, is_bot=False, first_name="مریم")
+
+    msg = MagicMock(spec=Message)
+    msg.chat = chat
+    msg.message_id = 42
+
+    await store_panel(CHAT_ID, 42, ALICE, "علی", kind="group_game")
+    guard = GroupPanelGuardMiddleware()
+
+    async def handler(event: object, data: object) -> str:
+        return "passed"
+
+    def make_query(user: TgUser, action: str) -> CallbackQuery:
+        q = MagicMock(spec=CallbackQuery)
+        q.from_user = user
+        q.message = msg
+        q.data = GroupGameCB(action=action, game="xo").pack()
+        q.answer = AsyncMock()
+        return q
+
+    for action in ("start", "cancel", "lb", "lobby"):
+        result = await guard(handler, make_query(other, action), {})  # type: ignore[arg-type]
+        assert result is None, f"{action} must be blocked for non-owner"
+
+    for action in ("join", "move"):
+        result = await guard(handler, make_query(other, action), {})  # type: ignore[arg-type]
+        assert result == "passed", f"{action} must stay reachable"
+
+    result = await guard(handler, make_query(opened_by, "start"), {})  # type: ignore[arg-type]
+    assert result == "passed"

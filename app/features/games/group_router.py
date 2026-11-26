@@ -29,6 +29,7 @@ from app.db.repo.group_game import GroupGameRepo
 from app.db.repo.user import UserRepo
 from app.features.games import group_session
 from app.features.games.xo_engine import calculate_score_delta, check_winner
+from app.middlewares.group_guard import store_panel
 from app.ui.emoji import EmojiRegistry, get_emoji_registry
 from app.ui.kb import KB
 from app.ui.styles import Style
@@ -42,6 +43,17 @@ SUPPORTED_GAMES = {"xo": "دوز (XO)"}
 PLAYERS_PER_GAME = {"xo": 2}
 COMMANDS = frozenset({"game", "games", "بازی", "بازی_گروهی", "game_lb", "lb", "لیدربرد"})
 Outcome = Literal["win", "loss", "draw"]
+
+
+async def _lock_panel(message: Message, owner_id: int, owner_name: str) -> None:
+    """Bind a group game panel to the user who opened it."""
+    await store_panel(
+        message.chat.id,
+        message.message_id,
+        owner_id,
+        owner_name,
+        kind="group_game",
+    )
 
 
 def _game_label(game: str) -> str:
@@ -202,18 +214,32 @@ async def cmd_group_game(
     command = (message.text or "").split()[0][1:].split("@")[0].lower()
 
     if command in {"game_lb", "lb", "لیدربرد"}:
-        await _show_leaderboard(message.chat.id, "xo", message.reply, session, registry)
+        await _show_leaderboard(
+            message.chat.id,
+            "xo",
+            message.reply,
+            session,
+            registry,
+            owner_id=message.from_user.id,
+            owner_name=message.from_user.full_name,
+        )
         return
 
     chat_id = message.chat.id
     existing = await group_session.load(chat_id)
+    owner_id = message.from_user.id
+    owner_name = message.from_user.full_name
     if existing and existing.get("status") == "playing":
         text, kb = await _render_board(existing, registry)
-        await message.reply(text, reply_markup=kb)
+        sent = await message.reply(text, reply_markup=kb)
+        if isinstance(sent, Message):
+            await _lock_panel(sent, owner_id, owner_name)
         return
     if existing and existing.get("status") == "lobby":
         text, kb = await _render_lobby(session, existing, registry)
-        await message.reply(text, reply_markup=kb)
+        sent = await message.reply(text, reply_markup=kb)
+        if isinstance(sent, Message):
+            await _lock_panel(sent, owner_id, owner_name)
         return
 
     user = await UserRepo(session).upsert_from_telegram(message.from_user)
@@ -225,7 +251,9 @@ async def cmd_group_game(
     }
     await group_session.save(chat_id, lobby)
     text, kb = await _render_lobby(session, lobby, registry)
-    await message.reply(text, reply_markup=kb)
+    sent = await message.reply(text, reply_markup=kb)
+    if isinstance(sent, Message):
+        await _lock_panel(sent, owner_id, owner_name)
 
 
 async def _show_leaderboard(
@@ -234,6 +262,8 @@ async def _show_leaderboard(
     responder: Any,
     session: AsyncSession,
     registry: EmojiRegistry,
+    owner_id: int = 0,
+    owner_name: str = "",
 ) -> None:
     repo = GroupGameRepo(session)
     rows = await repo.leaderboard(chat_id, game, limit=10)
@@ -260,7 +290,9 @@ async def _show_leaderboard(
         style=Style.CONFIRM,
         emoji_slot="game",
     )
-    await responder("\n".join(lines), reply_markup=kb.as_markup())
+    sent = await responder("\n".join(lines), reply_markup=kb.as_markup())
+    if owner_id and isinstance(sent, Message):
+        await _lock_panel(sent, owner_id, owner_name)
 
 
 @router.callback_query(GroupGameCB.filter(F.action == "lobby"))
@@ -424,7 +456,15 @@ async def cb_leaderboard(
     await query.answer()
     registry = await _registry()
     game = callback_data.game if callback_data.game in SUPPORTED_GAMES else "xo"
-    await _show_leaderboard(query.message.chat.id, game, query.message.edit_text, session, registry)
+    await _show_leaderboard(
+        query.message.chat.id,
+        game,
+        query.message.edit_text,
+        session,
+        registry,
+        owner_id=query.from_user.id if query.from_user else 0,
+        owner_name=query.from_user.full_name if query.from_user else "",
+    )
 
 
 @router.callback_query(GroupGameCB.filter(F.action == "cancel"))
