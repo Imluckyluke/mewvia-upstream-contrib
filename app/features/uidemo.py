@@ -30,6 +30,28 @@ router = Router(name="uidemo")
 
 SCOPE = "uislots"
 
+# Slots are seeded in functional blocks. Filtering by sort_order keeps the
+# categories in sync with the seed file without duplicating 101 slot names.
+# (key, label, first_order, last_order_inclusive)
+CATEGORIES: tuple[tuple[str, str, int, int], ...] = (
+    ("all", "همه", 0, 10**9),
+    ("base", "عمومی", 0, 199),
+    ("media", "مدیا و ویرایش", 200, 302),
+    ("meta", "اطلاعات آهنگ", 303, 310),
+    ("platform", "پلتفرمها", 311, 329),
+    ("admin", "پنل ادمین", 330, 399),
+    ("games", "بازیها", 400, 10**9),
+)
+_CATEGORY_KEYS = {row[0] for row in CATEGORIES}
+DEFAULT_CATEGORY = "all"
+
+
+def _category_slots(slots: list, category: str) -> list:
+    """Filter live slot rows into a category, preserving display order."""
+    row = next((c for c in CATEGORIES if c[0] == category), CATEGORIES[0])
+    _key, _label, low, high = row
+    return [slot for slot in slots if low <= slot.sort_order <= high]
+
 
 class EmojiEditSG(StatesGroup):
     waiting_for_emoji = State()
@@ -58,17 +80,23 @@ def _demo(
     )
 
 
-async def render(session: AsyncSession, page_index: int) -> tuple[str, InlineKeyboardMarkup]:
-    """Build the showcase & slot management page."""
+async def render(
+    session: AsyncSession, page_index: int, category: str = DEFAULT_CATEGORY
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build the showcase & slot management page, optionally filtered."""
     registry = get_emoji_registry()
     await registry.refresh_premium_flag()
     await registry.load()
 
     repo = EmojiRepo(session)
-    total = await repo.count()
+    all_slots = list(await repo.all())
+    if category not in _CATEGORY_KEYS:
+        category = DEFAULT_CATEGORY
+    slots = _category_slots(all_slots, category)
+    total = len(slots)
     index = clamp_page(page_index, total, DEFAULT_PER_PAGE)
-    rows = await repo.page(offset=index * DEFAULT_PER_PAGE, limit=DEFAULT_PER_PAGE)
-    premium_count = sum(1 for s in await repo.all() if s.is_premium)
+    rows = slots[index * DEFAULT_PER_PAGE : (index + 1) * DEFAULT_PER_PAGE]
+    premium_count = sum(1 for s in slots if s.is_premium)
 
     if registry.premium_enabled:
         premium_line = t(
@@ -79,9 +107,11 @@ async def render(session: AsyncSession, page_index: int) -> tuple[str, InlineKey
     else:
         premium_line = t("ui.premium_off")
 
+    active_label = next(c[1] for c in CATEGORIES if c[0] == category)
     body = "\n\n".join(
         [
             t("ui.title"),
+            f"🗂 دسته: <b>{active_label}</b> — {fa_digits(str(total))} اسلات",
             t("ui.styles_note"),
             premium_line,
             registry.label("ok", t("ui.inline_emoji_note")),
@@ -89,6 +119,21 @@ async def render(session: AsyncSession, page_index: int) -> tuple[str, InlineKey
     )
 
     kb = KB(registry)
+
+    # Category filter — one tap to reach any section instead of paging
+    # through 101 slots one screen at a time.
+    for start in range(0, len(CATEGORIES), 3):
+        kb.row(
+            *[
+                inline_button(
+                    f"{label} ({fa_digits(str(len(_category_slots(all_slots, key))))})",
+                    callback_data=DemoCB(action="cat", target=key).pack(),
+                    style=Style.CONFIRM if key == category else Style.NEUTRAL,
+                    registry=registry,
+                )
+                for key, label, _lo, _hi in CATEGORIES[start : start + 3]
+            ]
+        )
 
     # All three colours plus the unstyled default
     kb.row(
@@ -145,46 +190,71 @@ async def render(session: AsyncSession, page_index: int) -> tuple[str, InlineKey
     return body, kb.as_markup()
 
 
-async def _show(query: CallbackQuery, session: AsyncSession, index: int) -> None:
-    body, kb = await render(session, index)
+async def _show(
+    query: CallbackQuery, session: AsyncSession, index: int, category: str = DEFAULT_CATEGORY
+) -> None:
+    body, kb = await render(session, index, category)
     if isinstance(query.message, Message):
         await query.message.edit_text(body, reply_markup=kb)
+
+
+async def _saved_category(state: FSMContext) -> str:
+    data = await state.get_data()
+    category = data.get("ui_category", DEFAULT_CATEGORY)
+    return category if category in _CATEGORY_KEYS else DEFAULT_CATEGORY
 
 
 @router.message(F.text.regexp(r"^/ui(@\w+)?$"), IsAdmin())
 async def cmd_ui(message: Message, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
-    body, kb = await render(session, 0)
+    await state.update_data(ui_category=DEFAULT_CATEGORY)
+    body, kb = await render(session, 0, DEFAULT_CATEGORY)
     await message.answer(body, reply_markup=kb)
 
 
 @router.callback_query(MenuCB.filter(F.target == "uidemo"), IsAdmin())
 async def menu_entry(query: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
-    await _show(query, session, 0)
+    await state.update_data(ui_category=DEFAULT_CATEGORY)
+    await _show(query, session, 0, DEFAULT_CATEGORY)
     await query.answer()
 
 
+@router.callback_query(DemoCB.filter(F.action == "cat"), IsAdmin())
+async def pick_category(
+    query: CallbackQuery, callback_data: DemoCB, session: AsyncSession, state: FSMContext
+) -> None:
+    category = callback_data.target if callback_data.target in _CATEGORY_KEYS else DEFAULT_CATEGORY
+    await state.update_data(ui_category=category)
+    await state.set_state(None)
+    await _show(query, session, 0, category)
+    await query.answer(f"دسته {category} انتخاب شد")
+
+
 @router.callback_query(PageCB.filter(F.scope == SCOPE))
-async def turn_page(query: CallbackQuery, callback_data: PageCB, session: AsyncSession) -> None:
-    await _show(query, session, callback_data.index)
+async def turn_page(
+    query: CallbackQuery, callback_data: PageCB, session: AsyncSession, state: FSMContext
+) -> None:
+    await _show(query, session, callback_data.index, await _saved_category(state))
     await query.answer()
 
 
 @router.callback_query(DemoCB.filter(F.action == "toggle"))
-async def toggle_premium(query: CallbackQuery, session: AsyncSession) -> None:
+async def toggle_premium(
+    query: CallbackQuery, session: AsyncSession, state: FSMContext
+) -> None:
     new_value = await get_settings_store().toggle(
         PREMIUM_FLAG, updated_by=query.from_user.id if query.from_user else None
     )
     await get_emoji_registry().invalidate()
-    await _show(query, session, 0)
+    await _show(query, session, 0, await _saved_category(state))
     await query.answer(t("ui.premium_now_on") if new_value else t("ui.premium_now_off"))
 
 
 @router.callback_query(DemoCB.filter(F.action == "refresh"))
-async def refresh(query: CallbackQuery, session: AsyncSession) -> None:
+async def refresh(query: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await get_emoji_registry().invalidate()
-    await _show(query, session, 0)
+    await _show(query, session, 0, await _saved_category(state))
     await query.answer(t("common.done"))
 
 
@@ -234,8 +304,10 @@ async def start_edit_slot(
 
 @router.callback_query(DemoCB.filter(F.action == "cancel_edit"))
 async def cancel_edit_slot(query: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    category = await _saved_category(state)
     await state.clear()
-    await _show(query, session, 0)
+    await state.update_data(ui_category=category)
+    await _show(query, session, 0, category)
     await query.answer(t("ui.edit_cancelled"))
 
 
@@ -255,6 +327,7 @@ async def process_new_emoji(message: Message, session: AsyncSession, state: FSMC
         return
 
     admin_id = message.from_user.id if message.from_user else None
+    category = await _saved_category(state)
     custom_emoji_id: str | None = None
 
     # Check for custom emoji entity first
@@ -269,8 +342,9 @@ async def process_new_emoji(message: Message, session: AsyncSession, state: FSMC
         await repo.set_custom_emoji(slot_name, custom_emoji_id, updated_by=admin_id)
         await get_emoji_registry().invalidate()
         await state.clear()
+        await state.update_data(ui_category=category)
 
-        body, kb = await render(session, 0)
+        body, kb = await render(session, 0, category)
         await message.answer(f"{t('ui.edit_success', slot=slot_name)}\n\n{body}", reply_markup=kb)
         return
 
@@ -283,8 +357,9 @@ async def process_new_emoji(message: Message, session: AsyncSession, state: FSMC
         slot_obj.updated_by = admin_id
         await get_emoji_registry().invalidate()
         await state.clear()
+        await state.update_data(ui_category=category)
 
-        body, kb = await render(session, 0)
+        body, kb = await render(session, 0, category)
         await message.answer(f"{t('ui.edit_success', slot=slot_name)}\n\n{body}", reply_markup=kb)
         return
 
@@ -294,7 +369,10 @@ async def process_new_emoji(message: Message, session: AsyncSession, state: FSMC
 
 @router.callback_query(DemoCB.filter(F.action == "del"), IsAdmin())
 async def delete_custom_emoji_slot(
-    query: CallbackQuery, callback_data: DemoCB, session: AsyncSession
+    query: CallbackQuery,
+    callback_data: DemoCB,
+    session: AsyncSession,
+    state: FSMContext,
 ) -> None:
     slot_name = callback_data.target
     repo = EmojiRepo(session)
@@ -302,7 +380,7 @@ async def delete_custom_emoji_slot(
 
     if await repo.set_custom_emoji(slot_name, None, updated_by=admin_id):
         await get_emoji_registry().invalidate()
-        await _show(query, session, 0)
+        await _show(query, session, 0, await _saved_category(state))
         await query.answer(t("ui.delete_success", slot=slot_name))
     else:
         await query.answer(t("common.stale_button"), show_alert=True)
