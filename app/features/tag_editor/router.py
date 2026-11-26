@@ -52,7 +52,7 @@ from app.media.tag_editor import (
     format_tags_card,
     read_tags,
 )
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
 from app.ui.texts import error_text, t
@@ -225,7 +225,8 @@ async def open_tag_editor(
     msg = query.message
     if msg.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
         await query.answer(
-            "⚠️ ویرایش تگ و کاور نیازمند ورود متن و ارسال عکس است؛ لطفاً در پی‌وی ربات استفاده کنید.",
+            f"{em('warning')} ویرایش تگ و کاور نیازمند ورود متن و ارسال عکس است؛ "
+            "لطفاً در پیوی ربات استفاده کنید.",
             show_alert=True,
         )
         return
@@ -273,7 +274,7 @@ async def open_tag_editor(
                 except Exception:
                     pass
             await msg.answer(
-                "⚠️ <b>این فرمت از تگ پشتیبانی نمی‌کند</b>\n\n"
+                f"{em('warning')} <b>این فرمت از تگ پشتیبانی نمی‌کند</b>\n\n"
                 "فایل‌های WAV تگ داخلی ندارند. لطفاً فایل را به MP3 تبدیل کن "
                 "و دوباره بفرست تا تگ و کاورش را ویرایش کنم 🎵"
             )
@@ -320,7 +321,7 @@ async def prompt_tag_field(
 ) -> None:
     if query.message and query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
         await query.answer(
-            "⚠️ ویرایش تگ در گروه پشتیبانی نمی‌شود؛ لطفاً در پی‌وی ربات استفاده کنید.",
+            f"{em('warning')} ویرایش تگ در گروه پشتیبانی نمی‌شود؛ لطفاً در پی‌وی ربات استفاده کنید.",
             show_alert=True,
         )
         return

@@ -20,6 +20,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from app.cache.fallback import FallbackCache
 from app.cache.redis import get_redis
 from app.core.logging import get_logger
+from app.ui.emoji import em
 
 log = get_logger(__name__)
 
@@ -158,7 +159,7 @@ class GroupPanelGuardMiddleware(BaseMiddleware):
         if owner_id and user_id != owner_id:
             owner_name = panel.get("owner_name", "شخص دیگری")
             await query.answer(
-                f"⚠️ این پنل فقط برای کاربر «{owner_name}» فعال است!",
+                f"{em('warning')} این پنل فقط برای کاربر «{owner_name}» فعال است!",
                 show_alert=True,
             )
             return None

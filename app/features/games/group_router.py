@@ -30,7 +30,7 @@ from app.db.repo.user import UserRepo
 from app.features.games import group_session
 from app.features.games.xo_engine import calculate_score_delta, check_winner
 from app.middlewares.group_guard import store_panel
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB
 from app.ui.styles import Style
 
@@ -167,7 +167,7 @@ async def _render_board(
         elif outcome == "O":
             lines.append(f"\n🎉 <b>{o_name} برنده شد!</b>")
         else:
-            lines.append("\n🤝 <b>مساوی!</b>")
+            lines.append(f"\n{em('handshake')} <b>مساوی!</b>")
         delta0 = state.get("delta0", 0)
         delta1 = state.get("delta1", 0)
         lines.append(f"امتیاز گروهی: {x_name} <b>{delta0:+,}</b> | {o_name} <b>{delta1:+,}</b>")
@@ -444,7 +444,7 @@ async def cb_move(query: CallbackQuery, callback_data: GroupGameCB, session: Asy
     await group_session.save(chat_id, state)
     text, kb = await _render_board(state, registry)
     await query.message.edit_text(text, reply_markup=kb)
-    await query.answer("🏁 بازی تمام شد و امتیازها ثبت شد.")
+    await query.answer(f"{em('finish')} بازی تمام شد و امتیازها ثبت شد.")
 
 
 @router.callback_query(GroupGameCB.filter(F.action == "lb"))

@@ -29,7 +29,7 @@ from app.features.stickerpack.service import (
 from app.media.fit import fit_static_webp, fit_video_sticker
 from app.media.kinds import MediaKind, resolve_panel_media
 from app.media.probe import probe
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.paginate import DEFAULT_PER_PAGE, Page, clamp_page, nav_row
 from app.ui.styles import Style
@@ -91,7 +91,7 @@ async def start_pack_flow(query: CallbackQuery, session: AsyncSession, state: FS
 
     if query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
         await query.answer(
-            "⚠️ مدیریت و ساخت استیکرپک نیازمند ورود متن و ایموجی است؛ "
+            f"{em('warning')} مدیریت و ساخت استیکرپک نیازمند ورود متن و ایموجی است؛ "
             "لطفاً در پی‌وی ربات استفاده کنید.",
             show_alert=True,
         )
@@ -163,7 +163,8 @@ async def start_pack_flow(query: CallbackQuery, session: AsyncSession, state: FS
 async def prompt_create_pack(query: CallbackQuery, state: FSMContext) -> None:
     if query.message and query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
         await query.answer(
-            "⚠️ ساخت استیکرپک در گروه پشتیبانی نمی‌شود؛ لطفاً در پی‌وی ربات استفاده کنید.",
+            f"{em('warning')} ساخت استیکرپک در گروه پشتیبانی نمی‌شود؛ "
+            "لطفاً در پیوی ربات استفاده کنید.",
             show_alert=True,
         )
         return
@@ -209,7 +210,8 @@ async def process_pack_title(message: Message, state: FSMContext, settings: Sett
     await state.set_state(PackFSM.waiting_for_emoji)
     await message.reply(
         f"عالی! عنوان پک <code>{html.quote(branded_title)}</code> ثبت شد.\n\n"
-        "حالا یک <b>ایموجی مرتبط</b> برای این استیکر بفرست (مثلاً 😊 یا 🎨):"
+        f"حالا یک <b>ایموجی مرتبط</b> برای این استیکر بفرست "
+        f"(مثلاً {em('emoji')} یا {em('sticker')}):"
     )
 
 
@@ -222,7 +224,8 @@ async def select_existing_pack(
 
     if isinstance(query.message, Message):
         await query.message.edit_text(
-            "حالا یک <b>ایموجی مرتبط</b> برای این استیکر بفرست (مثلاً 😊 یا 🎨):"
+            f"حالا یک <b>ایموجی مرتبط</b> برای این استیکر بفرست "
+        f"(مثلاً {em('emoji')} یا {em('sticker')}):"
         )
     await query.answer()
 

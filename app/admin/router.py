@@ -50,7 +50,7 @@ from app.db.models.sticker_set import StickerSet
 from app.db.repo import EmojiRepo, UserRepo
 from app.features.registry import Feature, register
 from app.filters import IsAdmin
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
 from app.ui.texts import t
@@ -348,12 +348,12 @@ async def _render_users_page(
         for idx, u in enumerate(users, start=offset + 1):
             uname = f"@{u.username}" if u.username else "بدون یوزرنیم"
             fname = html.quote(u.first_name or "کاربر")
-            prem = " ⭐️" if u.is_premium else ""
+            prem = f" {em('star')}" if u.is_premium else ""
             banned = " 🚫" if u.is_banned else ""
             header = (
                 f"{fa_digits(str(idx))}. <b>{fname}</b> ({uname}) — "
                 f"<code>{u.telegram_id}</code>{prem}{banned}\n"
-                f"   🗓 <code>{u.created_at.strftime('%Y-%m-%d')}</code> | "
+                f"   {em('calendar')} <code>{u.created_at.strftime('%Y-%m-%d')}</code> | "
                 f"تعاملات: <code>{fa_digits(str(u.updates_seen))}</code>"
             )
             lines.append(header)
@@ -366,7 +366,7 @@ async def _render_users_page(
     # User Selection Buttons
     for u in users:
         label_name = (u.first_name or u.username or str(u.telegram_id))[:18]
-        prem_mark = " ⭐️" if u.is_premium else ""
+        prem_mark = f" {em('star')}" if u.is_premium else ""
         ban_mark = " 🚫" if u.is_banned else ""
         btn_label = f"👤 {label_name}{prem_mark}{ban_mark}"
         kb.row(
@@ -532,7 +532,7 @@ async def _render_user_detail(
 
     uname = f"@{user.username}" if user.username else "ندارد"
     fullname = html.quote(f"{user.first_name or ''} {user.last_name or ''}".strip() or "نامشخص")
-    prem_text = "دارد ⭐️" if user.is_premium else "ندارد"
+    prem_text = f"دارد {em('star')}" if user.is_premium else "ندارد"
     banned_text = (
         f"مسدود (Ban) {registry.text('ban')}"
         if user.is_banned
@@ -804,11 +804,11 @@ async def render_settings_panel() -> tuple[str, KB]:
 
     group_icon = "🟢 روشن" if group_games else "🔴 خاموش"
     maint_icon = "🟢 روشن" if maintenance else "🔴 خاموش"
-    quota_text = f"{fa_digits(str(quota))} تبدیل/روز" if quota > 0 else "نامحدود ♾️"
+    quota_text = f"{fa_digits(str(quota))} تبدیل/روز" if quota > 0 else f"نامحدود {em('infinity')}"
     cron_text = cron if cron else "خاموش"
 
     text = (
-        "<b>⚙️ تنظیمات ربات</b>\n\n"
+        f"<b>{em('settings')} تنظیمات ربات</b>\n\n"
         f"• حالت تعمیر: <b>{maint_icon}</b>\n"
         f"• سهمیه روزانه هر کاربر: <b>{quota_text}</b>\n"
         f"• بکاپ خودکار: <b><code>{cron_text}</code></b>\n"

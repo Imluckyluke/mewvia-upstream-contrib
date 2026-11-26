@@ -40,7 +40,7 @@ from app.config import Settings
 from app.core.errors import MewviaError
 from app.core.logging import get_logger
 from app.core.units import fa_digits, human_bytes
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
 from app.ui.texts import t
@@ -96,7 +96,11 @@ async def render_panel(settings: Settings) -> tuple[str, KB]:
     total = sum(size for _name, size in files)
     previous = await list_previous(settings)
 
-    encryption = "🔐 رمزنگاری فعال (age)" if settings.backup_age_recipient else "⚠️ رمزنگاری غیرفعال"
+    encryption = (
+        f"{em('lock')} رمزنگاری فعال (age)"
+        if settings.backup_age_recipient
+        else f"{em('warning')} رمزنگاری غیرفعال"
+    )
     restore_ready = (
         "✅ کلید رمزگشایی تنظیم شده"
         if settings.backup_age_identity
@@ -110,7 +114,7 @@ async def render_panel(settings: Settings) -> tuple[str, KB]:
         f"{_format_list(files[:10])}\n\n"
         f"{encryption}\n"
         f"{restore_ready}\n"
-        f"🗂 نسخه‌های قبلی قابل بازگشت: <b>{fa_digits(str(len(previous)))}</b>\n\n"
+        f"{em('folder')} نسخه‌های قبلی قابل بازگشت: <b>{fa_digits(str(len(previous)))}</b>\n\n"
         f"{registry.text('info')} بکاپ بلافاصله به‌صورت فایل به شما تحویل داده "
         f"می‌شود و سپس از سرور حذف می‌گردد."
     )
@@ -196,11 +200,11 @@ async def create_backup_now(query: CallbackQuery, settings: Settings, bot: Bot) 
     size = path.stat().st_size
     caption = (
         f"{get_emoji_registry().text('backup')} <b>بکاپ دیتابیس Mewvia</b>\n"
-        f"🗓 {html.quote(path.name)}\n"
+        f"{em('calendar')} {html.quote(path.name)}\n"
         f"📦 {human_bytes(size)}\n"
     )
     if path.name.endswith(".age"):
-        caption += "\n🔐 این فایل با کلید عمومی رمز شده است."
+        caption += f"\n{em('lock')} این فایل با کلید عمومی رمز شده است."
 
     delivered = False
     try:
@@ -210,7 +214,7 @@ async def create_backup_now(query: CallbackQuery, settings: Settings, bot: Bot) 
         log.error("backup_delivery_failed", error=str(exc))
         await bot.send_message(
             query.from_user.id,
-            f"⚠️ بکاپ ساخته شد ({human_bytes(size)}) اما ارسال فایل ناموفق بود.\n"
+            f"{em('warning')} بکاپ ساخته شد ({human_bytes(size)}) اما ارسال فایل ناموفق بود.\n"
             f"<code>{html.quote(path.name)}</code>",
         )
 
@@ -221,7 +225,7 @@ async def create_backup_now(query: CallbackQuery, settings: Settings, bot: Bot) 
         with contextlib.suppress(Exception):
             await bot.send_message(
                 query.from_user.id,
-                "🧹 نسخه روی سرور پاک شد؛ فقط فایلی که دریافت کردید معتبر است.",
+                f"{em('broom')} نسخه روی سرور پاک شد؛ فقط فایلی که دریافت کردید معتبر است.",
             )
     with contextlib.suppress(Exception):
         await _show(query, settings)
@@ -234,9 +238,9 @@ async def ask_for_dump(query: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(RestoreSG.waiting_for_dump)
     if isinstance(query.message, Message):
         await query.message.answer(
-            "📤 فایل بکاپ را بفرستید.\n\n"
+            f"{em('upload')} فایل بکاپ را بفرستید.\n\n"
             "پسوند مجاز: <code>.dump</code>، <code>.dump.age</code> یا <code>.gz</code>\n"
-            "⚠️ فایل روی یک دیتابیس موقت ریستور می‌شود و تا تأیید شما جایگزین "
+            f"{em('warning')} فایل روی یک دیتابیس موقت ریستور می‌شود و تا تأیید شما جایگزین "
             "دیتابیس اصلی <b>نمی‌شود</b>.\n\n"
             "برای انصراف /cancel را بفرستید.",
             reply_markup=KB(registry)
@@ -330,11 +334,11 @@ async def pick_server_backup(query: CallbackQuery, settings: Settings) -> None:
         ),
     )
     text = (
-        "🗂 <b>انتخاب بکاپ برای ریستور</b>\n\n"
+        f"{em('folder')} <b>انتخاب بکاپ برای ریستور</b>\n\n"
         f"فایل: <code>{html.quote(name)}</code>\n"
         f"حجم: {human_bytes(size)}\n"
         f"({fa_digits(str(index + 1))} از {fa_digits(str(len(files)))})\n\n"
-        "⚠️ ابتدا روی دیتابیس موقت ریستور می‌شود و نتیجه به شما نشان داده می‌شود."
+        f"{em('warning')} ابتدا روی دیتابیس موقت ریستور می‌شود و نتیجه به شما نشان داده می‌شود."
     )
     if isinstance(query.message, Message):
         with contextlib.suppress(Exception):
@@ -415,10 +419,10 @@ async def _stage_restore(target: Message, dump: Path, settings: Settings) -> Non
         )
     )
     text = (
-        "🧪 <b>ریستور آزمایشی انجام شد</b>\n\n"
+        f"{em('lab')} <b>ریستور آزمایشی انجام شد</b>\n\n"
         f"📥 <b>دیتابیس فعلی:</b>\n{current.summary}\n\n"
-        f"📤 <b>بکاپ بازیابی‌شده:</b>\n{incoming.summary}\n\n"
-        f"⚠️ با تأیید، دیتابیس فعلی به‌عنوان نسخه قبلی نگه داشته می‌شود و "
+        f"{em('upload')} <b>بکاپ بازیابی‌شده:</b>\n{incoming.summary}\n\n"
+        f"{em('warning')} با تأیید، دیتابیس فعلی به‌عنوان نسخه قبلی نگه داشته می‌شود و "
         f"«{html.quote(name)}» جای آن می‌نشیند. برای اعمال، ربات یک‌بار "
         f"ری‌استارت می‌شود.\n\n"
         f"{registry.text('info')} اگر آمار بکاپ غیرعادی است، لغو کنید."
@@ -469,9 +473,9 @@ async def confirm_swap(query: CallbackQuery, settings: Settings) -> None:
         recycled = False
 
     suffix = (
-        "♻️ اتصالات دیتابیس تازه شد — ربات بلافاصله از نسخه جدید استفاده می\u200cکند."
+        f"{em('refresh')} اتصالات دیتابیس تازه شد — ربات بلافاصله از نسخه جدید استفاده می\u200cکند."
         if recycled
-        else "⚠️ اتصالات تازه نشد؛ لطفاً ربات را ری\u200cاستارت کنید."
+        else f"{em('warning')} اتصالات تازه نشد؛ لطفاً ربات را ری\u200cاستارت کنید."
     )
     if isinstance(query.message, Message):
         await query.message.edit_text(
@@ -507,5 +511,5 @@ async def undo_restore(query: CallbackQuery, settings: Settings) -> None:
         await query.message.edit_text(
             "✅ <b>نسخه قبلی بازگردانده شد</b>\n\n"
             f"نسخهای که کنار گذاشته شد: <code>{html.quote(parked)}</code>\n"
-            f"♻️ اتصالات دیتابیس تازه شد — نیازی به ریاستارت نیست."
+            f"{em('refresh')} اتصالات دیتابیس تازه شد — نیازی به ریاستارت نیست."
         )

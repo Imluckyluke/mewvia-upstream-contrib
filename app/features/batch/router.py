@@ -38,7 +38,7 @@ from app.media.specs import (
     get_target,
 )
 from app.middlewares.group_guard import get_panel, get_panel_opts, update_panel_opts
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
 from app.ui.texts import error_text, t
@@ -48,7 +48,7 @@ log = get_logger(__name__)
 router = Router(name="batch")
 
 _BATCH_MENU_TITLE = (
-    "<b>⚙️ تغییرات دسته‌ای (ادغام چند عملیات)</b>\n\n"
+    "<b>{settings} تغییرات دسته‌ای (ادغام چند عملیات)</b>\n\n"
     "تغییرات مورد نظر را فعال کرده و در نهایت دکمه اعمال را بزنید:"
 )
 
@@ -282,7 +282,7 @@ async def show_batch_target_menu(query: CallbackQuery, state: FSMContext) -> Non
     )
 
     await query.message.edit_text(
-        "<b>🎯 انتخاب فرمت خروجی</b>\n\nفرمت نهایی فایل ترکیبی را مشخص کنید:",
+        f"<b>{em('target')} انتخاب فرمت خروجی</b>\n\nفرمت نهایی فایل ترکیبی را مشخص کنید:",
         reply_markup=kb.as_markup(),
     )
     await query.answer()
@@ -315,7 +315,7 @@ async def show_batch_text_prompt(query: CallbackQuery, state: FSMContext) -> Non
 
     if query.message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP):
         await query.answer(
-            "⚠️ افزودن متن در گروه پشتیبانی نمی‌شود؛ لطفاً در پی‌وی ربات انجام دهید.",
+            f"{em('warning')} افزودن متن در گروه پشتیبانی نمی‌شود؛ لطفاً در پی‌وی ربات انجام دهید.",
             show_alert=True,
         )
         return

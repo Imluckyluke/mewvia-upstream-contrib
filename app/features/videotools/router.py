@@ -21,7 +21,7 @@ from app.media.audio_tools import extract_audio_from_video
 from app.media.kinds import resolve_panel_media, send_processing_status
 from app.media.probe import probe
 from app.media.video_tools import compress_video, make_video_note, mute_video, reverse_video
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.progress import ProgressController
 from app.ui.styles import Style
@@ -293,7 +293,7 @@ async def process_video_tool(
                 new_kb = res_info.file_size // 1024
                 cap_cmp = (
                     f"{registry.text('compress')} <b>فشرده‌سازی انجام شد!</b>\n"
-                    f"حجم قبلی: {old_kb}KB ➔ جدید: {new_kb}KB"
+                    f"حجم قبلی: {old_kb}KB {em('arrow_right')} جدید: {new_kb}KB"
                 )
                 await bot.send_video(
                     chat_id=msg.chat.id,

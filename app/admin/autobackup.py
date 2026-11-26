@@ -29,6 +29,7 @@ from app.admin.watchdog import check_health
 from app.config import Settings
 from app.core.logging import get_logger
 from app.core.settings_store import get_settings_store
+from app.ui.emoji import em
 
 log = get_logger(__name__)
 
@@ -130,12 +131,12 @@ async def _run_autobackup(settings: Settings, bot: Bot | None = None) -> None:
     failed = 0
     if bot is not None:
         caption = (
-            "🗄 <b>بکاپ خودکار دیتابیس Mewvia</b>\n"
-            f"🗓 <code>{backup_file.name}</code>\n"
+            f"{em('archive')} <b>بکاپ خودکار دیتابیس Mewvia</b>\n"
+            f"{em('calendar')} <code>{backup_file.name}</code>\n"
             f"📦 {backup_file.stat().st_size / 1024:.0f} KB"
         )
         if backup_file.name.endswith(".age"):
-            caption += "\n🔐 رمزنگاری‌شده با کلید عمومی"
+            caption += f"\n{em('lock')} رمزنگاری‌شده با کلید عمومی"
         for admin_id in settings.admin_ids:
             try:
                 await bot.send_document(admin_id, FSInputFile(backup_file), caption=caption)
@@ -155,7 +156,7 @@ async def _run_autobackup(settings: Settings, bot: Bot | None = None) -> None:
         await notify_admins(
             bot,
             settings,
-            "⚠️ <b>بکاپ ساخته شد ولی تحویل داده نشد</b>\n"
+            f"{em('warning')} <b>بکاپ ساخته شد ولی تحویل داده نشد</b>\n"
             f"<code>{backup_file.name}</code> روی سرور باقی ماند.",
         )
 

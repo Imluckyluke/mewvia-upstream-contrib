@@ -24,6 +24,7 @@ from app.features import load_features
 from app.media.telegram import MediaBot
 from app.middlewares import setup_middlewares
 from app.middlewares.admission import MediaAdmission
+from app.ui.emoji import em
 from app.ui.premium_guard import PremiumEmojiGuard
 
 log = get_logger(__name__)
@@ -83,7 +84,7 @@ async def _global_error_handler(event: ErrorEvent) -> bool:
     if update.callback_query:
         try:
             await update.callback_query.answer(
-                "⚠️ متأسفانه خطایی در پردازش رخ داد. لطفاً دوباره تلاش کنید.",
+                f"{em('warning')} متأسفانه خطایی در پردازش رخ داد. لطفاً دوباره تلاش کنید.",
                 show_alert=True,
             )
         except Exception:
@@ -94,7 +95,8 @@ async def _global_error_handler(event: ErrorEvent) -> bool:
             return True
         try:
             await update.message.reply(
-                "⚠️ متأسفانه در انجام این درخواست خطایی رخ داد. لطفاً چند لحظه بعد مجدداً تلاش کنید."
+                f"{em('warning')} متأسفانه در انجام این درخواست خطایی رخ داد. "
+                "لطفاً چند لحظه بعد مجدداً تلاش کنید."
             )
         except Exception:
             pass

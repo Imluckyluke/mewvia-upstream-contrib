@@ -19,6 +19,7 @@ from app.db.models.sponsor_channel import SponsorChannel
 from app.db.models.sponsor_seen import SponsorSeenMember
 from app.db.models.sticker_set import StickerSet
 from app.db.models.user import User
+from app.ui.emoji import em
 
 SOURCE_KIND_LABELS: dict[str, str] = {
     "video": "ویدیو",
@@ -546,7 +547,9 @@ async def get_admin_stats(session: AsyncSession) -> AdminStats:
         tot = int(p_row[1])
         succ = int(p_row[2])
         b_count = int(p_row[3])
-        meta = PLATFORM_META.get(tgt, {"name": TARGET_ID_LABELS.get(tgt, tgt), "icon": "🌐"})
+        meta = PLATFORM_META.get(
+            tgt, {"name": TARGET_ID_LABELS.get(tgt, tgt), "icon": em("web")}
+        )
         downloader_platforms.append((tgt, meta["name"], meta["icon"], tot, succ, b_count))
 
     # Instagram cookies status
@@ -621,7 +624,7 @@ def format_stats_overview(stats: AdminStats, registry: EmojiRegistry | None = No
     ic_users = registry.text("users") if registry else "👥"
     ic_bullet = registry.text("bullet") if registry else "•"
     ic_ban = registry.text("ban") if registry else "🚫"
-    ic_idea = registry.text("idea") if registry else "🎯"
+    ic_idea = registry.text("idea") if registry else f"{em('target')}"
 
     return (
         f"<b>{ic_stats} آمار جامع ربات Mewvia | بخش کاربران و رشد</b>\n\n"
@@ -691,9 +694,8 @@ def format_stats_media(stats: AdminStats, registry: EmojiRegistry | None = None)
         lines.append("")
 
     if stats.top_targets:
-        lines.append(
-            f"<b>{registry.text('rocket') if registry else '📤'} محبوب‌ترین خروجی‌ها / ابزارها:</b>"
-        )
+        rocket_icon = registry.text("rocket") if registry else em("upload")
+        lines.append(f"<b>{rocket_icon} محبوبترین خروجیها / ابزارها:</b>")
         for target, count in stats.top_targets:
             label = TARGET_ID_LABELS.get(target, target)
             lines.append(f"{ic_bullet} {label}: <code>{fa_digits(str(count))}</code> بار")
@@ -779,7 +781,7 @@ def format_stats_downloader(stats: AdminStats, registry: EmojiRegistry | None = 
     ic_download = registry.text("download") if registry else "📥"
     ic_stats = registry.text("stats") if registry else "📊"
     ic_bullet = registry.text("bullet") if registry else "•"
-    ic_tool = registry.text("tool") if registry else "⚙️"
+    ic_tool = registry.text("tool") if registry else f"{em('settings')}"
 
     lines = [
         f"<b>{ic_download} آمار جامع دانلودر چندرسانه‌ای | Mewvia Downloader</b>\n",

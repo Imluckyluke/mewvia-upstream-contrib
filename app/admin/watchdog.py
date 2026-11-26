@@ -19,6 +19,7 @@ from aiogram import Bot
 
 from app.config import Settings
 from app.core.logging import get_logger
+from app.ui.emoji import em
 
 log = get_logger(__name__)
 
@@ -49,7 +50,7 @@ async def check_health(settings: Settings, bot: Bot) -> None:
             bot,
             settings,
             "worker",
-            "🚨 <b>مدیا ورکر در دسترس نیست</b>\n"
+            f"{em('alert')} <b>مدیا ورکر در دسترس نیست</b>\n"
             "هیچ دانلود یا تبدیلی کار نخواهد کرد. لاگ را چک کنید: "
             "<code>docker compose logs media-worker</code>",
         )
@@ -68,7 +69,7 @@ async def check_health(settings: Settings, bot: Bot) -> None:
             bot,
             settings,
             "warp",
-            "🚨 <b>تونل WARP در دسترس نیست</b>\n"
+            f"{em('alert')} <b>تونل WARP در دسترس نیست</b>\n"
             f"اتصال به پورت SOCKS ناموفق بود: {type(exc).__name__}\n"
             "دانلودها ممکن است شکست بخورند.",
         )
@@ -82,7 +83,7 @@ async def check_health(settings: Settings, bot: Bot) -> None:
                 bot,
                 settings,
                 "disk",
-                f"🚨 <b>دیسک سرور {percent:.0f}% پر است</b>\n"
+                f"{em('alert')} <b>دیسک سرور {percent:.0f}% پر است</b>\n"
                 "پاکسازی خودکار دوشنبهها اجرا میشود؛ "
                 "برای اجرای دستی: <code>/usr/local/bin/disk-guard.sh</code>",
             )

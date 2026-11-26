@@ -184,3 +184,12 @@ def get_emoji_registry() -> EmojiRegistry:
     if _registry is None:
         raise RuntimeError("init_emoji_registry() must be called during startup")
     return _registry
+
+
+def em(slot: str) -> str:
+    """Shortcut for ``get_emoji_registry().text(slot)`` in UI strings.
+
+    The registry is loaded at bot startup, so this stays safe in handlers and
+    renderers alike. Admins can change any slot live from ``/ui``.
+    """
+    return get_emoji_registry().text(slot)

@@ -25,6 +25,7 @@ from mutagen.oggvorbis import OggVorbis
 
 from app.core.errors import ConversionError
 from app.core.logging import get_logger
+from app.ui.emoji import em
 
 log = get_logger(__name__)
 
@@ -357,9 +358,9 @@ def format_tags_card(tags: AudioTags, file_name: str = "") -> str:
         "<b>🎵 ویرایشگر تگ و کاور موزیک</b>",
     ]
     if file_name:
-        lines.append(f"📁 <code>{html.quote(file_name)}</code>")
+        lines.append(f"{em('file')} <code>{html.quote(file_name)}</code>")
     if tags.format_label:
-        lines.append(f"💽 فرمت: <code>{tags.format_label}</code>")
+        lines.append(f"{em('disc')} فرمت: <code>{tags.format_label}</code>")
     lines += [
         "",
         row("نام آهنگ", tags.title),

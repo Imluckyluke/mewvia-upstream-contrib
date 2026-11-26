@@ -30,7 +30,7 @@ from app.media.progress_gif import (
     list_loading_gifs,
     set_loading_gifs_enabled,
 )
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.progress import format_progress_caption
 from app.ui.styles import Style
@@ -117,7 +117,7 @@ async def render_loading_gifs_dashboard(
         )
         kb.row(
             inline_button(
-                "👁 تست و پیش‌نمایش",
+                f"{em('eye')} تست و پیش‌نمایش",
                 callback_data=f"lgif:test:{g_id}",
                 style=Style.PRIMARY,
                 emoji_slot="refresh",
@@ -142,7 +142,7 @@ async def render_loading_gifs_dashboard(
             registry=registry,
         ),
         inline_button(
-            "🧪 تست تصادفی با نوار پیشرفت",
+            f"{em('lab')} تست تصادفی با نوار پیشرفت",
             callback_data="lgif:test_random",
             style=Style.PRIMARY,
             emoji_slot="lightning",
@@ -278,7 +278,7 @@ async def cmd_add_gif_direct(message: Message, session: AsyncSession) -> None:
     file_id, file_unique_id = extract_media_file_id(message)
     if not file_id:
         await message.reply(
-            "⚠️ لطفاً دستور /addgif را روی یک گیف ریپلای کنید\n"
+            f"{em('warning')} لطفاً دستور /addgif را روی یک گیف ریپلای کنید\n"
             "یا همراه با فایل در کپشن بنویسید /addgif."
         )
         return
@@ -307,7 +307,7 @@ async def save_new_loading_gif(message: Message, state: FSMContext, session: Asy
 
     if not file_id:
         await message.reply(
-            "⚠️ فایلی که فرستادید شناسایی نشد.\n"
+            f"{em('warning')} فایلی که فرستادید شناسایی نشد.\n"
             "لطفاً یک فایل انیمیشن/گیف تلگرام یا ویدیوی کوتاه بفرستید."
         )
         return
@@ -448,7 +448,7 @@ async def confirm_delete_loading_gif(query: CallbackQuery, session: AsyncSession
         ),
     )
 
-    confirm_text = f"⚠️ <b>آیا از حذف «{html.quote(label)}» اطمینان دارید؟</b>"
+    confirm_text = f"{em('warning')} <b>آیا از حذف «{html.quote(label)}» اطمینان دارید؟</b>"
     if isinstance(query.message, Message):
         await query.message.edit_text(confirm_text, reply_markup=kb.as_markup())
     await query.answer()

@@ -70,7 +70,7 @@ from app.media.lyrics import (
 )
 from app.media.probe import probe
 from app.middlewares.group_guard import store_panel
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.progress import ProgressController, render_progress_bar
 from app.ui.styles import Style
@@ -1250,7 +1250,11 @@ async def upload_cookie_file(message: Message, bot: Bot, session: AsyncSession) 
 
     registry = await ready_registry()
     _, kb = await render_cookies_dashboard(session, registry)
-    status_badge = "🟢 سالم و فعال در چرخه" if is_valid else f"⚠️ نیاز به بررسی ({err})"
+    status_badge = (
+        "🟢 سالم و فعال در چرخه"
+        if is_valid
+        else f"{em('warning')} نیاز به بررسی ({err})"
+    )
     await message.reply(
         f"🍪 <b>اکانت «{html.quote(label)}» با موفقیت اضافه شد!</b>\n\n"
         f"وضعیت اولیه: {status_badge}\n"

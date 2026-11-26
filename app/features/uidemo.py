@@ -19,7 +19,7 @@ from app.core.units import fa_digits
 from app.db.repo import EmojiRepo
 from app.features.registry import Feature, register
 from app.filters import IsAdmin
-from app.ui.emoji import PREMIUM_FLAG, EmojiRegistry, get_emoji_registry
+from app.ui.emoji import PREMIUM_FLAG, EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.labels import looks_like_unicode_emoji
 from app.ui.paginate import DEFAULT_PER_PAGE, Page, clamp_page, nav_row
@@ -111,7 +111,7 @@ async def render(
     body = "\n\n".join(
         [
             t("ui.title"),
-            f"🗂 دسته: <b>{active_label}</b> — {fa_digits(str(total))} اسلات",
+            f"{em('folder')} دسته: <b>{active_label}</b> — {fa_digits(str(total))} اسلات",
             t("ui.styles_note"),
             premium_line,
             registry.label("ok", t("ui.inline_emoji_note")),

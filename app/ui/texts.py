@@ -6,14 +6,14 @@ a second language later means adding a dict, not touching handlers.
 
 from __future__ import annotations
 
-from app.ui.emoji import EmojiRegistry
+from app.ui.emoji import EmojiRegistry, em
 
 DEFAULT_LOCALE = "fa"
 
 _FA: dict[str, str] = {
     # ---- generic ----
     "start.greeting": (
-        "سلام {name} جان! 👋\n\n"
+        "سلام {name} جان! {wave}\n\n"
         "من <b>Mewvia</b> هستم — جعبه‌ابزار مدیای تلگرام.\n"
         "هر استیکر، گیف، عکس یا ویدیویی بفرست تا برات تبدیلش کنم."
     ),
@@ -97,7 +97,7 @@ _FA: dict[str, str] = {
     "ui.delete_success": "ایموجی پریمیوم اسلات <code>{slot}</code> حذف شد و به یونیکد افت کرد.",
     # ---- group media assistant ----
     "group.no_reply": (
-        "<b>⚠️ راهنمای استفاده در گروه</b>\n\n"
+        "<b>{warning} راهنمای استفاده در گروه</b>\n\n"
         "برای استفاده از ابزارهای مدیا در گروه، لطفاً این دستور را در <b>پاسخ (ریپلای)</b> "
         "به یک عکس، ویدیو، گیف، استیکر، ویدیومسیج یا ویس ارسال کن."
     ),
@@ -144,9 +144,9 @@ _FA: dict[str, str] = {
     "text_overlay.size_medium": "متوسط",
     "text_overlay.size_large": "بزرگ",
     "text_overlay.size_xlarge": "خیلی بزرگ",
-    "text_overlay.pos_top": "⬆️ بالا",
+    "text_overlay.pos_top": "{top} بالا",
     "text_overlay.pos_center": "↔️ وسط",
-    "text_overlay.pos_bottom": "⬇️ پایین",
+    "text_overlay.pos_bottom": "{bottom} پایین",
     "text_overlay.render_btn": "ساخت و ارسال",
     # ---- errors (keyed by MewviaError.code) ----
     "error.unknown": "یک خطای پیش‌بینی‌نشده رخ داد. لطفاً بعداً دوباره تلاش کن.",
@@ -179,7 +179,14 @@ def t(key: str, locale: str = DEFAULT_LOCALE, /, **kwargs: object) -> str:
         template = _CATALOG[DEFAULT_LOCALE].get(key)
     if template is None:
         return f"⟨{key}⟩"
-    return template.format(**kwargs) if kwargs else template
+    values: dict[str, object] = {
+        "wave": em("wave"),
+        "warning": em("warning"),
+        "top": em("top"),
+        "bottom": em("bottom"),
+    }
+    values.update(kwargs)
+    return template.format(**values)
 
 
 def get_help_body(registry: EmojiRegistry) -> str:

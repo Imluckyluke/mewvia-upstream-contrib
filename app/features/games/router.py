@@ -30,7 +30,7 @@ from app.features.games.xo_engine import (
     find_best_move,
 )
 from app.features.registry import Feature, register
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB
 from app.ui.labels import ReplyTextFilter
 from app.ui.styles import Style
@@ -130,7 +130,7 @@ def render_games_hub(
         f"👤 بازیکن: <b>{u_name}</b>\n"
         f"{league.get_badge(registry)} لیگ: <b>{league.name}</b> — <i>«{league.title}»</i>\n"
         f"{registry.text('trophy')} ریتینگ: <b>{stat.score:,}</b> امتیاز\n"
-        f"📍 رتبه جهانی: <b>#{rank}</b> (از {max(1, total_players):,} بازیکن)\n\n"
+        f"{em('pin')} رتبه جهانی: <b>#{rank}</b> (از {max(1, total_players):,} بازیکن)\n\n"
         f"📊 <b>کارنامه مسابقات:</b>\n"
         f"• بردها: <b>{stat.wins}</b> | باخت‌ها: <b>{stat.losses}</b> | مساوی: <b>{stat.draws}</b>\n"
         f"• نرخ پیروزی: <b>{stat.win_rate}%</b>\n"
@@ -257,9 +257,12 @@ def render_xo_board(
         )
     elif last_outcome == "loss":
         note = "" if score_delta else " (حاشیه امن برنز — کسر نشد)"
-        status_line = f"\n🤖 <b>میوویا پیروز شد!</b>\n🔻 ریتینگ شما: {change}{note}"
+        status_line = (
+            f"\n{em('bot_robot')} <b>میوویا پیروز شد!</b>\n"
+            f"{em('down')} ریتینگ شما: {change}{note}"
+        )
     elif last_outcome == "draw":
-        status_line = f"\n🤝 <b>بازی مساوی شد!</b>\n✨ ریتینگ شما: {change}"
+        status_line = f"\n{em('handshake')} <b>بازی مساوی شد!</b>\n✨ ریتینگ شما: {change}"
     else:
         status_line = "\nنوبت شماست! یک خانه خالی را لمس کنید:"
 
@@ -388,7 +391,7 @@ def render_leaderboard(
             )
 
     lines.append("\n──────────────")
-    lines.append(f"📍 <b>رتبه شما:</b> #{user_rank} از {max(1, total_players):,} بازیکن")
+    lines.append(f"{em('pin')} <b>رتبه شما:</b> #{user_rank} از {max(1, total_players):,} بازیکن")
 
     kb = KB(registry)
     kb.button(
@@ -435,10 +438,10 @@ def render_my_league(
         f"{registry.text('medal')} <b>شناسنامه لیگ و وضعیت شما</b>\n\n"
         f"👤 بازیکن: <b>{u_name}</b>\n"
         f"{league.get_badge(registry)} لیگ فعلی: <b>{league.name}</b>\n"
-        f"🏷 لقب افتخاری: <b>«{league.title}»</b>\n"
+        f"{em('label')} لقب افتخاری: <b>«{league.title}»</b>\n"
         f"{registry.text('trophy')} ریتینگ: <b>{stat.score:,}</b> امتیاز "
         f"(رتبه #{rank} از {max(1, total_players):,})\n\n"
-        f"📈 <b>مسیر ارتقا به لیگ بعدی:</b>\n"
+        f"{em('stats')} <b>مسیر ارتقا به لیگ بعدی:</b>\n"
         f"<code>{bar_str}</code>\n\n"
         f"📊 <b>آمار تفصیلی:</b>\n"
         f"• کل مسابقات: <b>{stat.total_games}</b>\n"
@@ -446,7 +449,7 @@ def render_my_league(
         f"• شکست‌ها: <b>{stat.losses}</b> | تساوی‌ها: <b>{stat.draws}</b>\n"
         f"• زنجیره برد پی‌درپی فعلی: <b>{stat.current_streak}</b> {registry.text('streak_fire')}\n"
         f"• بالاترین رکورد پیروزی متوالی: <b>{stat.max_streak}</b> ✨\n\n"
-        f"🏅 <b>سطوح نردبان لیگ‌های میوویا:</b>\n"
+        f"{em('medal')} <b>سطوح نردبان لیگ‌های میوویا:</b>\n"
         f"🥉 <b>لیگ برنز:</b> ۱,۰۰۰ تا ۱,۱۴۹ امتیاز\n"
         f"🥈 <b>لیگ نقره:</b> ۱,۱۵۰ تا ۱,۳۴۹ امتیاز\n"
         f"🥇 <b>لیگ طلا:</b> ۱,۳۵۰ تا ۱,۶۴۹ امتیاز\n"
@@ -482,13 +485,13 @@ def render_rules(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
     text = (
         f"{registry.text('file')} <b>راهنما و قوانین امتیازدهی بازی دوز میوویا</b>\n\n"
         "سیستم رتبه‌بندی بازی‌ها بر پایه ریتینگ هوشمند طراحی شده است:\n\n"
-        "🎯 <b>ضرایب امتیاز بر اساس سطح دشواری:</b>\n"
+        f"{em('target')} <b>ضرایب امتیاز بر اساس سطح دشواری:</b>\n"
         "• <b>سطح آسان 🟢:</b> برد +۱۵ | مساوی +۲ | باخت -۵\n"
         "• <b>سطح متوسط 🟡:</b> برد +۲۵ | مساوی +۵ | باخت -۱۰\n"
         "• <b>سطح سخت 🔴:</b> برد +۴۰ | مساوی +۱۰ | باخت -۱۵\n\n"
         f"{registry.text('streak_fire')} <b>پاداش زنجیره برد (Streak Bonus):</b>\n"
         "با هر برد متوالی، به ازای هر برد +۲ امتیاز پاداش ویژه دریافت می‌کنید!\n\n"
-        "🛡 <b>حاشیه امن برنز:</b>\n"
+        f"{em('shield')} <b>حاشیه امن برنز:</b>\n"
         "امتیاز بازیکنان تازه وارد زیر ۱,۰۰۰ امتیاز کسر نخواهد شد."
     )
 
@@ -609,7 +612,9 @@ async def cb_start_xo(
         await save_xo_session(query.message.chat.id, query.message.message_id, "_" * 9, diff)
     except Exception as exc:
         log.error("xo_board_start_failed", error=str(exc))
-        await query.answer("⚠️ شروع بازی ناموفق بود. دوباره تلاش کنید.", show_alert=True)
+        await query.answer(
+            f"{em('warning')} شروع بازی ناموفق بود. دوباره تلاش کنید.", show_alert=True
+        )
 
 
 @router.callback_query(GameCB.filter(F.action == "move"))
@@ -689,7 +694,7 @@ async def cb_handle_move(
             delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
             stat = await game_repo.record_result(user.telegram_id, "draw", delta)
             await drop_xo_session(chat_id, message_id)
-            await query.answer("🤝 بازی مساوی شد!")
+            await query.answer(f"{em('handshake')} بازی مساوی شد!")
             text, reply_markup = render_xo_board(
                 user, stat, diff, board_after_player, registry, "draw", delta, old_score
             )
@@ -707,7 +712,7 @@ async def cb_handle_move(
             delta = calculate_score_delta("loss", diff, stat.score, stat.current_streak)
             stat = await game_repo.record_result(user.telegram_id, "loss", delta)
             await drop_xo_session(chat_id, message_id)
-            await query.answer("🤖 میوویا برنده شد!")
+            await query.answer(f"{em('bot_robot')} میوویا برنده شد!")
             text, reply_markup = render_xo_board(
                 user, stat, diff, board_after_bot, registry, "loss", delta, old_score
             )
@@ -719,7 +724,7 @@ async def cb_handle_move(
             delta = calculate_score_delta("draw", diff, stat.score, stat.current_streak)
             stat = await game_repo.record_result(user.telegram_id, "draw", delta)
             await drop_xo_session(chat_id, message_id)
-            await query.answer("🤝 بازی مساوی شد!")
+            await query.answer(f"{em('handshake')} بازی مساوی شد!")
             text, reply_markup = render_xo_board(
                 user, stat, diff, board_after_bot, registry, "draw", delta, old_score
             )

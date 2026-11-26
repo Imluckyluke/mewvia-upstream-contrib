@@ -27,7 +27,7 @@ from app.core.units import fa_digits
 from app.db.models.sponsor_seen import SponsorSeenMember
 from app.db.repo import SponsorRepo
 from app.filters import IsAdmin
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
 from app.ui.texts import t
@@ -205,7 +205,7 @@ async def info_sponsor(query: CallbackQuery, session: AsyncSession, bot: Bot) ->
     ).scalar_one()
 
     ok, reason = await verify_bot_is_admin(bot, channel.channel_id)
-    admin_line = "ربات ادمین است ✔" if ok else f"ربات ادمین نیست ({reason[:40]})"
+    admin_line = f"ربات ادمین است {em('check_mark')}" if ok else f"ربات ادمین نیست ({reason[:40]})"
 
     await query.answer(
         f"{channel.title}\n\n"

@@ -28,7 +28,7 @@ from app.db.models.instagram_cookie import InstagramCookie
 from app.db.repo import InstagramCookieRepo
 from app.filters import IsAdmin
 from app.media.cookie_checker import check_instagram_cookie_health_sync, parse_and_normalize_cookies
-from app.ui.emoji import EmojiRegistry, get_emoji_registry
+from app.ui.emoji import EmojiRegistry, em, get_emoji_registry
 from app.ui.kb import KB, inline_button
 from app.ui.styles import Style
 from app.ui.texts import t
@@ -150,10 +150,11 @@ async def render_cookies_dashboard(
 
     if not cookies:
         header_lines.append(
-            "⚠️ <i>هنوز هیچ اکانتی ثبت نشده است. با دکمه زیر اولین کوکی را اضافه کنید.</i>"
+            f"{em('warning')} <i>هنوز هیچ اکانتی ثبت نشده است. "
+            "با دکمه زیر اولین کوکی را اضافه کنید.</i>"
         )
     else:
-        header_lines.append("📋 <b>لیست اکانت‌های ثبت‌شده:</b>")
+        header_lines.append(f"{em('clipboard')} <b>لیست اکانت‌های ثبت‌شده:</b>")
 
     text = "\n".join(header_lines)
 
@@ -235,7 +236,7 @@ async def render_cookies_dashboard(
 async def render_cookie_detail(c: InstagramCookie, registry: EmojiRegistry) -> tuple[str, KB]:
     badge = _status_badge(c)
     err_line = (
-        f"⚠️ <b>خطای اخیر:</b> <code>{html.quote(c.error_message)}</code>\n"
+        f"{em('warning')} <b>خطای اخیر:</b> <code>{html.quote(c.error_message)}</code>\n"
         if c.error_message
         else ""
     )
@@ -467,7 +468,7 @@ async def delete_cookie_confirm(query: CallbackQuery, session: AsyncSession) -> 
     )
 
     confirm_text = (
-        f"⚠️ <b>آیا از حذف اکانت «{html.quote(cookie.label)}» اطمینان داری؟</b>\n\n"
+        f"{em('warning')} <b>آیا از حذف اکانت «{html.quote(cookie.label)}» اطمینان داری؟</b>\n\n"
         "پس از حذف، این کوکی از چرخه دانلود خارج خواهد شد."
     )
     if isinstance(query.message, Message):
@@ -649,7 +650,9 @@ async def _finalize_cookie_addition(
     await sync_active_cookie_to_disk(session)
     await session.flush()
 
-    status_badge = "🟢 سالم و فعال در چرخه" if is_valid else f"⚠️ نیاز به بررسی ({err})"
+    status_badge = (
+        "🟢 سالم و فعال در چرخه" if is_valid else f"{em('warning')} نیاز به بررسی ({err})"
+    )
     res_msg = (
         f"🎉 <b>اکانت «{html.quote(label)}» با موفقیت ذخیره شد!</b>\n\n"
         f"وضعیت بررسی اولیه: {status_badge}\n"

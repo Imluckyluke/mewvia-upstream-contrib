@@ -15,6 +15,7 @@ import asyncpg
 from app.config import Settings
 from app.core.errors import MewviaError
 from app.core.logging import get_logger
+from app.ui.emoji import em
 
 log = get_logger(__name__)
 
@@ -36,9 +37,11 @@ class DatabaseSnapshot:
     def summary(self) -> str:
         rev = self.alembic_revision or "—"
         return (
-            f"👥 کاربر: <b>{self.users:,}</b> | 🔁 تبدیل: <b>{self.conversions:,}</b> | "
-            f"⚙️ تنظیمات: <b>{self.settings}</b> | 🎨 ایموجی: <b>{self.emoji_slots}</b> | "
-            f"🧬 ریویژن: <code>{rev}</code>"
+            f"{em('users')} کاربر: <b>{self.users:,}</b> | "
+            f"{em('repeat')} تبدیل: <b>{self.conversions:,}</b> | "
+            f"{em('settings')} تنظیمات: <b>{self.settings}</b> | "
+            f"{em('sticker')} ایموجی: <b>{self.emoji_slots}</b> | "
+            f"{em('dna')} ریویژن: <code>{rev}</code>"
         )
 
 
