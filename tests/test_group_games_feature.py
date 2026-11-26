@@ -163,3 +163,11 @@ async def test_two_player_group_flow(
     await UserRepo(session).upsert_from_telegram(host_user)
     await UserRepo(session).upsert_from_telegram(guest_user)
     await group_session.drop(CHAT_ID)
+
+
+def test_group_command_menu_includes_games() -> None:
+    from app.__main__ import GROUP_BOT_COMMANDS
+
+    names = {cmd.command for cmd in GROUP_BOT_COMMANDS}
+    assert "game" in names
+    assert "game_lb" in names
