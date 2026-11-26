@@ -1057,33 +1057,54 @@ async def cb_private_gol_next(
 def render_gol_leaderboard(
     user_id: int,
     top_stats: Sequence[Any],
+    names: dict[int, str],
     user_rank: int,
     total_players: int,
     registry: EmojiRegistry,
-) -> tuple[str, Any]:
+) -> tuple[str, InlineKeyboardMarkup]:
     lines = [
-        f"{em('fist')} <b>جدول گل یا پوچ — تک نفره</b>\\n",
-        " هر بازی ۳ نوبت، هر نوبت درست = ۱ امتیاز\\n",
+        f"{registry.text('trophy')} <b>جدول رتبهبندی گل یا پوچ</b>\n",
+        "۱۰ بازیکن برتر بر اساس بالاترین ریتینگ لیگ:\n",
     ]
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    medals = ["🥇", "🥈", "🥉"]
+
     if not top_stats:
-        lines.append("<i>هنوز کسی بازی نکرده — اولین قهرمان باشید!</i>")
+        lines.append("<i>هنوز هیچ مسابقهای ثبت نشده است. اولین قهرمان باشید!</i>\n")
     else:
         for idx, s in enumerate(top_stats, start=1):
-            name = html.escape(s.user.full_name) if getattr(s, "user", None) else "بازیکن ناشناس"
-            rank_num = medals.get(idx, f"{idx}.")
+            badge = medals[idx - 1] if idx <= 3 else f"<b>{idx}.</b>"
+            league_obj = get_league(s.score)
+            p_name = names.get(s.telegram_id, "بازیکن ناشناس")
+            is_me = s.telegram_id == user_id
+            me_tag = " (شما)" if is_me else ""
+            name_escaped = html.escape(p_name)
             lines.append(
-                f"{rank_num} <b>{name}</b> — "
-                f"<b>{s.score:,}</b> امتیاز [برد: {s.wins} | باخت: {s.losses}]"
+                f"{badge} <b>{name_escaped}</b>{me_tag} — "
+                f"<b>{s.score:,}</b> امتیاز {league_obj.get_badge(registry)} "
+                f"[برد: {s.wins} | باخت: {s.losses}]"
             )
-    lines.append("\\n──────────────")
+
+    lines.append("\n──────────────")
     lines.append(f"{em('pin')} <b>رتبه شما:</b> #{user_rank} از {max(1, total_players):,} بازیکن")
+
     kb = KB(registry)
     kb.button(
         "بازی گل یا پوچ",
         callback_data=GameCB(action="gol").pack(),
         style=Style.CONFIRM,
         emoji_slot="fist",
+    )
+    kb.button(
+        "بهروزرسانی",
+        callback_data=GameCB(action="gol_lb").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="refresh",
+    )
+    kb.button(
+        "نردبان لیگ من",
+        callback_data=GameCB(action="profile").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="medal",
     )
     kb.button(
         "جدول دوز (XO)",
@@ -1097,8 +1118,8 @@ def render_gol_leaderboard(
         style=Style.NEUTRAL,
         emoji_slot="back",
     )
-    kb.adjust(1, 1, 1)
-    return "\\n".join(lines), kb.as_markup()
+    kb.adjust(1, 2, 1, 1, 1)
+    return "\n".join(lines), kb.as_markup()
 
 
 @router.callback_query(GameCB.filter(F.action == "gol_lb"))
@@ -1112,7 +1133,16 @@ async def cb_gol_leaderboard(
     uid = query.from_user.id
     rank = await repo.rank(0, "gol", uid)
     total = await repo.total_players(0, "gol")
+    users = UserRepo(session)
+    names: dict[int, str] = {}
+    for stat in top:
+        user = await users.get(stat.telegram_id)
+        if user:
+            names[stat.telegram_id] = user.full_name
+    me = await users.get(uid)
+    if me:
+        names[uid] = me.full_name
     registry = await ready_registry()
-    text, kb = render_gol_leaderboard(uid, top, rank, total, registry)
+    text, kb = render_gol_leaderboard(uid, top, names, rank, total, registry)
     await query.message.edit_text(text, reply_markup=kb)
     await query.answer()

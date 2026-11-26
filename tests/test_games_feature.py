@@ -408,3 +408,9 @@ async def test_private_gol_three_rounds_and_leaderboard(
     lb = GameCB(action="gol_lb")
     await cb_gol_leaderboard(Q(lb), lb, session)  # type: ignore[arg-type]
     assert msg.edit_text.await_count >= 1
+    rendered = str(msg.edit_text.await_args.args[0])
+    assert "جدول رتبهبندی گل یا پوچ" in rendered
+    assert "۱۰ بازیکن برتر بر اساس بالاترین ریتینگ لیگ" in rendered
+    assert "سحر" in rendered and "(شما)" in rendered
+    assert "رتبه شما:" in rendered
+    assert "\\n" not in rendered  # no literal backslash-n leaking into Telegram
