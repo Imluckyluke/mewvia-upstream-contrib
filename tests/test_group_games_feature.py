@@ -216,3 +216,25 @@ async def test_group_game_panel_blocks_other_owners_except_join_and_move() -> No
 
     result = await guard(handler, make_query(opened_by, "start"), {})  # type: ignore[arg-type]
     assert result == "passed"
+
+
+def test_games_category_contains_only_game_slots() -> None:
+    from app.features.uidemo import CATEGORIES, _category_slots
+    from app.db.seed import EMOJI_SLOTS
+
+    games = next(c for c in CATEGORIES if c[0] == "games")
+    ui = next(c for c in CATEGORIES if c[0] == "ui")
+    assert games[2:] == (400, 419)
+    assert ui[2] == 420
+
+    class Slot:
+        def __init__(self, name: str, order: int) -> None:
+            self.slot = name
+            self.sort_order = order
+
+    rows = [Slot(s.slot, s.sort_order) for s in EMOJI_SLOTS]
+    names = [s.slot for s in _category_slots(rows, "games")]
+    assert "xo_x" in names and "xo_o" in names and "trophy" in names
+    assert "handshake" in names and "bot_robot" in names
+    # Generic UI icons must not pollute the games category.
+    assert "calendar" not in names and "reddit" not in names and "settings" not in names
