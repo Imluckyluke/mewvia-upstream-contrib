@@ -296,6 +296,17 @@ async def test_stale_xo_board_mismatch_is_rejected() -> None:
     assert not any("تغییر کرده" in a for a in answers)
 
 
+async def test_game_command_with_bot_mention_does_not_hit_media_filter() -> None:
+    """Telegram sends `/game@Mewvia_bot` from the command menu in groups."""
+    filter_obj = GroupMediaInvocationFilter()
+    settings = get_settings()
+    bot_username = settings.bot_username
+    assert await filter_obj(_group_message(f"/game@{bot_username}"), settings) is False
+    assert await filter_obj(_group_message(f"/game_lb@{bot_username}"), settings) is False
+    # Supported media commands still work with the mention.
+    assert await filter_obj(_group_message(f"/media@{bot_username}"), settings) is True
+
+
 async def test_group_command_addressed_to_other_bot_is_ignored() -> None:
     filter_obj = GroupMediaInvocationFilter()
     settings = get_settings()

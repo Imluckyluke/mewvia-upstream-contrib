@@ -56,8 +56,12 @@ class GroupMediaInvocationFilter(BaseFilter):
             cmd_name, _, at_bot = command_part.partition("@")
             if at_bot and at_bot not in usernames:
                 return False
-            if cmd_name in self.SUPPORTED_COMMANDS:
-                return True
+            # IMPORTANT: an unsupported command must be rejected here, before
+            # the mention check below. Telegram turns a tapped command-menu
+            # entry into `/game@Mewvia_bot`; without this early return the
+            # @mention made group_media answer with the "reply to media" hint
+            # instead of letting the games handler run.
+            return cmd_name in self.SUPPORTED_COMMANDS
 
         # 2. Explicit bot mention in text or caption (e.g. @Mewvia_bot).
         # Match the complete username so mentioning @MewviaBotNews is not
