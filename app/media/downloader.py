@@ -37,6 +37,8 @@ from app.config import get_settings
 from app.core.errors import ConversionError
 from app.core.logging import get_logger
 from app.core.units import human_duration
+from app.media.hot_cache import get as _hot_get
+from app.media.hot_cache import set as _hot_set
 from app.media.worker import run_worker
 
 log = get_logger(__name__)
@@ -481,12 +483,19 @@ def _download_spotify_track_sync(
     yt_query = f"ytsearch1:{clean_q}"
     sc_query = f"scsearch5:{artist} {title}" if artist else f"scsearch5:{title}"
 
-    # Try SoundCloud first (lightning fast ~0.8s, no bot-gating, high fidelity)
+    # Try SoundCloud first, but remember a failure: the WARP exit IP is
+    # currently blocked there (HTTP 403), so retrying on every track only
+    # adds ~0.6s. The marker expires after an hour in case unblocking happens.
     mp3_file: Path | None = None
-    try:
-        mp3_file = _download_audio_sync(sc_query, work_dir, max_bytes=max_bytes, ignore_errors=True)
-    except Exception as sc_exc:
-        log.debug("spotify_sc_primary_failed", query=sc_query, error=str(sc_exc)[:150])
+    if not _hot_get("spotify:sc_blocked", 3600):
+        try:
+            mp3_file = _download_audio_sync(
+                sc_query, work_dir, max_bytes=max_bytes, ignore_errors=True
+            )
+        except Exception as sc_exc:
+            log.debug("spotify_sc_primary_failed", query=sc_query, error=str(sc_exc)[:150])
+        if not mp3_file or not mp3_file.is_file():
+            _hot_set("spotify:sc_blocked", True)
 
     # Fallback to YouTube. Resolve the search once, then download from the
     # direct URL — yt-dlp would otherwise resolve the search and the video
@@ -1074,6 +1083,10 @@ def _resolve_first_url(search_query: str, *, timeout: int = 25) -> str | None:
     search *and* then re-resolve the chosen video. For a Spotify track that
     added ~9s of pure metadata round-trips before a single byte was downloaded.
     """
+    cached = _hot_get(f"ytsearch:{search_query}", 86400)
+    if isinstance(cached, str) and cached:
+        return cached
+
     opts = _build_ytdlp_opts(download=False, outtmpl="%(title)s.%(ext)s", timeout=timeout)
     try:
         with _make_ydl(opts) as ydl:
@@ -1085,7 +1098,11 @@ def _resolve_first_url(search_query: str, *, timeout: int = 25) -> str | None:
     if not isinstance(entry, dict):
         return None
     url = entry.get("url") or entry.get("webpage_url")
-    return str(url) if url else None
+    if not url:
+        return None
+    resolved = str(url)
+    _hot_set(f"ytsearch:{search_query}", resolved)
+    return resolved
 
 
 def _download_audio_sync(

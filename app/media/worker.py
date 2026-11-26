@@ -24,6 +24,25 @@ _ROOT = Path(__file__).resolve().parents[2]
 async def run_worker(kind: str, *args: Any) -> Any:
     global _slots
     settings = get_settings()
+
+    # The socket server is already warm (yt-dlp, mutagen and Pillow imported).
+    # Forking it avoids paying ~4.7s of Python startup per job while keeping
+    # process isolation, a per-job file-size limit and a reapable child.
+    if os.environ.get("MEDIA_WORKER_FORK") == "1":
+        from app.media.fork_child import child_main
+
+        with tempfile.TemporaryDirectory(dir="/data/tmp") as tmp:
+            result_path = Path(tmp) / "result.json"
+            pid = os.fork()
+            if pid == 0:
+                child_main(kind, list(args), result_path, 256 * 1024 * 1024)
+            async with asyncio.timeout(settings.job_timeout):
+                _waited, _status = await asyncio.to_thread(os.waitpid, pid, 0)
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+            if "error" in payload:
+                raise ConversionError(payload["error"])
+            return payload["result"]
+
     socket_path = os.environ.get("MEDIA_WORKER_SOCKET")
     if kind != "lottie" and socket_path:
         async with asyncio.timeout(settings.job_timeout):
