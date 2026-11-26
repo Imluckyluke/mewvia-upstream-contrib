@@ -400,8 +400,9 @@ async def test_private_gol_three_rounds_and_leaderboard(
 
     from app.db.repo.game import GameRepo
 
+    # Solo gol must NOT touch the XO scoreboard — scores stay per game.
     gstat = await GameRepo(session).get_or_create(user.id)
-    assert gstat.wins == 1
+    assert gstat.wins == 0
     pstat = await GroupGameRepo(session).get_or_create(0, "gol", user.id)
     assert pstat.wins == 1
 
@@ -414,3 +415,36 @@ async def test_private_gol_three_rounds_and_leaderboard(
     assert "سحر" in rendered and "(شما)" in rendered
     assert "رتبه شما:" in rendered
     assert "\\n" not in rendered  # no literal backslash-n leaking into Telegram
+
+
+@pytest.mark.asyncio
+async def test_scores_are_per_game_but_league_uses_the_sum(session: AsyncSession) -> None:
+    from app.db.repo.game import GameRepo
+    from app.db.repo.group_game import GroupGameRepo
+    from app.db.repo.total_score import TotalScoreRepo
+    from app.features.games.leagues import get_league
+    from app.features.games.router import render_total_leaderboard
+
+    from aiogram.types import User as TgUser
+    from app.db.repo.user import UserRepo
+
+    uid = 99173
+    await UserRepo(session).upsert_from_telegram(
+        TgUser(id=uid, is_bot=False, first_name="تستر")
+    )
+    xo = await GameRepo(session).get_or_create(uid)
+    xo.score = 1100
+    gol = await GroupGameRepo(session).get_or_create(0, "gol", uid)
+    gol.score = 1200
+    group = await GroupGameRepo(session).get_or_create(-99173, "xo", uid)
+    group.score = 1300
+    await session.flush()
+
+    repo = TotalScoreRepo(session)
+    assert await repo.total_for(uid) == 3600
+    assert (await repo.totals())[uid] == 3600
+    assert xo.score == 1100 and gol.score == 1200 and group.score == 1300
+
+    # The league comes from the aggregate, not from any single scoreboard.
+    assert get_league(3600) is get_league(3600)
+    assert (await repo.rank_of(uid)) == 1

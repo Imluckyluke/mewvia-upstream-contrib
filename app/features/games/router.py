@@ -25,6 +25,7 @@ from app.db.models.game_stat import GameStat
 from app.db.models.user import User
 from app.db.repo.game import GameRepo
 from app.db.repo.group_game import GroupGameRepo
+from app.db.repo.total_score import TotalScoreRepo
 from app.db.repo.user import UserRepo
 from app.features.games.leagues import format_league_progress_bar, get_league
 from app.features.games.xo_engine import (
@@ -233,15 +234,18 @@ def render_games_hub(
     rank: int,
     total_players: int,
     registry: EmojiRegistry,
+    total_score: int | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
-    league = get_league(stat.score)
+    combined = stat.score if total_score is None else total_score
+    league = get_league(combined)
     u_name = html.escape(user.full_name)
 
     text = (
         f"{registry.text('game')} <b>مرکز بازی و مسابقات میوویا</b>\n\n"
         f"👤 بازیکن: <b>{u_name}</b>\n"
         f"{league.get_badge(registry)} لیگ: <b>{league.name}</b> — <i>«{league.title}»</i>\n"
-        f"{registry.text('trophy')} ریتینگ: <b>{stat.score:,}</b> امتیاز\n"
+        f"{registry.text('trophy')} ریتینگ دوز: <b>{stat.score:,}</b> | "
+        f"مجموع بازیها: <b>{combined:,}</b> امتیاز\n"
         f"{em('pin')} رتبه جهانی: <b>#{rank}</b> (از {max(1, total_players):,} بازیکن)\n\n"
         f"📊 <b>کارنامه مسابقات:</b>\n"
         f"• بردها: <b>{stat.wins}</b> | باخت‌ها: <b>{stat.losses}</b> | مساوی: <b>{stat.draws}</b>\n"
@@ -482,6 +486,7 @@ def render_leaderboard(
     user_rank: int,
     total_players: int,
     registry: EmojiRegistry,
+    totals: dict[int, int] | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     lines = [
         f"{registry.text('trophy')} <b>جدول رتبه‌بندی برترین بازیکنان میوویا</b>\n",
@@ -495,7 +500,9 @@ def render_leaderboard(
     else:
         for idx, s in enumerate(top_stats, start=1):
             badge = medals[idx - 1] if idx <= 3 else f"<b>{idx}.</b>"
-            league_obj = get_league(s.score)
+            league_obj = get_league(
+                totals.get(s.telegram_id, s.score) if totals else s.score
+            )
             p_name = "بازیکن ناشناس"
             if s.user:
                 p_name = s.user.full_name
@@ -537,12 +544,18 @@ def render_leaderboard(
         emoji_slot="fist",
     )
     kb.button(
-        "مرکز بازی‌ها",
+        "جدول کلی (جمع بازیها)",
+        callback_data=GameCB(action="total_lb").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="trophy",
+    )
+    kb.button(
+        "مرکز بازیها",
         callback_data=GameCB(action="menu").pack(),
         style=Style.NEUTRAL,
         emoji_slot="back",
     )
-    kb.adjust(1, 2, 1)
+    kb.adjust(1, 2, 1, 1, 1)
 
     return "\n".join(lines), kb.as_markup()
 
@@ -553,9 +566,11 @@ def render_my_league(
     rank: int,
     total_players: int,
     registry: EmojiRegistry,
+    total_score: int | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
-    league = get_league(stat.score)
-    bar_str = format_league_progress_bar(stat.score)
+    combined = stat.score if total_score is None else total_score
+    league = get_league(combined)
+    bar_str = format_league_progress_bar(combined)
     u_name = html.escape(user.full_name)
 
     text = (
@@ -657,8 +672,9 @@ async def reply_games(message: Message, session: AsyncSession) -> None:
     stat = await game_repo.get_or_create(user.telegram_id)
     rank = await game_repo.get_user_rank(user.telegram_id)
     total = await game_repo.get_total_players()
+    combined = await TotalScoreRepo(session).total_for(user.telegram_id)
 
-    text, reply_markup = render_games_hub(user, stat, rank, total, registry)
+    text, reply_markup = render_games_hub(user, stat, rank, total, registry, combined)
     await message.reply(text, reply_markup=reply_markup)
 
 
@@ -675,8 +691,9 @@ async def menu_games(query: CallbackQuery, session: AsyncSession) -> None:
     stat = await game_repo.get_or_create(user.telegram_id)
     rank = await game_repo.get_user_rank(user.telegram_id)
     total = await game_repo.get_total_players()
+    combined = await TotalScoreRepo(session).total_for(user.telegram_id)
 
-    text, reply_markup = render_games_hub(user, stat, rank, total, registry)
+    text, reply_markup = render_games_hub(user, stat, rank, total, registry, combined)
     try:
         await query.message.edit_text(text, reply_markup=reply_markup)
     except Exception:
@@ -696,8 +713,9 @@ async def cb_games_menu(query: CallbackQuery, session: AsyncSession) -> None:
     stat = await game_repo.get_or_create(user.telegram_id)
     rank = await game_repo.get_user_rank(user.telegram_id)
     total = await game_repo.get_total_players()
+    combined = await TotalScoreRepo(session).total_for(user.telegram_id)
 
-    text, reply_markup = render_games_hub(user, stat, rank, total, registry)
+    text, reply_markup = render_games_hub(user, stat, rank, total, registry, combined)
     try:
         await query.message.edit_text(text, reply_markup=reply_markup)
     except Exception:
@@ -874,6 +892,7 @@ async def cb_leaderboard(query: CallbackQuery, session: AsyncSession) -> None:
     top_stats = await game_repo.get_leaderboard(limit=10)
     user_rank = await game_repo.get_user_rank(query.from_user.id)
     total_players = await game_repo.get_total_players()
+    totals = await TotalScoreRepo(session).totals()
 
     text, reply_markup = render_leaderboard(
         user_id=query.from_user.id,
@@ -881,6 +900,7 @@ async def cb_leaderboard(query: CallbackQuery, session: AsyncSession) -> None:
         user_rank=user_rank,
         total_players=total_players,
         registry=registry,
+        totals=totals,
     )
     try:
         await query.message.edit_text(text, reply_markup=reply_markup)
@@ -901,6 +921,7 @@ async def cb_my_league(query: CallbackQuery, session: AsyncSession) -> None:
     stat = await game_repo.get_or_create(user.telegram_id)
     rank = await game_repo.get_user_rank(user.telegram_id)
     total_players = await game_repo.get_total_players()
+    combined = await TotalScoreRepo(session).total_for(user.telegram_id)
 
     text, reply_markup = render_my_league(
         user=user,
@@ -908,6 +929,7 @@ async def cb_my_league(query: CallbackQuery, session: AsyncSession) -> None:
         rank=rank,
         total_players=total_players,
         registry=registry,
+        total_score=combined,
     )
     try:
         await query.message.edit_text(text, reply_markup=reply_markup)
@@ -1040,9 +1062,6 @@ async def cb_private_gol_next(
         "win" if points > _PGOL_ROUNDS / 2 else "loss" if points < _PGOL_ROUNDS / 2 else "draw"
     )
     uid = query.from_user.id
-    gstat = await GameRepo(session).get_or_create(uid)
-    gdelta = calculate_score_delta(outcome, "med", gstat.score, gstat.current_streak)
-    await GameRepo(session).record_result(uid, outcome, gdelta)
     pstat = await GroupGameRepo(session).get_or_create(0, "gol", uid)
     pdelta = calculate_score_delta(outcome, "med", pstat.score, pstat.current_streak)
     await GroupGameRepo(session).record_result(0, "gol", uid, outcome, pdelta)
@@ -1061,6 +1080,7 @@ def render_gol_leaderboard(
     user_rank: int,
     total_players: int,
     registry: EmojiRegistry,
+    totals: dict[int, int] | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     lines = [
         f"{registry.text('trophy')} <b>جدول رتبهبندی گل یا پوچ</b>\n",
@@ -1073,7 +1093,9 @@ def render_gol_leaderboard(
     else:
         for idx, s in enumerate(top_stats, start=1):
             badge = medals[idx - 1] if idx <= 3 else f"<b>{idx}.</b>"
-            league_obj = get_league(s.score)
+            league_obj = get_league(
+                totals.get(s.telegram_id, s.score) if totals else s.score
+            )
             p_name = names.get(s.telegram_id, "بازیکن ناشناس")
             is_me = s.telegram_id == user_id
             me_tag = " (شما)" if is_me else ""
@@ -1113,12 +1135,18 @@ def render_gol_leaderboard(
         emoji_slot="trophy",
     )
     kb.button(
+        "جدول کلی (جمع بازیها)",
+        callback_data=GameCB(action="total_lb").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="trophy",
+    )
+    kb.button(
         "مرکز بازیها",
         callback_data=GameCB(action="menu").pack(),
         style=Style.NEUTRAL,
         emoji_slot="back",
     )
-    kb.adjust(1, 2, 1, 1, 1)
+    kb.adjust(1, 2, 1, 1, 1, 1)
     return "\n".join(lines), kb.as_markup()
 
 
@@ -1143,6 +1171,75 @@ async def cb_gol_leaderboard(
     if me:
         names[uid] = me.full_name
     registry = await ready_registry()
-    text, kb = render_gol_leaderboard(uid, top, names, rank, total, registry)
+    totals = await TotalScoreRepo(session).totals()
+    text, kb = render_gol_leaderboard(uid, top, names, rank, total, registry, totals)
+    await query.message.edit_text(text, reply_markup=kb)
+    await query.answer()
+
+
+def render_total_leaderboard(
+    user_id: int,
+    top: Sequence[tuple[int, int]],
+    names: dict[int, str],
+    user_rank: int,
+    total_players: int,
+    registry: EmojiRegistry,
+) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [
+        f"{registry.text('trophy')} <b>جدول کلی میوویا — جمع تمام بازیها</b>\n",
+        "لیگبندی بر اساس مجموع ریتینگ دوز + گل یا پوچ + بازیهای گروهی:\n",
+    ]
+    medals = ["🥇", "🥈", "🥉"]
+    if not top:
+        lines.append("<i>هنوز هیچ مسابقهای ثبت نشده است.</i>")
+    else:
+        for idx, (uid, score) in enumerate(top, start=1):
+            badge = medals[idx - 1] if idx <= 3 else f"<b>{idx}.</b>"
+            league_obj = get_league(score)
+            name = html.escape(names.get(uid, "بازیکن ناشناس"))
+            me_tag = " (شما)" if uid == user_id else ""
+            lines.append(
+                f"{badge} <b>{name}</b>{me_tag} — <b>{score:,}</b> امتیاز "
+                f"{league_obj.get_badge(registry)}"
+            )
+    lines.append("\n──────────────")
+    lines.append(f"{em('pin')} <b>رتبه شما:</b> #{user_rank} از {max(1, total_players):,} بازیکن")
+    kb = KB(registry)
+    kb.button("بازی دوز (XO)", callback_data=GameCB(action="diff").pack(),
+              style=Style.CONFIRM, emoji_slot="game")
+    kb.button("گل یا پوچ", callback_data=GameCB(action="gol").pack(),
+              style=Style.CONFIRM, emoji_slot="fist")
+    kb.button("جدول دوز (XO)", callback_data=GameCB(action="lb").pack(),
+              style=Style.PRIMARY, emoji_slot="trophy")
+    kb.button("جدول گل یا پوچ", callback_data=GameCB(action="gol_lb").pack(),
+              style=Style.PRIMARY, emoji_slot="fist")
+    kb.button("مرکز بازیها", callback_data=GameCB(action="menu").pack(),
+              style=Style.NEUTRAL, emoji_slot="back")
+    kb.adjust(2, 2, 1)
+    return "\n".join(lines), kb.as_markup()
+
+
+@router.callback_query(GameCB.filter(F.action == "total_lb"))
+async def cb_total_leaderboard(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
+    if not isinstance(query.message, Message) or not query.from_user:
+        return
+    repo = TotalScoreRepo(session)
+    top = await repo.top(10)
+    uid = query.from_user.id
+    rank = await repo.rank_of(uid)
+    total = len(await repo.totals())
+    users = UserRepo(session)
+    names: dict[int, str] = {}
+    for player_id, _ in top:
+        user = await users.get(player_id)
+        if user:
+            names[player_id] = user.full_name
+    me = await users.get(uid)
+    if me:
+        names[uid] = me.full_name
+    registry = await ready_registry()
+    text, kb = render_total_leaderboard(uid, top, names, rank, total, registry)
     await query.message.edit_text(text, reply_markup=kb)
     await query.answer()
