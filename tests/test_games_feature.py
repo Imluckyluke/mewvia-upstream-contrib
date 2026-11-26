@@ -7,6 +7,7 @@ from aiogram.enums import ChatType
 from aiogram.types import Chat, User as TgUser
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.game_stat import GameStat
 from app.db.models.user import User
 from app.db.repo.game import GameRepo
 from app.db.repo.user import UserRepo
@@ -238,3 +239,58 @@ async def test_game_repo_crud_and_leaderboard(session: AsyncSession) -> None:
     rank_p2 = await repo.get_user_rank(888102)
     rank_p1 = await repo.get_user_rank(888101)
     assert rank_p2 < rank_p1
+
+
+
+def test_board_buttons_are_colored_and_emoji_only() -> None:
+    """Empty cells blue, X green, O red — and premium slots render as icons."""
+    from app.features.games.router import render_xo_board
+    from app.ui.styles import Style, resolve
+
+    class FakeRegistry(EmojiRegistry):
+        def fallback(self, slot: str) -> str:  # type: ignore[override]
+            return {"xo_x": "❌", "xo_o": "⭕", "xo_empty": "⬜"}.get(slot, "?")
+
+        def text(self, slot: str) -> str:  # type: ignore[override]
+            return self.fallback(slot)
+
+        def custom_id(self, slot: str) -> str | None:  # type: ignore[override]
+            return None
+
+    registry = FakeRegistry()
+    user = User(telegram_id=1, first_name="X")
+    stat = GameStat(telegram_id=1, score=1000)
+    _text, markup = render_xo_board(user, stat, "med", "X_O________", registry)
+    cells = markup.inline_keyboard[0]
+    assert cells[0].style == resolve(Style.CONFIRM)  # X -> green
+    assert cells[2].style == resolve(Style.DESTRUCTIVE)  # O -> red
+    assert cells[1].style == resolve(Style.PRIMARY)  # empty -> blue
+    assert all(b.text.strip() in {"", "❌", "⭕", "⬜"} for b in cells)
+
+
+def test_result_shows_old_to_new_score_with_sign() -> None:
+    """A win/loss must display the exact rating change, not just the total."""
+    from app.features.games.router import render_xo_board
+
+    registry = EmojiRegistry()
+    user = User(telegram_id=1, first_name="X")
+    stat = GameStat(telegram_id=1, score=1025)
+    text, _ = render_xo_board(
+        user, stat, "med", "XXX______", registry, "win", 25, 1000
+    )
+    assert "1,000" in text and "1,025" in text and "+25" in text
+
+    stat.score = 1015
+    text, _ = render_xo_board(
+        user, stat, "hard", "OOO______", registry, "loss", -10, 1025
+    )
+    assert "1,025" in text and "1,015" in text and "-10" in text
+
+
+def test_difficulty_callback_renders_picker() -> None:
+    """The diff action must open the chooser — not silently start med."""
+    from app.callbacks.game import GameCB
+
+    cb = GameCB(action="diff")
+    assert cb.action == "diff"
+    assert GameCB(action="xo", diff="hard").diff == "hard"

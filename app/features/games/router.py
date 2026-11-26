@@ -16,14 +16,12 @@ from app.cache.fallback import FallbackCache
 from app.cache.redis import get_redis
 from app.callbacks import MenuCB, NoopCB
 from app.callbacks.game import GameCB
-from app.config import get_settings
 from app.core.logging import get_logger
 from app.db.models.game_stat import GameStat
 from app.db.models.user import User
 from app.db.repo.game import GameRepo
 from app.db.repo.user import UserRepo
 from app.features.games.leagues import format_league_progress_bar, get_league
-from app.features.games.widget import send_xo_widget
 from app.features.games.xo_engine import (
     calculate_score_delta,
     check_winner,
@@ -221,6 +219,7 @@ def render_xo_board(
     registry: EmojiRegistry,
     last_outcome: str | None = None,
     score_delta: int = 0,
+    old_score: int | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     diff_title = DIFF_LABELS.get(diff, "متوسط 🟡")
     league = get_league(stat.score)
@@ -233,18 +232,21 @@ def render_xo_board(
         f"میوویا: <b>{registry.text('xo_o')}</b>\n"
     )
 
+    base_score = stat.score if old_score is None else old_score
+    change = (
+        f"<code>{base_score:,}</code> → <code>{stat.score:,}</code> "
+        f"(<b>{score_delta:+,}</b>)"
+    )
     if last_outcome == "win":
         status_line = (
             f"\n🎉 <b>تبریک فراوان! شما برنده شدید!</b>\n"
-            f"{registry.text('streak_fire')} <b>+{score_delta} امتیاز</b> به ریتینگ شما اضافه شد!"
+            f"{registry.text('streak_fire')} ریتینگ شما: {change}"
         )
     elif last_outcome == "loss":
-        delta_str = (
-            f"{score_delta} امتیاز" if score_delta != 0 else "بدون کسر امتیاز (حاشیه امن برنز)"
-        )
-        status_line = f"\n🤖 <b>میوویا پیروز شد!</b>\n🔻 <b>{delta_str}</b> از ریتینگ شما ثبت شد."
+        note = "" if score_delta else " (حاشیه امن برنز — کسر نشد)"
+        status_line = f"\n🤖 <b>میوویا پیروز شد!</b>\n🔻 ریتینگ شما: {change}{note}"
     elif last_outcome == "draw":
-        status_line = f"\n🤝 <b>بازی مساوی شد!</b>\n✨ <b>+{score_delta} امتیاز</b> ثبت شد."
+        status_line = f"\n🤝 <b>بازی مساوی شد!</b>\n✨ ریتینگ شما: {change}"
     else:
         status_line = "\nنوبت شماست! یک خانه خالی را لمس کنید:"
 
@@ -259,14 +261,14 @@ def render_xo_board(
         char = board[i]
         if char == "X":
             kb.button(
-                registry.fallback("xo_x"),
+                "",
                 callback_data=NoopCB().pack(),
-                style=Style.PRIMARY,
+                style=Style.CONFIRM,
                 emoji_slot="xo_x",
             )
         elif char == "O":
             kb.button(
-                registry.fallback("xo_o"),
+                "",
                 callback_data=NoopCB().pack(),
                 style=Style.DESTRUCTIVE,
                 emoji_slot="xo_o",
@@ -274,16 +276,16 @@ def render_xo_board(
         else:
             if is_finished:
                 kb.button(
-                    registry.fallback("xo_empty"),
+                    "",
                     callback_data=NoopCB().pack(),
-                    style=Style.NEUTRAL,
+                    style=Style.PRIMARY,
                     emoji_slot="xo_empty",
                 )
             else:
                 kb.button(
-                    registry.fallback("xo_empty"),
+                    "",
                     callback_data=GameCB(action="move", diff=diff, cell=i, b=board).pack(),
-                    style=Style.NEUTRAL,
+                    style=Style.PRIMARY,
                     emoji_slot="xo_empty",
                 )
 
@@ -562,38 +564,40 @@ async def cb_games_menu(query: CallbackQuery, session: AsyncSession) -> None:
         pass
 
 
-@router.callback_query(GameCB.filter(F.action.in_({"diff", "xo", "reset"})))
-async def cb_start_xo_widget(
-    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
-) -> None:
+@router.callback_query(GameCB.filter(F.action == "diff"))
+async def cb_diff_picker(query: CallbackQuery) -> None:
+    """Show the difficulty chooser. Telegram no longer supports media widgets."""
     if not query.from_user or not isinstance(query.message, Message):
         return
-    await query.answer("🎮 در حال ارسال ویجت گرافیکی بازی دوز…")
-    settings = get_settings()
-    sent = await send_xo_widget(
-        query.message.chat.id, settings.bot_token, settings.telegram_api_url
-    )
-    if sent:
-        return
+    await query.answer()
+    registry = await ready_registry()
+    text, reply_markup = render_diff_picker(registry)
+    try:
+        await query.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        pass
 
-    # The graphical widget is unavailable (old client / Bot API without
-    # sendWidget): fall back to the classic inline board instead of leaving the
-    # user with an error. The board is tracked server-side by cb_handle_move.
-    log.warning("xo_widget_unavailable_using_inline_board", chat_id=query.message.chat.id)
+
+@router.callback_query(GameCB.filter(F.action.in_({"xo", "reset"})))
+async def cb_start_xo(
+    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
+) -> None:
+    """Start (or restart) a board game using the classic inline keyboard."""
+    if not query.from_user or not isinstance(query.message, Message):
+        return
+    await query.answer()
     diff = callback_data.diff if callback_data.diff in _VALID_DIFFS else "med"
     try:
         registry = await ready_registry()
         user = await UserRepo(session).upsert_from_telegram(query.from_user)
         stat = await GameRepo(session).get_or_create(user.telegram_id)
         text, reply_markup = render_xo_board(user, stat, diff, "_" * 9, registry)
-        board_msg = await query.message.answer(text, reply_markup=reply_markup)
-        if board_msg is not None:
+        board_msg = await query.message.edit_text(text, reply_markup=reply_markup)
+        if isinstance(board_msg, Message):
             await save_xo_session(query.message.chat.id, board_msg.message_id, "_" * 9, diff)
     except Exception as exc:
-        log.error("xo_inline_fallback_failed", error=str(exc))
-        await query.message.answer(
-            "⚠️ ارسال ویجت تلگرام ناموفق بود. مطمئن شوید از نسخه جدید تلگرام استفاده می‌کنید."
-        )
+        log.error("xo_board_start_failed", error=str(exc))
+        await query.answer("⚠️ شروع بازی ناموفق بود. دوباره تلاش کنید.", show_alert=True)
 
 
 @router.callback_query(GameCB.filter(F.action == "move"))
@@ -658,6 +662,7 @@ async def cb_handle_move(
     # Check player win/draw
     winner, _ = check_winner(board_after_player)
     registry = await ready_registry()
+    old_score = stat.score
 
     if winner == "X":
         delta = calculate_score_delta("win", diff, stat.score, stat.current_streak)
@@ -665,7 +670,7 @@ async def cb_handle_move(
         await drop_xo_session(chat_id, message_id)
         await query.answer("🎉 تبریک! برنده شدید!")
         text, reply_markup = render_xo_board(
-            user, stat, diff, board_after_player, registry, "win", delta
+            user, stat, diff, board_after_player, registry, "win", delta, old_score
         )
         try:
             await query.message.edit_text(text, reply_markup=reply_markup)
@@ -679,7 +684,7 @@ async def cb_handle_move(
         await drop_xo_session(chat_id, message_id)
         await query.answer("🤝 بازی مساوی شد!")
         text, reply_markup = render_xo_board(
-            user, stat, diff, board_after_player, registry, "draw", delta
+            user, stat, diff, board_after_player, registry, "draw", delta, old_score
         )
         try:
             await query.message.edit_text(text, reply_markup=reply_markup)
@@ -701,7 +706,7 @@ async def cb_handle_move(
         await drop_xo_session(chat_id, message_id)
         await query.answer("🤖 میوویا برنده شد!")
         text, reply_markup = render_xo_board(
-            user, stat, diff, board_after_bot, registry, "loss", delta
+            user, stat, diff, board_after_bot, registry, "loss", delta, old_score
         )
         try:
             await query.message.edit_text(text, reply_markup=reply_markup)
@@ -715,7 +720,7 @@ async def cb_handle_move(
         await drop_xo_session(chat_id, message_id)
         await query.answer("🤝 بازی مساوی شد!")
         text, reply_markup = render_xo_board(
-            user, stat, diff, board_after_bot, registry, "draw", delta
+            user, stat, diff, board_after_bot, registry, "draw", delta, old_score
         )
         try:
             await query.message.edit_text(text, reply_markup=reply_markup)
