@@ -24,7 +24,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.autobackup import describe_schedule, sync_autobackup_job
-from app.admin.backup import create_db_backup
+from app.admin.backup_router import router as backup_router
 from app.admin.broadcast import send_broadcast
 from app.admin.cookies_router import router as cookies_router
 from app.admin.loading_gifs_router import router as loading_gifs_router
@@ -64,6 +64,7 @@ router.message.filter(F.chat.type == ChatType.PRIVATE)
 router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
 router.include_router(sponsor_router)
 router.include_router(cookies_router)
+router.include_router(backup_router)
 router.include_router(loading_gifs_router)
 
 
@@ -126,8 +127,8 @@ async def build_admin_panel_kb(registry: EmojiRegistry) -> KB:
             registry=registry,
         ),
         inline_button(
-            "دریافت بکاپ",
-            callback_data="admin_act:backup",
+            "بکاپ و ریستور",
+            callback_data="bk:panel",
             style=Style.CONFIRM,
             emoji_slot="backup",
             registry=registry,
@@ -777,15 +778,11 @@ async def admin_export_txt(
 
 @router.callback_query(F.data == "admin_act:backup", IsAdmin())
 async def admin_backup_action(query: CallbackQuery, settings: Settings) -> None:
-    await query.answer("در حال پشتیبان‌گیری از دیتابیس…")
-    try:
-        await create_db_backup(settings, settings.backup_dir)
-        if isinstance(query.message, Message):
-            await query.message.answer("✅ نسخهٔ پشتیبان روی سرور ذخیره شد.")
-    except Exception as exc:
-        log.error("admin_backup_error", error=str(exc))
-        if isinstance(query.message, Message):
-            await query.message.answer("❌ پشتیبان‌گیری با خطا مواجه شد.")
+    """Legacy entry point kept for old messages — forwards to the new panel."""
+    await query.answer()
+    from app.admin.backup_router import _show  # local: avoid an import cycle
+
+    await _show(query, settings)
 
 
 # ---------------------------------------------------------------------------
@@ -853,8 +850,8 @@ async def render_settings_panel() -> tuple[str, KB]:
     )
     kb.row(
         inline_button(
-            "بکاپ فوری",
-            callback_data="admin_act:backup",
+            "بکاپ و ریستور",
+            callback_data="bk:panel",
             style=Style.CONFIRM,
             emoji_slot="backup",
             registry=registry,

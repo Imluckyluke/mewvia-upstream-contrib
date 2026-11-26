@@ -115,7 +115,13 @@ async def test_create_db_backup(settings: Settings, tmp_path: Path, session: Asy
     backup_file = await create_db_backup(real_settings, tmp_path)
     assert backup_file.is_file()
     assert backup_file.stat().st_size > 0
-    assert backup_file.name.endswith(".dump")
+    # The suffix reflects whether an age recipient is configured: encrypted
+    # dumps end in .dump.age, plaintext ones in .dump.
+    assert backup_file.name.endswith((".dump", ".dump.age"))
+    if real_settings.backup_age_recipient:
+        assert backup_file.name.endswith(".dump.age")
+        head = backup_file.read_bytes()[:21]
+        assert head == b"age-encryption.org/v1"
 
 
 # ---------------------------------------------------------------------------

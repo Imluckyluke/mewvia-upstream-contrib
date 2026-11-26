@@ -26,6 +26,12 @@ services:
       TMP_DIR: /data/tmp
       BACKUP_DIR: /data/backups
       BACKUP_REQUIRE_ENCRYPTION: 'true'
+      # Delivered to admins as a Telegram document, then removed from disk.
+      BACKUP_DELIVER_TO_ADMIN: 'true'
+      BACKUP_NOTIFY: 'true'
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      # Needed only for panel restores of encrypted dumps.
+      BACKUP_AGE_IDENTITY: ${BACKUP_AGE_IDENTITY:-}
       MEDIA_WORKER_SOCKET: /run/mewvia/media.sock
     depends_on:
       media-worker:

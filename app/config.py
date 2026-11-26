@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     cookie_dir: Path = Path("/data/cookies")
     backup_dir: Path = Path("/data/backups")
     backup_age_recipient: str = ""
+    # Private half of the backup key, used only when an admin restores an
+    # encrypted dump from the panel. Set BACKUP_AGE_IDENTITY to the
+    # AGE-SECRET-KEY-... string (single line).
+    backup_age_identity: str = ""
+    # Backups are handed to the admin as a Telegram document and removed from
+    # the server afterwards; disk is not trusted storage for user data.
+    backup_deliver_to_admin: bool = True
+    backup_notify: bool = True
     backup_require_encryption: bool = False
     backup_max_bytes: int = Field(default=512 * 1024 * 1024, gt=0)
     health_file: Path = Path("/data/health")

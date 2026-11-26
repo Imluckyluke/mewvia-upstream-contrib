@@ -2,23 +2,23 @@
 
 The admin sets `autobackup_cron` (e.g. ``0 4 * * *``) — empty means off.
 On boot (and whenever the setting changes) :func:`sync_autobackup_job`
-reconciles the APScheduler job. Each run pg_dumps the database into
-``settings.backup_dir`` and prunes files older than 7 days so the disk
-never fills up.
+reconciles the APScheduler job.
 
-Delivery: the dump is saved server-side (backup_dir) because there may be
-no admin chat to send it to at 4 AM. The admin panel's manual backup button
-still sends the file on demand.
+Each run pg_dumps the database, delivers the encrypted dump straight to every
+admin as a Telegram document, reports the outcome, and then deletes the local
+file: the server disk is not treated as backup storage.
 """
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import shutil
 import time
 from pathlib import Path
 
 from aiogram import Bot
+from aiogram.types import FSInputFile
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -36,6 +36,15 @@ _KEEP_DAYS = 7
 
 _scheduler: AsyncIOScheduler | None = None
 _last_cron: str | None = None
+
+
+async def notify_admins(bot: Bot, settings: Settings, text: str) -> None:
+    """Best-effort DM to every configured admin."""
+    for admin_id in settings.admin_ids:
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception as exc:
+            log.warning("admin_notify_failed", admin_id=admin_id, error=str(exc))
 
 
 def get_scheduler() -> AsyncIOScheduler | None:
@@ -92,19 +101,61 @@ def _prune_old_backups(backup_dir: Path, keep_days: int = _KEEP_DAYS) -> int:
 
 
 async def _run_autobackup(settings: Settings, bot: Bot | None = None) -> None:
-    _ = bot  # reserved: future DM-to-admin delivery.
+    """Scheduled backup: create, deliver to admins, then wipe the local copy."""
     log.info("autobackup_run_start")
+    backup_file: Path | None = None
     try:
         backup_file = await create_db_backup(settings, settings.backup_dir)
+        size = backup_file.stat().st_size
         pruned = _prune_old_backups(settings.backup_dir)
         log.info(
             "autobackup_run_done",
             path=str(backup_file),
-            size=backup_file.stat().st_size,
+            size=size,
             pruned=pruned,
         )
     except Exception as exc:
         log.error("autobackup_run_failed", error=str(exc))
+        if bot is not None and settings.backup_notify:
+            await notify_admins(
+                bot,
+                settings,
+                f"❌ <b>بکاپ خودکار ناموفق بود</b>\n<code>{exc}</code>",
+            )
+        return
+
+    delivered = 0
+    failed = 0
+    if bot is not None:
+        caption = (
+            "🗄 <b>بکاپ خودکار دیتابیس Mewvia</b>\n"
+            f"🗓 <code>{backup_file.name}</code>\n"
+            f"📦 {backup_file.stat().st_size / 1024:.0f} KB"
+        )
+        if backup_file.name.endswith(".age"):
+            caption += "\n🔐 رمزنگاری‌شده با کلید عمومی"
+        for admin_id in settings.admin_ids:
+            try:
+                await bot.send_document(admin_id, FSInputFile(backup_file), caption=caption)
+                delivered += 1
+            except Exception as exc:
+                failed += 1
+                log.warning("autobackup_delivery_failed", admin_id=admin_id, error=str(exc))
+        log.info("autobackup_delivered", delivered=delivered, failed=failed)
+
+    if delivered and settings.backup_deliver_to_admin:
+        # The admin has the only copy that matters; do not leave user data on disk.
+        with contextlib.suppress(OSError):
+            backup_file.unlink(missing_ok=True)
+            log.info("autobackup_local_copy_removed", path=str(backup_file))
+
+    if bot is not None and settings.backup_notify and not delivered:
+        await notify_admins(
+            bot,
+            settings,
+            "⚠️ <b>بکاپ ساخته شد ولی تحویل داده نشد</b>\n"
+            f"<code>{backup_file.name}</code> روی سرور باقی ماند.",
+        )
 
 
 def describe_schedule(cron: str) -> str:
@@ -167,7 +218,7 @@ async def sync_autobackup_job(settings: Settings, bot: Bot) -> str | None:
     _scheduler.add_job(
         _run_autobackup,
         trigger=trigger,
-        args=[settings],
+        args=[settings, bot],
         id=_JOB_ID,
         replace_existing=True,
         max_instances=1,
