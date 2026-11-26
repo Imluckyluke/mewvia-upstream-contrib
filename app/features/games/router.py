@@ -158,7 +158,7 @@ def _render_pgol(state: dict[str, Any], registry: EmojiRegistry) -> tuple[str, A
     lines = [
         f"{em('fist')} <b>گل یا پوچ — تک نفره</b>",
         f"نوبت <b>{fa_digits(str(round_no))}</b> از {fa_digits(str(_PGOL_ROUNDS))}",
-        f"امتیاز você: <b>{fa_digits(str(points))}</b>",
+        f"امتیاز شما: <b>{fa_digits(str(points))}</b>",
     ]
     kb = KB(registry)
     if finished:
