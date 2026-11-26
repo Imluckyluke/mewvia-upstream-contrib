@@ -24,6 +24,8 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.admin.backup import create_db_backup
+from app.admin.watchdog import JOB_ID as WATCHDOG_JOB_ID
+from app.admin.watchdog import check_health
 from app.config import Settings
 from app.core.logging import get_logger
 from app.core.settings_store import get_settings_store
@@ -198,6 +200,19 @@ async def sync_autobackup_job(settings: Settings, bot: Bot) -> str | None:
         import asyncio
 
         asyncio.get_running_loop().run_in_executor(None, _prune_disk_cache, settings)
+
+    # Health watchdog — worker / WARP / disk alerts, throttled hourly.
+    if not _scheduler.get_job(WATCHDOG_JOB_ID):
+        _scheduler.add_job(
+            check_health,
+            trigger=IntervalTrigger(minutes=15),
+            args=[settings, bot],
+            id=WATCHDOG_JOB_ID,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        log.info("watchdog_scheduled", minutes=15)
 
     if not cron:
         if _scheduler.get_job(_JOB_ID):

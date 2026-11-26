@@ -453,12 +453,31 @@ async def confirm_swap(query: CallbackQuery, settings: Settings) -> None:
                 f"❌ جایگزینی ناموفق بود: {html.quote(str(exc)[:300])}\nدیتابیس قبلی دست‌نخورده است."
             )
         return
+
+    # The engine's pool still holds connections to the OLD (renamed) database.
+    # Re-create it in place so new sessions immediately use the promoted DB —
+    # no process restart required.
+    try:
+        from app.db.session import dispose_engine, init_engine
+
+        await dispose_engine()
+        init_engine(settings)
+        log.info("restore_engine_recycled")
+        recycled = True
+    except Exception as exc:
+        log.error("restore_engine_recycle_failed", error=str(exc))
+        recycled = False
+
+    suffix = (
+        "♻️ اتصالات دیتابیس تازه شد — ربات بلافاصله از نسخه جدید استفاده می\u200cکند."
+        if recycled
+        else "⚠️ اتصالات تازه نشد؛ لطفاً ربات را ری\u200cاستارت کنید."
+    )
     if isinstance(query.message, Message):
         await query.message.edit_text(
             "✅ <b>دیتابیس جایگزین شد</b>\n\n"
             f"نسخه قبلی با نام <code>{html.quote(previous)}</code> نگه داشته شد.\n"
-            f"🔁 برای اعمال کامل، ربات را ری‌استارت کنید یا از «بازگردانی نسخه قبلی» "
-            f"استفاده کنید."
+            f"{suffix}"
         )
 
 
@@ -477,9 +496,16 @@ async def undo_restore(query: CallbackQuery, settings: Settings) -> None:
         if isinstance(query.message, Message):
             await query.message.edit_text(f"❌ بازگردانی ناموفق بود: {html.quote(str(exc)[:300])}")
         return
+    try:
+        from app.db.session import dispose_engine, init_engine
+
+        await dispose_engine()
+        init_engine(settings)
+    except Exception as exc:
+        log.error("restore_undo_engine_recycle_failed", error=str(exc))
     if isinstance(query.message, Message):
         await query.message.edit_text(
             "✅ <b>نسخه قبلی بازگردانده شد</b>\n\n"
-            f"نسخه‌ای که کنار گذاشته شد: <code>{html.quote(parked)}</code>\n"
-            f"🔁 برای اعمال کامل، ربات را ری‌استارت کنید."
+            f"نسخهای که کنار گذاشته شد: <code>{html.quote(parked)}</code>\n"
+            f"♻️ اتصالات دیتابیس تازه شد — نیازی به ریاستارت نیست."
         )
