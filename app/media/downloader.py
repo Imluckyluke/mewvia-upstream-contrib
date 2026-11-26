@@ -333,7 +333,9 @@ def _build_ytdlp_opts(
         "socket_timeout": timeout,
         "extract_flat": False,
         "nocheckcertificate": True,
-        "remote_components": ["ejs:github"],
+        # EJS remote challenge solver used to add ~3.3s to every yt-dlp call
+        # (fetched through the WARP socks proxy). The bgutil PO-token provider
+        # below covers YouTube's bot checks, so it is not needed here.
         "proxy": "socks5h://warp:1080",
         "concurrent_fragment_downloads": 5,
         "extractor_args": {
@@ -486,10 +488,15 @@ def _download_spotify_track_sync(
     except Exception as sc_exc:
         log.debug("spotify_sc_primary_failed", query=sc_query, error=str(sc_exc)[:150])
 
-    # Fallback to YouTube if SoundCloud didn't return a file
+    # Fallback to YouTube. Resolve the search once, then download from the
+    # direct URL — yt-dlp would otherwise resolve the search and the video
+    # separately (~9s of metadata round-trips for one 3MB track).
     if not mp3_file or not mp3_file.is_file():
+        direct = _resolve_first_url(yt_query)
         try:
-            mp3_file = _download_audio_sync(yt_query, work_dir, max_bytes=max_bytes)
+            mp3_file = _download_audio_sync(
+                direct or yt_query, work_dir, max_bytes=max_bytes
+            )
         except Exception as yt_exc:
             log.warning(
                 "spotify_yt_fallback_failed",
@@ -1058,6 +1065,27 @@ def _download_video_sync(
     mp4s = [p for p in candidates if p.suffix.lower() == ".mp4"]
     selected = mp4s[0] if mp4s else candidates[0]
     return _ensure_ios_compatibility_sync(selected, work_dir)
+
+
+def _resolve_first_url(search_query: str, *, timeout: int = 25) -> str | None:
+    """Resolve a yt-dlp search term to the first hit's direct URL, once.
+
+    Passing ``ytsearchN:`` straight into downloader makes yt-dlp resolve the
+    search *and* then re-resolve the chosen video. For a Spotify track that
+    added ~9s of pure metadata round-trips before a single byte was downloaded.
+    """
+    opts = _build_ytdlp_opts(download=False, outtmpl="%(title)s.%(ext)s", timeout=timeout)
+    try:
+        with _make_ydl(opts) as ydl:
+            info = ydl.extract_info(search_query, download=False, process=False)
+    except Exception as exc:
+        log.warning("search_resolve_failed", query=search_query[:80], error=str(exc)[:150])
+        return None
+    entry = next(iter((info or {}).get("entries") or []), None)
+    if not isinstance(entry, dict):
+        return None
+    url = entry.get("url") or entry.get("webpage_url")
+    return str(url) if url else None
 
 
 def _download_audio_sync(
