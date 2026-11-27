@@ -368,10 +368,7 @@ def render_xo_board(
     )
 
     base_score = stat.score if old_score is None else old_score
-    change = (
-        f"<code>{base_score:,}</code> → <code>{stat.score:,}</code> "
-        f"(<b>{score_delta:+,}</b>)"
-    )
+    change = f"<code>{base_score:,}</code> → <code>{stat.score:,}</code> (<b>{score_delta:+,}</b>)"
     if last_outcome == "win":
         status_line = (
             f"\n🎉 <b>تبریک فراوان! شما برنده شدید!</b>\n"
@@ -380,8 +377,7 @@ def render_xo_board(
     elif last_outcome == "loss":
         note = "" if score_delta else " (حاشیه امن برنز — کسر نشد)"
         status_line = (
-            f"\n{em('bot_robot')} <b>میوویا پیروز شد!</b>\n"
-            f"{em('down')} ریتینگ شما: {change}{note}"
+            f"\n{em('bot_robot')} <b>میوویا پیروز شد!</b>\n{em('down')} ریتینگ شما: {change}{note}"
         )
     elif last_outcome == "draw":
         status_line = f"\n{em('handshake')} <b>بازی مساوی شد!</b>\n✨ ریتینگ شما: {change}"
@@ -500,9 +496,7 @@ def render_leaderboard(
     else:
         for idx, s in enumerate(top_stats, start=1):
             badge = medals[idx - 1] if idx <= 3 else f"<b>{idx}.</b>"
-            league_obj = get_league(
-                totals.get(s.telegram_id, s.score) if totals else s.score
-            )
+            league_obj = get_league(totals.get(s.telegram_id, s.score) if totals else s.score)
             p_name = "بازیکن ناشناس"
             if s.user:
                 p_name = s.user.full_name
@@ -737,9 +731,7 @@ async def cb_diff_picker(query: CallbackQuery) -> None:
 
 
 @router.callback_query(GameCB.filter(F.action.in_({"xo", "reset"})))
-async def cb_start_xo(
-    query: CallbackQuery, callback_data: GameCB, session: AsyncSession
-) -> None:
+async def cb_start_xo(query: CallbackQuery, callback_data: GameCB, session: AsyncSession) -> None:
     """Start (or restart) a board game using the classic inline keyboard."""
     if not query.from_user or not isinstance(query.message, Message):
         return
@@ -1093,9 +1085,7 @@ def render_gol_leaderboard(
     else:
         for idx, s in enumerate(top_stats, start=1):
             badge = medals[idx - 1] if idx <= 3 else f"<b>{idx}.</b>"
-            league_obj = get_league(
-                totals.get(s.telegram_id, s.score) if totals else s.score
-            )
+            league_obj = get_league(totals.get(s.telegram_id, s.score) if totals else s.score)
             p_name = names.get(s.telegram_id, "بازیکن ناشناس")
             is_me = s.telegram_id == user_id
             me_tag = " (شما)" if is_me else ""
@@ -1205,16 +1195,36 @@ def render_total_leaderboard(
     lines.append("\n──────────────")
     lines.append(f"{em('pin')} <b>رتبه شما:</b> #{user_rank} از {max(1, total_players):,} بازیکن")
     kb = KB(registry)
-    kb.button("بازی دوز (XO)", callback_data=GameCB(action="diff").pack(),
-              style=Style.CONFIRM, emoji_slot="game")
-    kb.button("گل یا پوچ", callback_data=GameCB(action="gol").pack(),
-              style=Style.CONFIRM, emoji_slot="fist")
-    kb.button("جدول دوز (XO)", callback_data=GameCB(action="lb").pack(),
-              style=Style.PRIMARY, emoji_slot="trophy")
-    kb.button("جدول گل یا پوچ", callback_data=GameCB(action="gol_lb").pack(),
-              style=Style.PRIMARY, emoji_slot="fist")
-    kb.button("مرکز بازیها", callback_data=GameCB(action="menu").pack(),
-              style=Style.NEUTRAL, emoji_slot="back")
+    kb.button(
+        "بازی دوز (XO)",
+        callback_data=GameCB(action="diff").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="game",
+    )
+    kb.button(
+        "گل یا پوچ",
+        callback_data=GameCB(action="gol").pack(),
+        style=Style.CONFIRM,
+        emoji_slot="fist",
+    )
+    kb.button(
+        "جدول دوز (XO)",
+        callback_data=GameCB(action="lb").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="trophy",
+    )
+    kb.button(
+        "جدول گل یا پوچ",
+        callback_data=GameCB(action="gol_lb").pack(),
+        style=Style.PRIMARY,
+        emoji_slot="fist",
+    )
+    kb.button(
+        "مرکز بازیها",
+        callback_data=GameCB(action="menu").pack(),
+        style=Style.NEUTRAL,
+        emoji_slot="back",
+    )
     kb.adjust(2, 2, 1)
     return "\n".join(lines), kb.as_markup()
 

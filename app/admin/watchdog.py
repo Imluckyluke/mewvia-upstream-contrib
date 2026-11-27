@@ -58,9 +58,7 @@ async def check_health(settings: Settings, bot: Bot) -> None:
     # 2. WARP tunnel — a TCP connect to its SOCKS port is enough to know the
     #    container is alive; a full probe belongs to the media-worker anyway.
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection("warp", 1080), timeout=10
-        )
+        reader, writer = await asyncio.wait_for(asyncio.open_connection("warp", 1080), timeout=10)
         writer.close()
         await writer.wait_closed()
         del reader

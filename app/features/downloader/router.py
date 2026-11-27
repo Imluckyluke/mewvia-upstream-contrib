@@ -1251,9 +1251,7 @@ async def upload_cookie_file(message: Message, bot: Bot, session: AsyncSession) 
     registry = await ready_registry()
     _, kb = await render_cookies_dashboard(session, registry)
     status_badge = (
-        "🟢 سالم و فعال در چرخه"
-        if is_valid
-        else f"{em('warning')} نیاز به بررسی ({err})"
+        "🟢 سالم و فعال در چرخه" if is_valid else f"{em('warning')} نیاز به بررسی ({err})"
     )
     await message.reply(
         f"🍪 <b>اکانت «{html.quote(label)}» با موفقیت اضافه شد!</b>\n\n"

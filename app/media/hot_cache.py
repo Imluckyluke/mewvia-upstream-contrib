@@ -35,8 +35,6 @@ def set(key: str, value: Any) -> None:
     """Store a value best-effort — cache failures must never break a download."""
     try:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _path_for(key).write_text(
-            json.dumps({"ts": time.time(), "v": value}), encoding="utf-8"
-        )
+        _path_for(key).write_text(json.dumps({"ts": time.time(), "v": value}), encoding="utf-8")
     except Exception:
         pass

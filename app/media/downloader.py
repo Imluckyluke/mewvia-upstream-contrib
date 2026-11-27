@@ -503,9 +503,7 @@ def _download_spotify_track_sync(
     if not mp3_file or not mp3_file.is_file():
         direct = _resolve_first_url(yt_query)
         try:
-            mp3_file = _download_audio_sync(
-                direct or yt_query, work_dir, max_bytes=max_bytes
-            )
+            mp3_file = _download_audio_sync(direct or yt_query, work_dir, max_bytes=max_bytes)
         except Exception as yt_exc:
             log.warning(
                 "spotify_yt_fallback_failed",

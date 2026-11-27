@@ -241,9 +241,7 @@ async def turn_page(
 
 
 @router.callback_query(DemoCB.filter(F.action == "toggle"))
-async def toggle_premium(
-    query: CallbackQuery, session: AsyncSession, state: FSMContext
-) -> None:
+async def toggle_premium(query: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     new_value = await get_settings_store().toggle(
         PREMIUM_FLAG, updated_by=query.from_user.id if query.from_user else None
     )

@@ -225,7 +225,7 @@ async def select_existing_pack(
     if isinstance(query.message, Message):
         await query.message.edit_text(
             f"حالا یک <b>ایموجی مرتبط</b> برای این استیکر بفرست "
-        f"(مثلاً {em('emoji')} یا {em('sticker')}):"
+            f"(مثلاً {em('emoji')} یا {em('sticker')}):"
         )
     await query.answer()
 

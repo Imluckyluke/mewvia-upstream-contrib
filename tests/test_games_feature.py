@@ -241,7 +241,6 @@ async def test_game_repo_crud_and_leaderboard(session: AsyncSession) -> None:
     assert rank_p2 < rank_p1
 
 
-
 def test_board_buttons_are_colored_and_emoji_only() -> None:
     """Empty cells blue, X green, O red — and premium slots render as icons."""
     from app.features.games.router import render_xo_board
@@ -275,15 +274,11 @@ def test_result_shows_old_to_new_score_with_sign() -> None:
     registry = EmojiRegistry()
     user = User(telegram_id=1, first_name="X")
     stat = GameStat(telegram_id=1, score=1025)
-    text, _ = render_xo_board(
-        user, stat, "med", "XXX______", registry, "win", 25, 1000
-    )
+    text, _ = render_xo_board(user, stat, "med", "XXX______", registry, "win", 25, 1000)
     assert "1,000" in text and "1,025" in text and "+25" in text
 
     stat.score = 1015
-    text, _ = render_xo_board(
-        user, stat, "hard", "OOO______", registry, "loss", -10, 1025
-    )
+    text, _ = render_xo_board(user, stat, "hard", "OOO______", registry, "loss", -10, 1025)
     assert "1,025" in text and "1,015" in text and "-10" in text
 
 
@@ -429,9 +424,7 @@ async def test_scores_are_per_game_but_league_uses_the_sum(session: AsyncSession
     from app.db.repo.user import UserRepo
 
     uid = 99173
-    await UserRepo(session).upsert_from_telegram(
-        TgUser(id=uid, is_bot=False, first_name="تستر")
-    )
+    await UserRepo(session).upsert_from_telegram(TgUser(id=uid, is_bot=False, first_name="تستر"))
     xo = await GameRepo(session).get_or_create(uid)
     xo.score = 1100
     gol = await GroupGameRepo(session).get_or_create(0, "gol", uid)

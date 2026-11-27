@@ -58,9 +58,7 @@ def child_main(kind: str, args: list[Any], result_path: Path, file_limit: int) -
         result_path.write_text(json.dumps({"result": value}, default=str), encoding="utf-8")
     except BaseException as exc:
         try:
-            result_path.write_text(
-                json.dumps({"error": str(exc)[:500]}), encoding="utf-8"
-            )
+            result_path.write_text(json.dumps({"error": str(exc)[:500]}), encoding="utf-8")
         except Exception:
             pass
     finally:
