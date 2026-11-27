@@ -160,10 +160,12 @@ async def test_rps_secret_commit_and_public_ranking_panel(group) -> None:
     await tap(1, "rps_pick", cb=p2)
     final = await group_session.load(CHAT_ID)
     assert final["status"] == "ended" and final["winner"] == 0
-    message.answer.reset_mock()
+    result_edits = message.edit_text.await_count
+    assert result_edits == edits + 1
+    message.answer = AsyncMock()
     await tap(2, "lb", cb=GroupGameCB.unpack(pack_action(final, "lb", cell=0)))
     message.answer.assert_awaited_once()
-    assert message.edit_text.await_count == edits + 1
+    assert message.edit_text.await_count == result_edits
 
 
 async def test_cancel_is_unrated_and_old_lobby_cannot_start_new_game(group, session) -> None:

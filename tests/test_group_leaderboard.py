@@ -121,7 +121,7 @@ async def test_combined_pagination_reaches_all_players(session: AsyncSession) ->
     assert await repo.combined_total_players(CHAT) == len(ids)
 
     text, markup = await render_leaderboard(session, CHAT, "all", 1, EmojiRegistry())
-    assert "صفحه ۲ از ۲" in text
+    assert "صفحه <b>۲</b> از <b>۲</b>" in text
     assert any(cb.action == "lb" and cb.game == "all" and cb.cell == 0 for cb in _callbacks(markup))
 
 

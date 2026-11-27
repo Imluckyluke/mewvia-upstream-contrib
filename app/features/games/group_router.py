@@ -104,7 +104,7 @@ def _menu(
 
 async def _player(session: AsyncSession, actor: User) -> dict[str, int | str]:
     user = await UserRepo(session).upsert_from_telegram(actor)
-    player = {"id": user.telegram_id, "name": user.full_name}
+    player: dict[str, int | str] = {"id": user.telegram_id, "name": user.full_name}
     # Don't expose a player in Redis before their database row exists for scoring.
     await session.commit()
     return player

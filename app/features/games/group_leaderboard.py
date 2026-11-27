@@ -93,9 +93,9 @@ async def render_leaderboard(
     else:
         names = await _display_names(session, [row.telegram_id for row in rows])
         medals = ["🥇", "🥈", "🥉"]
-        offset = page * PAGE_SIZE
-        for index, row in enumerate(rows):
-            rank = offset + index + 1
+        rank = page * PAGE_SIZE
+        for row in rows:
+            rank += 1
             badge = medals[rank - 1] if rank <= 3 else f"<b>{fa_digits(str(rank))}.</b>"
             name = html.escape(names.get(row.telegram_id, "بازیکن")[:100])
             lines.append(

@@ -176,6 +176,7 @@ def render_match(
         return "\n".join(lines), keyboard.as_markup()
 
     finished = state["status"] == "ended"
+    rows: tuple[int, ...]
     if game == "xo":
         _xo(lines, keyboard, state, names, finished)
         rows = (3, 3, 3)
