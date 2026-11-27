@@ -34,3 +34,4 @@ class GroupGameCB(CallbackData, prefix="gg"):
     game: str = "xo"
     cell: int = -1
     side: str = ""
+    """Gol ya Pooch: which hand the guesser picked (left/right)."""

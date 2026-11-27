@@ -40,8 +40,8 @@ CATEGORIES: tuple[tuple[str, str, int, int], ...] = (
     ("meta", "اطلاعات آهنگ", 303, 310),
     ("platform", "پلتفرمها", 311, 329),
     ("admin", "پنل ادمین", 330, 399),
-    ("games", "بازیها", 400, 419),
-    ("ui", "آیکونهای رابط", 420, 10**9),
+    ("games", "بازیها", 400, 479),
+    ("ui", "آیکونهای رابط", 480, 10**9),
 )
 _CATEGORY_KEYS = {row[0] for row in CATEGORIES}
 DEFAULT_CATEGORY = "all"
