@@ -126,9 +126,13 @@ class GroupPanelGuardMiddleware(BaseMiddleware):
         if chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
             return await handler(event, data)
 
+        prefix = (query.data or "").partition(":")[0]
+        # Group games are shared. Their router checks the match, message, role and turn.
+        if prefix == "gg":
+            return await handler(event, data)
+
         panel = await get_panel(chat.id, query.message.message_id)
         if not panel:
-            prefix = (query.data or "").partition(":")[0]
             if prefix in {
                 "conv",
                 "atool",
@@ -139,24 +143,9 @@ class GroupPanelGuardMiddleware(BaseMiddleware):
                 "vtool",
                 "vtool_action",
                 "spack_action",
-                "gg",
             }:
                 await query.answer("این پنل منقضی شده است؛ یک پنل جدید باز کنید.", show_alert=True)
                 return None
-            return await handler(event, data)
-
-        prefix = (query.data or "").partition(":")[0]
-        action = (query.data or "").split(":")[1] if ":" in (query.data or "") else ""
-        # Group game panels are owned by whoever opened them. «ورود به بازی»
-        # must stay open to everyone, and «move» is allowed here because the
-        # game handler itself enforces whose turn it is.
-        if prefix == "gg" and action in {
-            "join",
-            "move",
-            "gol_hide",
-            "gol_guess",
-            "gol_rematch",
-        }:
             return await handler(event, data)
 
         owner_id = panel.get("owner_id")

@@ -25,13 +25,11 @@ class GameCB(CallbackData, prefix="gm"):
 
 
 class GroupGameCB(CallbackData, prefix="gg"):
-    """Group lobby / multiplayer game callbacks.
-
-    action: lobby, join, start, move, lb, cancel, refresh
-    """
+    """Group navigation or an action bound to one revision of a match."""
 
     action: str
     game: str = "xo"
     cell: int = -1
     side: str = ""
-    """Gol ya Pooch: which hand the guesser picked (left/right)."""
+    match_id: str = ""
+    revision: int = 0

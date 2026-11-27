@@ -1,534 +1,321 @@
-"""Tests for group multiplayer games (lobby, scoring and leaderboards)."""
+"""Group gameplay, authorization and durable scoring regressions."""
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
+from importlib import import_module
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
+from aiogram import Dispatcher
+from aiogram.enums import ChatType
+from aiogram.methods import GetMe, SendMessage
+from aiogram.types import CallbackQuery, Chat, Message, Update, User
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.callbacks import GroupGameCB
+from app.db.repo.game import GameRepo
 from app.db.repo.group_game import GroupGameRepo
-from app.features.games.group_router import _render_lobby
+from app.features.games import group_session
+from app.features.games.group_rules import GOL_ROUNDS, RPS_LABELS, pack_action, rps_winner
+from app.features.games.group_scoring import rating_delta
+from app.middlewares.group_guard import GroupPanelGuardMiddleware
 from app.ui.emoji import EmojiRegistry
+from tests.test_phase1_middleware import FakeBot
 
 CHAT_ID = -1001234567890
-ALICE = 555000001
-BOB = 555000002
+group_router = import_module("app.features.games.group_router")
 
 
-def test_group_callback_roundtrip() -> None:
-    cb = GroupGameCB(action="join", game="xo")
-    packed = cb.pack()
-    parsed = GroupGameCB.unpack(packed)
-    assert parsed.action == "join"
-    assert parsed.game == "xo"
-    move = GroupGameCB(action="move", game="xo", cell=4).pack()
-    assert GroupGameCB.unpack(move).cell == 4
-
-
-def test_lobby_shows_both_player_names() -> None:
-    import asyncio
-
-    async def run() -> None:
-        lobby = {
-            "game": "xo",
-            "status": "lobby",
-            "host": ALICE,
-            "players": [
-                {"id": ALICE, "name": "علی احمدی"},
-                {"id": BOB, "name": "مریم کریمی"},
-            ],
-        }
-
-        class FakeSession:
-            pass
-
-        text, markup = await _render_lobby(FakeSession(), lobby, EmojiRegistry())  # type: ignore[arg-type]
-        assert "علی احمدی" in text
-        assert "مریم کریمی" in text
-        labels = [button.text for row in markup.inline_keyboard for button in row]
-        assert any("شروع بازی" in label for label in labels)
-        assert not any("ورود به بازی" in label for label in labels)
-
-    asyncio.run(run())
-
-
-@pytest.mark.asyncio
-async def test_group_repo_scores_and_leaderboard(session: AsyncSession) -> None:
-    repo = GroupGameRepo(session)
-    await repo.record_result(CHAT_ID, "xo", ALICE, "win", 25)
-    await repo.record_result(CHAT_ID, "xo", BOB, "loss", -10)
-    # A different game must keep its own ladder.
-    await repo.record_result(CHAT_ID, "other", BOB, "win", 40)
-
-    xo_board = await repo.leaderboard(CHAT_ID, "xo")
-    assert [row.telegram_id for row in xo_board] == [ALICE, BOB]
-    assert xo_board[0].score == 1025
-    assert xo_board[1].score == 990
-
-    other_board = await repo.leaderboard(CHAT_ID, "other")
-    assert len(other_board) == 1
-    assert other_board[0].telegram_id == BOB
-    assert other_board[0].score == 1040
-
-    assert await repo.rank(CHAT_ID, "xo", ALICE) == 1
-    assert await repo.rank(CHAT_ID, "xo", BOB) == 2
-
-
-@pytest.mark.asyncio
-async def test_two_player_group_flow(
-    session: AsyncSession, app_dispatcher: object
-) -> None:
-    """Host opens a lobby, player 2 joins, host starts, both moves score."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from aiogram.enums import ChatType
-    from aiogram.types import Chat, Message, User as TgUser
-
-    from app.callbacks import GroupGameCB
-    from app.db.repo.game import GameRepo
-    from app.db.repo.user import UserRepo
-    from app.features.games import group_session
-    from app.features.games.group_router import cb_join, cb_move, cb_start
-
+@pytest.fixture
+async def group(monkeypatch: pytest.MonkeyPatch, session: AsyncSession):
+    actors = [
+        User(id=index, first_name=name, is_bot=False)
+        for index, name in enumerate(("علی <A>", "مریم", "تماشاگر"), start=945_000)
+    ]
     chat = Chat(id=CHAT_ID, type=ChatType.SUPERGROUP)
-    host_user = TgUser(id=ALICE, is_bot=False, first_name="علی", last_name="احمدی")
-    guest_user = TgUser(id=BOB, is_bot=False, first_name="مریم", last_name="کریمی")
+    message = MagicMock(spec=Message, chat=chat, message_id=34)
+    message.edit_text = AsyncMock()
+    message.answer = AsyncMock(return_value=message)
+    message.get_url.return_value = "https://t.me/c/1234567890/34"
+    monkeypatch.setattr(group_router, "_enabled", AsyncMock(return_value=True))
+    monkeypatch.setattr(group_router, "_registry", AsyncMock(return_value=EmojiRegistry()))
+    await group_session.drop(CHAT_ID)
 
-    def fake_message() -> MagicMock:
-        # spec makes isinstance(mock, Message) true, which the handlers check.
-        m = MagicMock(spec=Message)
-        m.chat = chat
-        m.message_id = 101
-        m.edit_text = AsyncMock()
-        return m
+    async def tap(
+        player: int,
+        action: str,
+        *,
+        game: str = "xo",
+        message_id: int = 34,
+        cb: GroupGameCB | None = None,
+        **kwargs,
+    ) -> CallbackQuery:
+        state = await group_session.load(CHAT_ID)
+        if cb is None:
+            cb = (
+                GroupGameCB.unpack(pack_action(state, action, **kwargs))
+                if state and action not in {"create", "resume", "lb", "menu"}
+                else GroupGameCB(action=action, game=game, **kwargs)
+            )
+        target = (
+            message
+            if message_id == 34
+            else MagicMock(spec=Message, chat=chat, message_id=message_id, edit_text=AsyncMock())
+        )
+        query = MagicMock(
+            spec=CallbackQuery, from_user=actors[player], message=target, answer=AsyncMock()
+        )
+        await group_router.cb_group_game(query, cb, session)
+        return query
 
-    class FakeQuery:
-        def __init__(self, user: TgUser, message: MagicMock) -> None:
-            self.from_user = user
-            self.message = message
+    yield tap, actors, message
+    await group_session.drop(CHAT_ID)
 
-        async def answer(self, *args: object, **kwargs: object) -> None:
+
+async def active_match(tap, game: str) -> None:
+    await tap(0, "create", game=game)
+    await tap(1, "join")
+    await tap(0, "start")
+
+
+async def test_xo_permissions_stale_callback_and_scoring(group, session: AsyncSession) -> None:
+    tap, (host, guest, _spectator), message = group
+    await tap(0, "create")
+    assert "علی &lt;A&gt;" in message.answer.await_args.args[0]
+    await tap(1, "join")
+    assert "مریم" in message.edit_text.await_args.args[0]
+    await tap(2, "cancel")
+    await tap(1, "start")
+    assert (await group_session.load(CHAT_ID))["status"] == "lobby"
+    await tap(0, "start")
+    playing = await group_session.load(CHAT_ID)
+    stale = GroupGameCB.unpack(pack_action(playing, "move", cell=8))
+    await tap(0, "move", cell=0, message_id=99)
+    await tap(1, "move", cell=0)
+    assert (await group_session.load(CHAT_ID))["board"] == "_________"
+    await tap(0, "move", cell=0)
+    await tap(1, "move", cb=stale)
+    assert (await group_session.load(CHAT_ID))["board"] == "X________"
+    for player, cell in [(1, 3), (0, 1), (1, 4)]:
+        await tap(player, "move", cell=cell)
+    before = await group_session.load(CHAT_ID)
+    final_move = GroupGameCB.unpack(pack_action(before, "move", cell=2))
+    await asyncio.gather(tap(0, "move", cb=final_move), tap(0, "move", cb=final_move))
+    final = await group_session.load(CHAT_ID)
+    assert final["status"] == "ended"
+    assert final["winning_cells"] == [0, 1, 2]
+    assert final["deltas"] == [25, -10]
+    # Simulate a crash after the DB commit but before the cache write.
+    pending = {**final, "status": "settling", "revision": before["revision"]}
+    pending.pop("ratings")
+    pending.pop("deltas")
+    await group_session.save(CHAT_ID, pending)
+    # Even a different cell must replay the already-decided result.
+    await tap(0, "move", cell=8)
+    assert (await group_session.load(CHAT_ID))["ratings"] == [1025, 990]
+    assert (await GameRepo(session).get_or_create(host.id)).wins == 0
+    assert (await GroupGameRepo(session).get_or_create(CHAT_ID, "xo", host.id)).wins == 1
+    stat = await GroupGameRepo(session).get_or_create(CHAT_ID, "xo", guest.id)
+    assert stat.losses == 1 and stat.score == 990
+
+
+async def test_gol_hides_choices_resumes_and_swaps_roles(group) -> None:
+    tap, _actors, message = group
+    await active_match(tap, "gol")
+    for hand in range(GOL_ROUNDS):
+        hider = hand % 2
+        await tap(1 - hider, "gol_hide", side="right")
+        assert (await group_session.load(CHAT_ID))["phase"] == "hide"
+        await tap(hider, "gol_hide", side="left")
+        assert (await group_session.load(CHAT_ID))["phase"] == "guess"
+        panel = message.edit_text.await_args.args[0]
+        await tap(hider, "resume", game="gol")
+        assert message.answer.await_args.args[0] == panel
+        assert "دست چپ" not in panel
+        await tap(hider, "gol_guess", side="left")
+        assert (await group_session.load(CHAT_ID))["phase"] == "guess"
+        await tap(1 - hider, "gol_guess", side="left")
+        if hand < GOL_ROUNDS - 1:
+            await tap(2, "next")
+            assert (await group_session.load(CHAT_ID))["round"] == hand + 1
+            await tap(1 - hider, "next")
+
+    final = await group_session.load(CHAT_ID)
+    assert final["status"] == "ended"
+    assert final["points"] == [4, 4]
+    assert final["winner"] is None and final["deltas"] == [0, 0]
+
+
+async def test_rps_secret_commit_and_public_ranking_panel(group) -> None:
+    tap, _actors, message = group
+    await active_match(tap, "rps")
+    initial = await group_session.load(CHAT_ID)
+    p2 = GroupGameCB.unpack(pack_action(initial, "rps_pick", side="scissors"))
+    edits = message.edit_text.await_count
+    await tap(0, "rps_pick", side="rock")
+    await tap(0, "rps_pick", side="paper")
+    assert message.edit_text.await_count == edits
+    await tap(1, "rps_pick", cb=p2)
+    final = await group_session.load(CHAT_ID)
+    assert final["status"] == "ended" and final["winner"] == 0
+    message.answer.reset_mock()
+    await tap(2, "lb", cb=GroupGameCB.unpack(pack_action(final, "lb", cell=0)))
+    message.answer.assert_awaited_once()
+    assert message.edit_text.await_count == edits + 1
+
+
+async def test_cancel_is_unrated_and_old_lobby_cannot_start_new_game(group, session) -> None:
+    tap, _actors, _message = group
+    await active_match(tap, "xo")
+    state = await group_session.load(CHAT_ID)
+    old = GroupGameCB.unpack(pack_action(state, "move", cell=0))
+    await tap(1, "cancel")
+    assert await GroupGameRepo(session).total_players(CHAT_ID, "xo") == 0
+    await active_match(tap, "xo")
+    await tap(0, "move", cb=old)
+    assert (await group_session.load(CHAT_ID))["board"] == "_________"
+
+
+async def test_xo_tie_and_player_only_rematch(group, session: AsyncSession) -> None:
+    tap, actors, _message = group
+    await active_match(tap, "xo")
+    for turn, cell in enumerate([0, 1, 2, 4, 3, 5, 7, 6, 8]):
+        await tap(turn % 2, "move", cell=cell)
+    final = await group_session.load(CHAT_ID)
+    assert final["status"] == "ended" and final["winner"] is None
+    assert final["deltas"] == [0, 0]
+    for actor in actors[:2]:
+        stat = await GroupGameRepo(session).get_or_create(CHAT_ID, "xo", actor.id)
+        assert stat.draws == 1 and stat.score == 1000
+    await tap(2, "rematch")
+    assert (await group_session.load(CHAT_ID))["match_id"] == final["match_id"]
+    await tap(1, "rematch")
+    lobby = await group_session.load(CHAT_ID)
+    assert lobby["status"] == "lobby" and lobby["host"] == actors[1].id
+    assert lobby["match_id"] != final["match_id"]
+
+
+async def test_disabled_games_reject_existing_buttons(group, monkeypatch) -> None:
+    tap, _actors, _message = group
+    await active_match(tap, "xo")
+    monkeypatch.setattr(group_router, "_enabled", AsyncMock(return_value=False))
+    await tap(0, "move", cell=0)
+    assert (await group_session.load(CHAT_ID))["board"] == "_________"
+
+
+async def test_shared_buttons_pass_media_panel_guard() -> None:
+    user = User(id=666, is_bot=False, first_name="مریم")
+    chat = Chat(id=CHAT_ID, type=ChatType.SUPERGROUP)
+    message = Message(message_id=841, chat=chat, date=datetime.now(UTC))
+    query = CallbackQuery(
+        id="test",
+        from_user=user,
+        chat_instance="test",
+        message=message,
+        data=GroupGameCB(action="next", game="gol").pack(),
+    )
+    handler = AsyncMock(return_value="passed")
+    assert await GroupPanelGuardMiddleware()(handler, query, {}) == "passed"
+
+
+async def test_session_keeps_latest_state_after_a_redis_write_failure(monkeypatch) -> None:
+    chat_id = CHAT_ID - 7
+    redis = MagicMock(set=AsyncMock(), get=AsyncMock(), delete=AsyncMock())
+    monkeypatch.setattr(group_session, "get_redis", lambda: redis)
+    await group_session.save(chat_id, {"revision": 0, "players": []})
+    redis.get.return_value = redis.set.await_args.args[1]
+    redis.set.side_effect = ConnectionError("Redis unavailable")
+    await group_session.save(chat_id, {"revision": 1, "players": []})
+    state = await group_session.load(chat_id)
+    assert state["revision"] == 1
+    state["players"].append({"id": 1})
+    assert (await group_session.load(chat_id))["players"] == []
+    await group_session.drop(chat_id)
+
+
+async def test_dispatcher_only_handles_addressed_group_commands(
+    app_dispatcher: Dispatcher, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bot_user = User(id=111111, is_bot=True, first_name="Mewvia", username="MewviaTestBot")
+    chat = Chat(id=CHAT_ID - 5, type=ChatType.SUPERGROUP)
+
+    class GameBot(FakeBot):
+        async def __call__(self, method, request_timeout=None):
+            await super().__call__(method, request_timeout)
+            if isinstance(method, GetMe):
+                return bot_user
+            if isinstance(method, SendMessage):
+                return Message(message_id=201, chat=chat, date=datetime.now(UTC))
             return None
 
-    await UserRepo(session).upsert_from_telegram(host_user)
-    await UserRepo(session).upsert_from_telegram(guest_user)
-    await group_session.drop(CHAT_ID)
-    await group_session.save(
-        CHAT_ID,
-        {
-            "game": "xo",
-            "status": "lobby",
-            "host": ALICE,
-            "players": [{"id": ALICE, "name": host_user.full_name}],
-        },
-    )
-    msg = fake_message()
+    bot = GameBot()
+    host = User(id=8121, is_bot=False, first_name="میزبان")
+    guest = User(id=8122, is_bot=False, first_name="مهمان")
+    monkeypatch.setattr(group_router, "_enabled", AsyncMock(return_value=True))
+    monkeypatch.setattr(group_router, "_registry", AsyncMock(return_value=EmojiRegistry()))
+    await group_session.drop(chat.id)
+    try:
+        for update_id, text in enumerate(("/game_rps@other_bot", "/game_rps@MewviaTestBot"), 1):
+            msg = Message(
+                message_id=update_id, chat=chat, date=datetime.now(UTC), from_user=host, text=text
+            )
+            await app_dispatcher.feed_update(bot, Update(update_id=update_id, message=msg))
+        sent = [call for call in bot.calls if isinstance(call, SendMessage)]
+        assert len(sent) == 1 and "قیچی" in sent[0].text
+        join = next(
+            button.callback_data
+            for row in sent[0].reply_markup.inline_keyboard
+            for button in row
+            if button.callback_data and GroupGameCB.unpack(button.callback_data).action == "join"
+        )
+        query = CallbackQuery(
+            id="join",
+            from_user=guest,
+            chat_instance="test",
+            data=join,
+            message=Message(message_id=201, chat=chat, date=datetime.now(UTC)),
+        )
+        await app_dispatcher.feed_update(bot, Update(update_id=3, callback_query=query))
+        assert len((await group_session.load(chat.id))["players"]) == 2
+    finally:
+        await group_session.drop(chat.id)
+        await bot.session.close()
 
-    # Player 2 joins — their name must appear in the preview.
-    await cb_join(FakeQuery(guest_user, msg), session)  # type: ignore[arg-type]
-    state = await group_session.load(CHAT_ID)
-    assert state is not None and len(state["players"]) == 2
-    assert state["players"][1]["name"] == guest_user.full_name
 
-    # Only the host can start.
-    await cb_start(FakeQuery(guest_user, msg), session)  # type: ignore[arg-type]
-    state = await group_session.load(CHAT_ID)
-    assert state is not None and state["status"] == "lobby"
+def test_rating_rules_and_callback_size() -> None:
+    assert rating_delta("loss", 105, 0) == -5
+    assert rating_delta("loss", 100, 0) == 0
+    assert rating_delta("win", 1000, 8) == 35
+    assert rating_delta("draw", 1000, 2) == 0
+    cb = GroupGameCB(action="gol_guess", game="gol", side="empty", match_id="f" * 32, revision=16)
+    assert len(cb.pack().encode()) <= 64 and GroupGameCB.unpack(cb.pack()) == cb
 
-    await cb_start(FakeQuery(host_user, msg), session)  # type: ignore[arg-type]
-    state = await group_session.load(CHAT_ID)
-    assert state is not None and state["status"] == "playing"
 
-    # Host plays first, then guest — the turn guard must alternate.
-    await cb_move(
-        FakeQuery(guest_user, msg),  # type: ignore[arg-type]
-        GroupGameCB(action="move", game="xo", cell=0),
-        session,
-    )
-    state = await group_session.load(CHAT_ID)
-    assert state is not None and state["board"][0] == "_"
-
-    await cb_move(
-        FakeQuery(host_user, msg),  # type: ignore[arg-type]
-        GroupGameCB(action="move", game="xo", cell=0),
-        session,
-    )
-    state = await group_session.load(CHAT_ID)
-    assert state is not None and state["board"][0] == "X"
-
-    # Ratings are written in both the global and per-group tables.
-    global_stat = await GameRepo(session).get_or_create(ALICE)
-    group_stat = await GroupGameRepo(session).get_or_create(CHAT_ID, "xo", ALICE)
-    assert global_stat.score >= 1000 and group_stat.score >= 1000
-    await UserRepo(session).upsert_from_telegram(host_user)
-    await UserRepo(session).upsert_from_telegram(guest_user)
-    await group_session.drop(CHAT_ID)
+def test_rps_wins_and_ties() -> None:
+    for choice in RPS_LABELS:
+        assert rps_winner(choice, choice) is None
+    for winner, loser in [("rock", "scissors"), ("paper", "rock"), ("scissors", "paper")]:
+        assert rps_winner(winner, loser) == 0
+        assert rps_winner(loser, winner) == 1
 
 
 def test_group_command_menu_includes_games() -> None:
     from app.__main__ import GROUP_BOT_COMMANDS
 
     names = {cmd.command for cmd in GROUP_BOT_COMMANDS}
-    assert "game" in names
-    assert "game_lb" in names
-
-
-@pytest.mark.asyncio
-async def test_group_game_panel_blocks_other_owners_except_join_and_move() -> None:
-    """A lobby opened by one user is locked to them; join stays public."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from aiogram.enums import ChatType
-    from aiogram.types import CallbackQuery, Chat, Message, User as TgUser
-
-    from app.callbacks import GroupGameCB
-    from app.middlewares.group_guard import GroupPanelGuardMiddleware, store_panel
-
-    chat = Chat(id=CHAT_ID, type=ChatType.SUPERGROUP)
-    opened_by = TgUser(id=ALICE, is_bot=False, first_name="علی")
-    other = TgUser(id=BOB, is_bot=False, first_name="مریم")
-
-    msg = MagicMock(spec=Message)
-    msg.chat = chat
-    msg.message_id = 42
-
-    await store_panel(CHAT_ID, 42, ALICE, "علی", kind="group_game")
-    guard = GroupPanelGuardMiddleware()
-
-    async def handler(event: object, data: object) -> str:
-        return "passed"
-
-    def make_query(user: TgUser, action: str) -> CallbackQuery:
-        q = MagicMock(spec=CallbackQuery)
-        q.from_user = user
-        q.message = msg
-        q.data = GroupGameCB(action=action, game="xo").pack()
-        q.answer = AsyncMock()
-        return q
-
-    for action in ("start", "cancel", "lb", "lobby", "gol_next"):
-        result = await guard(handler, make_query(other, action), {})  # type: ignore[arg-type]
-        assert result is None, f"{action} must be blocked for non-owner"
-
-    for action in ("join", "move", "gol_guess"):
-        result = await guard(handler, make_query(other, action), {})  # type: ignore[arg-type]
-        assert result == "passed", f"{action} must stay reachable"
-
-    result = await guard(handler, make_query(opened_by, "start"), {})  # type: ignore[arg-type]
-    assert result == "passed"
+    assert {"game", "game_xo", "game_gol", "game_rps", "game_lb"} <= names
 
 
 def test_games_category_contains_only_game_slots() -> None:
-    from app.features.uidemo import CATEGORIES, _category_slots
     from app.db.seed import EMOJI_SLOTS
+    from app.features.uidemo import CATEGORIES, _category_slots
 
-    games = next(c for c in CATEGORIES if c[0] == "games")
-    ui = next(c for c in CATEGORIES if c[0] == "ui")
+    games = next(category for category in CATEGORIES if category[0] == "games")
+    ui = next(category for category in CATEGORIES if category[0] == "ui")
     assert games[2:] == (400, 479)
     assert ui[2] == 480
-
-    class Slot:
-        def __init__(self, name: str, order: int) -> None:
-            self.slot = name
-            self.sort_order = order
-
-    rows = [Slot(s.slot, s.sort_order) for s in EMOJI_SLOTS]
-    names = [s.slot for s in _category_slots(rows, "games")]
-    assert "xo_x" in names and "xo_o" in names and "trophy" in names
-    assert "handshake" in names and "bot_robot" in names
-    # Generic UI icons must not pollute the games category.
-    assert "calendar" not in names and "reddit" not in names and "settings" not in names
-
-
-# ---------------------------------------------------------------------------
-# Gol ya Pooch — host hides, guest guesses, three hands, roles swap
-# ---------------------------------------------------------------------------
-
-
-def _make_query_ctx(
-    chat_id: int, user_ids: tuple[int, int]
-) -> tuple[object, object, object]:
-    from unittest.mock import AsyncMock, MagicMock
-
-    from aiogram.enums import ChatType
-    from aiogram.types import Chat, Message, User as TgUser
-
-    chat = Chat(id=chat_id, type=ChatType.SUPERGROUP)
-    msg = MagicMock(spec=Message)
-    msg.chat = chat
-    msg.message_id = 811
-    msg.edit_text = AsyncMock()
-
-    u1 = TgUser(id=user_ids[0], is_bot=False, first_name="علی")
-    u2 = TgUser(id=user_ids[1], is_bot=False, first_name="مریم")
-
-    class Q:
-        def __init__(self, user: TgUser, cb: GroupGameCB) -> None:
-            self.from_user = user
-            self.message = msg
-            self.data = cb.pack()
-            self.answers: list[tuple] = []
-
-        async def answer(self, *a: object, **kw: object) -> None:
-            self.answers.append((a, kw))
-            return None
-
-    return chat, Q, (u1, u2), msg
-
-
-def test_gol_payoff_matrix_is_zero_sum() -> None:
-    from app.features.games.group_router import (
-        GOL_EMPTY,
-        GOL_HANDS,
-        GOL_POOF,
-        _gol_resolve,
-    )
-
-    hides = [*GOL_HANDS, GOL_EMPTY]
-    guesses = [*GOL_HANDS, GOL_POOF]
-    # Every hide has exactly one matching guess worth 2 points to the guesser,
-    # and every wrong guess worth 1 point to the hider. No dominant strategy.
-    for hidden in hides:
-        outcomes = [_gol_resolve(hidden, guess)[0] for guess in guesses]
-        good = [o for o in outcomes if o in ("hit", "poof_ok")]
-        assert len(good) == 1, (hidden, outcomes)
-        assert "bluff" in outcomes or "miss" in outcomes
-
-    # Reading the hider perfectly always pays; guessing blindly never does.
-    assert _gol_resolve("left", "left") == ("hit", "guesser")
-    assert _gol_resolve(GOL_EMPTY, GOL_POOF) == ("poof_ok", "guesser")
-    assert _gol_resolve("left", "right") == ("miss", "hitter")
-    assert _gol_resolve(GOL_EMPTY, "left") == ("bluff", "hitter")
-    assert _gol_resolve("right", GOL_POOF) == ("miss", "hitter")
-
-
-@pytest.mark.asyncio
-async def test_gol_three_hands_roles_swap_and_ratings(
-    session: AsyncSession, app_dispatcher: object
-) -> None:
-    """Full match: hide → guess → reveal ×3, roles swap, ratings written."""
-    from aiogram.types import User as TgUser
-
-    from app.db.repo.group_game import GroupGameRepo
-    from app.db.repo.user import UserRepo
-    from app.features.games import group_session
-    from app.features.games.group_router import (
-        GOL_EMPTY,
-        GOL_POOF,
-        _gol_roles,
-        cb_gol_guess,
-        cb_gol_hide,
-        cb_gol_next,
-        cb_start,
-    )
-
-    cid = CHAT_ID - 77
-    _chat, Q, (p1, p2), msg = _make_query_ctx(cid, (ALICE + 77, BOB + 77))
-    for u in (p1, p2):
-        await UserRepo(session).upsert_from_telegram(u)
-
-    await group_session.drop(cid)
-    await group_session.save(
-        cid,
-        {
-            "game": "gol",
-            "status": "lobby",
-            "host": p1.id,
-            "players": [
-                {"id": p1.id, "name": p1.full_name},
-                {"id": p2.id, "name": p2.full_name},
-            ],
-        },
-    )
-
-    await cb_start(Q(p1, GroupGameCB(action="start", game="gol")), session)  # type: ignore[arg-type]
-    state = await group_session.load(cid)
-    assert state is not None
-    assert state["status"] == "playing" and state["round"] == 1
-    hitter, guesser = _gol_roles(state)
-    # Hand 1 is the host's hide.
-    assert hitter["id"] == p1.id and guesser["id"] == p2.id
-
-    # --- hand 1: host hides in the left fist, guest nails it (+2) -------------
-    await cb_gol_hide(
-        Q(p1, GroupGameCB(action="gol_hide", game="gol", side="left")),  # type: ignore[arg-type]
-        GroupGameCB(action="gol_hide", game="gol", side="left"),
-        session,
-    )
-    state = await group_session.load(cid)
-    assert state is not None and state["gol_phase"] == "guess"
-    assert state["gol_hide"] == "left"
-
-    await cb_gol_guess(
-        Q(p2, GroupGameCB(action="gol_guess", game="gol", side="left")),  # type: ignore[arg-type]
-        GroupGameCB(action="gol_guess", game="gol", side="left"),
-        session,
-    )
-    state = await group_session.load(cid)
-    assert state is not None and state["gol_phase"] == "reveal"
-    assert state["gol_result"] == "hit"
-    assert state["points"][str(p2.id)] == 2
-    assert state["points"][str(p1.id)] == 0
-
-    # --- hand 2: roles swap — guest hides empty (bluff), host guesses a hand --
-    await cb_gol_next(Q(p1, GroupGameCB(action="gol_next", game="gol")), session)  # type: ignore[arg-type]
-    state = await group_session.load(cid)
-    assert state is not None and state["round"] == 2
-    hitter, guesser = _gol_roles(state)
-    assert hitter["id"] == p2.id and guesser["id"] == p1.id
-
-    await cb_gol_hide(
-        Q(p2, GroupGameCB(action="gol_hide", game="gol", side=GOL_EMPTY)),  # type: ignore[arg-type]
-        GroupGameCB(action="gol_hide", game="gol", side=GOL_EMPTY),
-        session,
-    )
-    await cb_gol_guess(
-        Q(p1, GroupGameCB(action="gol_guess", game="gol", side="right")),  # type: ignore[arg-type]
-        GroupGameCB(action="gol_guess", game="gol", side="right"),
-        session,
-    )
-    state = await group_session.load(cid)
-    assert state is not None
-    assert state["gol_result"] == "bluff"
-    assert state["points"][str(p2.id)] == 3  # 2 + 1 for the successful bluff
-
-    # --- hand 3: host hides, guest poofs correctly (+2) ----------------------
-    await cb_gol_next(Q(p1, GroupGameCB(action="gol_next", game="gol")), session)  # type: ignore[arg-type]
-    state = await group_session.load(cid)
-    assert state is not None and state["round"] == 3
-    hitter, guesser = _gol_roles(state)
-    assert hitter["id"] == p1.id and guesser["id"] == p2.id
-
-    await cb_gol_hide(
-        Q(p1, GroupGameCB(action="gol_hide", game="gol", side=GOL_EMPTY)),  # type: ignore[arg-type]
-        GroupGameCB(action="gol_hide", game="gol", side=GOL_EMPTY),
-        session,
-    )
-    await cb_gol_guess(
-        Q(p2, GroupGameCB(action="gol_guess", game="gol", side=GOL_POOF)),  # type: ignore[arg-type]
-        GroupGameCB(action="gol_guess", game="gol", side=GOL_POOF),
-        session,
-    )
-    state = await group_session.load(cid)
-    assert state is not None
-    assert state["gol_result"] == "poof_ok"
-    assert state["points"][str(p2.id)] == 5
-    # The host never scored: hit, bluff and poof all went the guest's way.
-    assert state["points"][str(p1.id)] == 0
-
-    # --- settle the match ----------------------------------------------------
-    await cb_gol_next(Q(p1, GroupGameCB(action="gol_next", game="gol")), session)  # type: ignore[arg-type]
-    state = await group_session.load(cid)
-    assert state is not None and state["status"] == "ended"
-
-    final = panel_text(msg)
-    assert "پایان گل یا پوچ" in final
-    assert "مریم" in final
-
-    stat2 = await GroupGameRepo(session).get_or_create(cid, "gol", p2.id)
-    stat1 = await GroupGameRepo(session).get_or_create(cid, "gol", p1.id)
-    assert stat2.wins == 1 and stat1.losses == 1
-    await group_session.drop(cid)
-
-
-def panel_text(msg: object) -> str:
-    """Last text pushed through the shared mocked message."""
-    edit = msg.edit_text  # type: ignore[attr-defined]
-    if not edit.await_args_list:
-        return ""
-    return str(edit.await_args_list[-1].args[0])
-
-
-@pytest.mark.asyncio
-async def test_gol_rejects_wrong_actor(
-    session: AsyncSession, app_dispatcher: object
-) -> None:
-    """The hider cannot guess and the guesser cannot hide."""
-    from app.db.repo.user import UserRepo
-    from app.features.games import group_session
-    from app.features.games.group_router import cb_gol_guess, cb_gol_hide, cb_start
-
-    cid = CHAT_ID - 88
-    _chat, Q, (p1, p2), _msg = _make_query_ctx(cid, (ALICE + 88, BOB + 88))
-    for u in (p1, p2):
-        await UserRepo(session).upsert_from_telegram(u)
-
-    await group_session.drop(cid)
-    await group_session.save(
-        cid,
-        {
-            "game": "gol",
-            "status": "lobby",
-            "host": p1.id,
-            "players": [
-                {"id": p1.id, "name": p1.full_name},
-                {"id": p2.id, "name": p2.full_name},
-            ],
-        },
-    )
-    await cb_start(Q(p1, GroupGameCB(action="start", game="gol")), session)  # type: ignore[arg-type]
-
-    # Guest tries to hide → blocked, state untouched.
-    q_bad_hide = Q(p2, GroupGameCB(action="gol_hide", game="gol", side="left"))
-    await cb_gol_hide(q_bad_hide, GroupGameCB(action="gol_hide", game="gol", side="left"), session)  # type: ignore[arg-type]
-    state = await group_session.load(cid)
-    assert state is not None and state["gol_phase"] == "hide"
-    assert state["gol_hide"] == ""
-    assert q_bad_hide.answers and q_bad_hide.answers[0][1].get("show_alert") is True
-
-    # Host hides properly, then host tries to guess → blocked.
-    await cb_gol_hide(
-        Q(p1, GroupGameCB(action="gol_hide", game="gol", side="right")),  # type: ignore[arg-type]
-        GroupGameCB(action="gol_hide", game="gol", side="right"),
-        session,
-    )
-    q_bad_guess = Q(p1, GroupGameCB(action="gol_guess", game="gol", side="right"))
-    await cb_gol_guess(q_bad_guess, GroupGameCB(action="gol_guess", game="gol", side="right"), session)  # type: ignore[arg-type]
-    state = await group_session.load(cid)
-    assert state is not None and state["gol_phase"] == "guess"
-    assert state["gol_result"] == ""
-    assert q_bad_guess.answers and q_bad_guess.answers[0][1].get("show_alert") is True
-    await group_session.drop(cid)
-
-
-@pytest.mark.asyncio
-async def test_gol_hide_pick_stays_secret(
-    session: AsyncSession, app_dispatcher: object
-) -> None:
-    """Tapping a fist must never leak the position in the toast or the panel."""
-    from app.db.repo.user import UserRepo
-    from app.features.games import group_session
-    from app.features.games.group_router import cb_gol_hide, cb_start
-
-    cid = CHAT_ID - 99
-    _chat, Q, (p1, p2), msg = _make_query_ctx(cid, (ALICE + 99, BOB + 99))
-    for u in (p1, p2):
-        await UserRepo(session).upsert_from_telegram(u)
-    await group_session.drop(cid)
-    await group_session.save(
-        cid,
-        {
-            "game": "gol",
-            "status": "lobby",
-            "host": p1.id,
-            "players": [
-                {"id": p1.id, "name": p1.full_name},
-                {"id": p2.id, "name": p2.full_name},
-            ],
-        },
-    )
-    await cb_start(Q(p1, GroupGameCB(action="start", game="gol")), session)  # type: ignore[arg-type]
-
-    q_hide = Q(p1, GroupGameCB(action="gol_hide", game="gol", side="left"))
-    await cb_gol_hide(q_hide, GroupGameCB(action="gol_hide", game="gol", side="left"), session)  # type: ignore[arg-type]
-
-    toast = " ".join(str(a) for call in q_hide.answers for a in call[0])
-    toast += str(q_hide.answers[0][1]) if q_hide.answers else ""
-    for leak in ("دست چپ", "left", "دست راست", "right"):
-        assert leak not in toast
-
-    panel = panel_text(msg)
-    # The guess-phase panel must not disclose where the ball is.
-    assert "توی دست چپه" not in panel and "توی دست راسته" not in panel
-    assert "گل توی" not in panel
-    await group_session.drop(cid)
+    names = {slot.slot for slot in _category_slots(EMOJI_SLOTS, "games")}
+    assert {"xo_x", "xo_o", "trophy", "handshake", "bot_robot"} <= names
+    assert not {"calendar", "reddit", "settings"} & names

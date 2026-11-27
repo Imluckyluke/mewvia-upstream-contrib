@@ -46,9 +46,11 @@ GROUP_BOT_COMMANDS = [
     BotCommand(command="media", description="دستیار مدیا (ریپلای روی فایل)"),
     BotCommand(command="music", description="جستجوی مستقیم موزیک (اسپاتیفای و ساندکلاد)"),
     BotCommand(command="shazam", description="تشخیص آهنگ (ریپلای روی ویس یا ویدیو)"),
-    BotCommand(command="game", description="شروع بازی گروهی (دوز، دو نفره)"),
-    BotCommand(command="game_gol", description="گل یا پوچ — سه نوبت، دو نفره"),
-    BotCommand(command="game_lb", description="جدول بازی در این گروه"),
+    BotCommand(command="game", description="منوی بازی‌های گروهی"),
+    BotCommand(command="game_xo", description="دوز — بازی دونفره"),
+    BotCommand(command="game_gol", description="گل یا پوچ — چهار دست، دونفره"),
+    BotCommand(command="game_rps", description="سنگ، کاغذ، قیچی — بازی دونفره"),
+    BotCommand(command="game_lb", description="رتبه‌بندی همهٔ بازی‌های این گروه"),
 ]
 
 
