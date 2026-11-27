@@ -16,6 +16,7 @@ from app.callbacks import GroupGameCB
 from app.core.settings_store import get_settings_store
 from app.db.repo.user import UserRepo
 from app.features.games import group_session
+from app.features.games.connect_four import EMPTY_BOARD, drop_piece, winning_cells
 from app.features.games.group_leaderboard import render_leaderboard
 from app.features.games.group_panels import render_match, render_menu
 from app.features.games.group_rules import (
@@ -23,6 +24,7 @@ from app.features.games.group_rules import (
     GOL_LABELS,
     GOL_ROUNDS,
     RPS_LABELS,
+    has_moves,
     rps_winner,
 )
 from app.features.games.group_scoring import settle_match
@@ -41,6 +43,8 @@ _DIRECT = {
     "گل_یا_پوچ": "gol",
     "game_rps": "rps",
     "سنگ_کاغذ_قیچی": "rps",
+    "game_four": "four",
+    "چهار_در_خط": "four",
 }
 _MENUS = {"game", "games", "بازی", "بازی_گروهی"}
 _LEADERBOARDS = {"game_lb", "lb", "لیدربرد"}
@@ -99,6 +103,20 @@ def _menu(
         if state.get("url"):
             actions.insert(0, inline_button("رفتن به بازی", url=state["url"], registry=registry))
         markup.inline_keyboard.insert(0, actions)
+    elif state and state.get("match_id") and state.get("status") == "ended":
+        markup.inline_keyboard.insert(
+            0,
+            [
+                inline_button(
+                    "آخرین نتیجه",
+                    callback_data=GroupGameCB(
+                        action="result", game=state["game"], side=state["match_id"]
+                    ).pack(),
+                    registry=registry,
+                    emoji_slot="trophy",
+                )
+            ],
+        )
     return text, markup
 
 
@@ -200,8 +218,14 @@ async def _play(
         return "", True
     index = ids.index(actor.id)
     if action == "cancel" and (status == "playing" or (status == "lobby" and index == 0)):
+        if has_moves(state):
+            return "پس از اولین حرکت، فقط با انصراف می‌توانید بازی را تمام کنید.", False
         state["status"] = "cancelled"
         return "بازی بدون ثبت امتیاز لغو شد.", True
+    if action == "resign" and status == "playing" and has_moves(state):
+        state["resigned"] = index
+        await _finish(session, chat_id, state, 1 - index)
+        return "انصراف ثبت شد.", True
     if status == "lobby":
         if action == "leave" and index == 1:
             players.pop()
@@ -210,6 +234,8 @@ async def _play(
             state["status"] = "playing"
             if game == "xo":
                 state.update(board="_" * 9, turn=0)
+            elif game == "four":
+                state.update(board=EMPTY_BOARD, turn=0)
             elif game == "gol":
                 state.update(round=1, points=[0, 0], phase="hide")
             else:
@@ -219,6 +245,21 @@ async def _play(
 
     if status != "playing":
         return _EXPIRED, False
+    if game == "four" and action == "drop":
+        if index != state["turn"]:
+            return "نوبت شما نیست.", False
+        move = drop_piece(state["board"], cb.cell, index)
+        if move is None:
+            return "این ستون قابل انتخاب نیست.", False
+        board, position = move
+        state.update(board=board, last_drop=position)
+        completed = winning_cells(board, position)
+        if completed or "_" not in board:
+            state["winning_cells"] = completed
+            await _finish(session, chat_id, state, index if completed else None)
+        else:
+            state["turn"] = 1 - index
+        return "", True
     if game == "xo" and action == "move":
         if index != state["turn"]:
             return "نوبت شما نیست.", False
@@ -262,9 +303,7 @@ async def _play(
             return "انتخاب شما قبلاً ثبت شده است.", False
         picks[str(actor.id)] = cb.side
         if len(picks) == 1:
-            # Both players must be able to use the same keyboard revision.
-            await group_session.save(chat_id, state)
-            return "انتخابت ثبت شد؛ منتظر حریف باش.", False
+            return "انتخابت ثبت شد؛ منتظر حریف باش.", True
         await _finish(session, chat_id, state, rps_winner(picks[str(ids[0])], picks[str(ids[1])]))
         return "", True
     return _EXPIRED, False
@@ -298,6 +337,14 @@ async def cb_group_game(
             if cb.action == "menu":
                 await query.answer()
                 await _edit(message, *_menu(registry, state))
+            elif (
+                cb.action == "result"
+                and state
+                and state.get("status") == "ended"
+                and cb.side == state.get("match_id")
+            ):
+                await query.answer()
+                await _edit(message, *render_match(state, registry, allow_rematch=False))
             elif cb.action == "resume" and state and _active(state):
                 if query.from_user.id not in {p["id"] for p in state["players"]}:
                     await query.answer(
@@ -338,7 +385,9 @@ async def cb_group_game(
 
         toast, redraw = await _play(session, message, query.from_user, cb, state)
         if redraw:
-            state["revision"] += 1
+            # The second RPS player can still use a choice button already on screen.
+            if not (cb.action == "rps_pick" and state["status"] == "playing"):
+                state["revision"] += 1
             await group_session.save(chat_id, state)
         await query.answer(toast or None)
         if redraw and state["status"] == "cancelled":

@@ -9,23 +9,29 @@ from aiogram.types import InlineKeyboardMarkup
 
 from app.callbacks import GroupGameCB
 from app.core.units import fa_digits
+from app.features.games.connect_four import COLS
 from app.features.games.group_rules import (
     GAME_LABELS,
     GAME_RULES,
     GOL_LABELS,
     GOL_ROUNDS,
     RPS_LABELS,
+    has_moves,
     pack_action,
 )
 from app.ui.emoji import EmojiRegistry
 from app.ui.kb import KB
 from app.ui.styles import Style
 
-_ICONS = {"xo": "xo_x", "gol": "gol_ball", "rps": "game"}
+_ICONS = {"xo": "xo_x", "gol": "gol_ball", "rps": "game", "four": "game"}
 
 
 def render_menu(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
-    lines = [f"{registry.text('game')} <b>بازی‌های گروهی</b>", "یه بازی انتخاب کن:", ""]
+    lines = [
+        f"{registry.text('game')} <b>بازی‌های گروهی</b>",
+        "بازی رو انتخاب کن، منتظر نفر دوم بمون و بعد «شروع بازی» رو بزن.",
+        "",
+    ]
     keyboard = KB(registry)
     for game, label in GAME_LABELS.items():
         lines.append(f"• <b>{label}</b> — {GAME_RULES[game]}")
@@ -39,7 +45,7 @@ def render_menu(registry: EmojiRegistry) -> tuple[str, InlineKeyboardMarkup]:
         "رتبه‌بندی گروه",
         callback_data=GroupGameCB(action="lb", game="all", cell=0).pack(),
         emoji_slot="trophy",
-    ).adjust(1)
+    ).adjust(2, 2, 1)
     return "\n".join(lines), keyboard.as_markup()
 
 
@@ -129,6 +135,8 @@ def _gol(
             )
         return
 
+    if finished:
+        return
     if phase == "hide":
         lines.append(f"🔒 <b>{names[hider]}</b>، گل رو مخفی کن یا بلوف بزن.")
     else:
@@ -148,6 +156,8 @@ def _rps(
     lines: list[str], keyboard: KB, state: dict[str, Any], names: list[str], finished: bool
 ) -> None:
     if finished:
+        if "resigned" in state:
+            return
         for name, player in zip(names, state["players"], strict=True):
             lines.append(f"<b>{name}</b> — {RPS_LABELS[state['picks'][str(player['id'])]]}")
     else:
@@ -156,6 +166,7 @@ def _rps(
                 f"<b>{names[0]}</b> در برابر <b>{names[1]}</b>",
                 "",
                 "هر نفر یه گزینه بزنه؛ تا هر دو انتخاب نکنن، هیچ انتخابی نمایش داده نمی‌شه.",
+                f"انتخاب‌های ثبت‌شده: <b>{fa_digits(str(len(state['picks'])))}</b> از ۲",
             ]
         )
         for pick, label in RPS_LABELS.items():
@@ -164,8 +175,42 @@ def _rps(
             )
 
 
+def _four(
+    lines: list[str], keyboard: KB, state: dict[str, Any], names: list[str], finished: bool
+) -> None:
+    lines.append(f"🔴 <b>{names[0]}</b> در برابر 🔵 <b>{names[1]}</b>")
+    if not finished:
+        turn = state["turn"]
+        lines.append(f"نوبت {('🔴', '🔵')[turn]} <b>{names[turn]}</b>؛ یک ستون انتخاب کن.")
+        if "last_drop" in state:
+            column = fa_digits(str(state["last_drop"] % COLS + 1))
+            lines.append(f"آخرین حرکت: ستون {column}")
+    board = state["board"]
+    winners = set(state.get("winning_cells", ()))
+    marks = {"X": "🔴", "O": "🔵", "_": "⚪"}
+    # Force left-to-right column order even in a Persian Telegram client.
+    lines.extend(["", "\u200e1️⃣2️⃣3️⃣4️⃣5️⃣6️⃣7️⃣"])
+    for start in range(0, len(board), COLS):
+        lines.append(
+            "\u200e"
+            + "".join(
+                "🟡" if pos in winners else marks[board[pos]] for pos in range(start, start + COLS)
+            )
+        )
+    if winners:
+        lines.append("🟡 مهره‌های خط برنده")
+    if not finished:
+        for col in range(COLS):
+            full = board[col] != "_"
+            keyboard.button(
+                "×" if full else fa_digits(str(col + 1)),
+                callback_data="noop" if full else pack_action(state, "drop", cell=col),
+                style=Style.NEUTRAL if full else Style.PRIMARY,
+            )
+
+
 def render_match(
-    state: dict[str, Any], registry: EmojiRegistry
+    state: dict[str, Any], registry: EmojiRegistry, *, allow_rematch: bool = True
 ) -> tuple[str, InlineKeyboardMarkup]:
     game = state["game"]
     names = [escape(str(p["name"] or "بازیکن")) for p in state["players"]]
@@ -180,14 +225,19 @@ def render_match(
     if game == "xo":
         _xo(lines, keyboard, state, names, finished)
         rows = (3, 3, 3)
+    elif game == "four":
+        _four(lines, keyboard, state, names, finished)
+        rows = (COLS,) if not finished else ()
     elif game == "gol":
         _gol(lines, keyboard, state, names, finished)
-        rows = (2, 1) if state["phase"] != "reveal" else (1,) if not finished else ()
+        rows = () if finished else (1,) if state["phase"] == "reveal" else (2, 1)
     else:
         _rps(lines, keyboard, state, names, finished)
         rows = (3,) if not finished else ()
     if finished:
         winner = state["winner"]
+        if "resigned" in state:
+            lines.extend(["", f"🚩 <b>{names[state['resigned']]}</b> انصراف داد."])
         lines.extend(
             [
                 "",
@@ -197,16 +247,27 @@ def render_match(
         for name, delta, total in zip(names, state["deltas"], state["ratings"], strict=True):
             change = fa_digits(f"{delta:+d}" if delta else "0")
             lines.append(f"• {name}: <b>{fa_digits(str(total))}</b> امتیاز گروهی ({change})")
+        if allow_rematch:
+            keyboard.button(
+                "دوباره بازی کنیم",
+                callback_data=pack_action(state, "rematch"),
+                style=Style.CONFIRM,
+                emoji_slot="repeat",
+            )
+        else:
+            keyboard.button(
+                "فهرست بازی‌ها", callback_data=GroupGameCB(action="menu", game="all").pack()
+            )
         keyboard.button(
-            "دوباره بازی کنیم",
-            callback_data=pack_action(state, "rematch"),
-            style=Style.CONFIRM,
-            emoji_slot="repeat",
-        ).button("جدول گروه", callback_data=pack_action(state, "lb", cell=0), emoji_slot="trophy")
+            "جدول گروه", callback_data=pack_action(state, "lb", cell=0), emoji_slot="trophy"
+        )
         keyboard.adjust(*rows, 2)
     else:
+        started = has_moves(state)
         keyboard.button(
-            "لغو بازی", callback_data=pack_action(state, "cancel"), style=Style.DESTRUCTIVE
+            "انصراف (ثبت باخت)" if started else "لغو بازی",
+            callback_data=pack_action(state, "resign" if started else "cancel"),
+            style=Style.DESTRUCTIVE,
         )
         keyboard.adjust(*rows, 1)
     return "\n".join(lines), keyboard.as_markup()

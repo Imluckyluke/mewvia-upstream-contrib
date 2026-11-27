@@ -6,12 +6,14 @@ from typing import Any
 
 from app.callbacks import GroupGameCB
 
-GAME_LABELS = {"xo": "دوز", "gol": "گل یا پوچ", "rps": "سنگ، کاغذ، قیچی"}
+GAME_LABELS = {"xo": "دوز", "gol": "گل یا پوچ", "rps": "سنگ، کاغذ، قیچی", "four": "چهار در خط"}
 GAME_RULES = {
     "xo": "نوبتی بازی کنید؛ سه مهرهٔ هم‌شکل در یک ردیف، ستون یا قطر برنده است.",
     "gol": "۴ دست؛ هر نفر دو بار گل را مخفی می‌کند. حدس درست ۲ امتیاز برای حدس‌زننده،"
     " حدس اشتباه ۱ امتیاز برای مخفی‌کننده.",
     "rps": "هر نفر مخفیانه یک گزینه می‌زند. سنگ قیچی، قیچی کاغذ و کاغذ سنگ را می‌برد.",
+    "four": "نوبتی یک ستون انتخاب کنید تا مهره پایین بیفتد. "
+    "چهار مهرهٔ هم‌رنگ افقی، عمودی یا مورب برنده است.",
 }
 GOL_ROUNDS = 4
 GOL_LABELS = {"left": "دست چپ", "right": "دست راست", "empty": "هر دو دست خالی"}
@@ -32,3 +34,14 @@ def pack_action(state: dict[str, Any], action: str, *, cell: int = -1, side: str
 
 def rps_winner(first: str, second: str) -> int | None:
     return None if first == second else (0 if _BEATS[first] == second else 1)
+
+
+def has_moves(state: dict[str, Any]) -> bool:
+    """A lobby or an untouched board can still be cancelled without a rating."""
+    if state.get("status") != "playing":
+        return False
+    if state["game"] in {"xo", "four"}:
+        return any(cell != "_" for cell in state["board"])
+    if state["game"] == "gol":
+        return state["round"] > 1 or state["phase"] != "hide"
+    return bool(state["picks"])

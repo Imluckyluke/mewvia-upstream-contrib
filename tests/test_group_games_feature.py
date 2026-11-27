@@ -6,20 +6,25 @@ import asyncio
 from datetime import UTC, datetime
 from importlib import import_module
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 from aiogram import Dispatcher
 from aiogram.enums import ChatType
 from aiogram.methods import GetMe, SendMessage
 from aiogram.types import CallbackQuery, Chat, Message, Update, User
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.callbacks import GroupGameCB
+from app.db.models.group_game_result import GroupGameResult
+from app.db.models.group_game_stat import GroupGameStat
 from app.db.repo.game import GameRepo
 from app.db.repo.group_game import GroupGameRepo
 from app.features.games import group_session
+from app.features.games.connect_four import COLS, EMPTY_BOARD, drop_piece, winning_cells
 from app.features.games.group_rules import GOL_ROUNDS, RPS_LABELS, pack_action, rps_winner
-from app.features.games.group_scoring import rating_delta
+from app.features.games.group_scoring import rating_delta, settle_match
 from app.middlewares.group_guard import GroupPanelGuardMiddleware
 from app.ui.emoji import EmojiRegistry
 from tests.test_phase1_middleware import FakeBot
@@ -156,16 +161,71 @@ async def test_rps_secret_commit_and_public_ranking_panel(group) -> None:
     edits = message.edit_text.await_count
     await tap(0, "rps_pick", side="rock")
     await tap(0, "rps_pick", side="paper")
-    assert message.edit_text.await_count == edits
+    assert message.edit_text.await_count == edits + 1
+    panel = message.edit_text.await_args.args[0]
+    assert "انتخاب‌های ثبت‌شده: <b>۱</b> از ۲" in panel and RPS_LABELS["rock"] not in panel
     await tap(1, "rps_pick", cb=p2)
     final = await group_session.load(CHAT_ID)
     assert final["status"] == "ended" and final["winner"] == 0
     result_edits = message.edit_text.await_count
-    assert result_edits == edits + 1
+    assert result_edits == edits + 2
     message.answer = AsyncMock()
     await tap(2, "lb", cb=GroupGameCB.unpack(pack_action(final, "lb", cell=0)))
     message.answer.assert_awaited_once()
     assert message.edit_text.await_count == result_edits
+
+
+async def test_connect_four_rejects_wrong_turn_and_settles_win(
+    group, session: AsyncSession
+) -> None:
+    tap, actors, message = group
+    await active_match(tap, "four")
+    await tap(1, "drop", cell=0)
+    await tap(0, "drop", cell=COLS)
+    assert (await group_session.load(CHAT_ID))["board"] == EMPTY_BOARD
+    for index, column in enumerate([0, 1, 0, 1, 0, 1, 0]):
+        await tap(index % 2, "drop", cell=column)
+    final = await group_session.load(CHAT_ID)
+    assert final["status"] == "ended" and final["winner"] == 0
+    assert final["winning_cells"] == [14, 21, 28, 35]
+    assert final["deltas"] == [25, -10]
+    assert "🟡 مهره‌های خط برنده" in message.edit_text.await_args.args[0]
+    stats = await GroupGameRepo(session).leaderboard(CHAT_ID, "four")
+    assert [row.telegram_id for row in stats] == [actors[0].id, actors[1].id]
+
+
+async def test_connect_four_full_board_settles_a_draw(group, session: AsyncSession) -> None:
+    tap, _actors, message = group
+    await active_match(tap, "four")
+    # Legal alternating moves that fill the board without forming a line of four.
+    columns = "546006611334140130336523651142060552454222"
+    for turn, column in enumerate(columns):
+        await tap(turn % 2, "drop", cell=int(column))
+    final = await group_session.load(CHAT_ID)
+    assert "_" not in final["board"]
+    assert final["status"] == "ended" and final["winner"] is None
+    assert final["deltas"] == [0, 0]
+    assert "مساوی شد" in message.edit_text.await_args.args[0]
+    assert [row.draws for row in await GroupGameRepo(session).leaderboard(CHAT_ID, "four")] == [
+        1,
+        1,
+    ]
+
+
+@pytest.mark.parametrize("cells", [(35, 36, 37, 38), (14, 22, 30, 38), (17, 23, 29, 35)])
+def test_connect_four_wins_in_each_nonvertical_direction(cells: tuple[int, ...]) -> None:
+    board = "".join("X" if index in cells else "_" for index in range(len(EMPTY_BOARD)))
+    assert winning_cells(board, cells[-1]) == list(cells)
+
+
+def test_connect_four_uses_gravity_and_rejects_full_columns() -> None:
+    board = EMPTY_BOARD
+    for i, pos in enumerate((37, 30, 23, 16, 9, 2)):
+        board, landing = drop_piece(board, 2, i % 2)
+        assert landing == pos
+        assert not winning_cells(board, landing)
+    assert drop_piece(board, 2, 0) is None
+    assert drop_piece(board, -1, 0) is None
 
 
 async def test_cancel_is_unrated_and_old_lobby_cannot_start_new_game(group, session) -> None:
@@ -178,6 +238,89 @@ async def test_cancel_is_unrated_and_old_lobby_cannot_start_new_game(group, sess
     await active_match(tap, "xo")
     await tap(0, "move", cb=old)
     assert (await group_session.load(CHAT_ID))["board"] == "_________"
+
+
+@pytest.mark.parametrize(
+    ("game", "move", "kwargs"),
+    [
+        ("xo", "move", {"cell": 0}),
+        ("gol", "gol_hide", {"side": "left"}),
+        ("rps", "rps_pick", {"side": "rock"}),
+        ("four", "drop", {"cell": 0}),
+    ],
+)
+async def test_started_match_requires_rated_resignation(group, session, game, move, kwargs) -> None:
+    tap, actors, message = group
+    await active_match(tap, game)
+    await tap(0, move, **kwargs)
+    await tap(0, "cancel")
+    await tap(2, "resign")
+    assert (await group_session.load(CHAT_ID))["status"] == "playing"
+    pending = await group_session.load(CHAT_ID)
+    resignation = GroupGameCB.unpack(pack_action(pending, "resign"))
+    await tap(0, "resign", cb=resignation)
+    await tap(0, "resign", cb=resignation)
+    final = await group_session.load(CHAT_ID)
+    assert final["status"] == "ended" and final["winner"] == 1
+    assert final["deltas"] == [-10, 25]
+    panel = message.edit_text.await_args.args[0]
+    assert "انصراف داد" in panel and "دست چپ" not in panel and "🪨 سنگ" not in panel
+    loser = await GroupGameRepo(session).get_or_create(CHAT_ID, game, actors[0].id)
+    assert loser.losses == 1
+
+
+async def test_ratings_are_serialized_and_duplicate_receipts_reused(engine: AsyncEngine) -> None:
+    chat_id = -int(uuid4().hex[:15], 16)
+    first_id, second_id = uuid4().hex, uuid4().hex
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def settle(match_id: str, players: list[int], winner: int) -> dict[str, list[int]]:
+        async with sessions.begin() as session:
+            return await settle_match(session, chat_id, "xo", match_id, players, winner)
+
+    try:
+        first, duplicate, second = await asyncio.wait_for(
+            asyncio.gather(
+                settle(first_id, [1, 2], 0),
+                settle(first_id, [1, 2], 0),
+                settle(second_id, [2, 1], 1),
+            ),
+            timeout=10,
+        )
+        assert first == duplicate
+        assert sorted([first["deltas"][0], second["deltas"][1]]) == [25, 27]
+        async with sessions() as session:
+            winner, loser = await GroupGameRepo(session).leaderboard(chat_id, "xo")
+            assert (winner.wins, winner.score, winner.current_streak) == (2, 1052, 2)
+            assert (loser.losses, loser.score) == (2, 980)
+    finally:
+        async with sessions.begin() as session:
+            await session.execute(delete(GroupGameStat).where(GroupGameStat.chat_id == chat_id))
+            await session.execute(
+                delete(GroupGameResult).where(GroupGameResult.match_id.in_([first_id, second_id]))
+            )
+
+
+async def test_latest_result_from_menu_is_read_only(group) -> None:
+    tap, _actors, message = group
+    await active_match(tap, "rps")
+    await tap(0, "rps_pick", side="rock")
+    await tap(1, "rps_pick", side="scissors")
+    menu = await tap(2, "menu", message_id=99)
+    buttons = menu.message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
+    result = GroupGameCB.unpack(buttons[0][0].callback_data)
+    assert result.action == "result"
+    preview = await tap(2, "result", cb=result, message_id=99)
+    assert "برنده شد" in preview.message.edit_text.await_args.args[0]
+    result_buttons = preview.message.edit_text.await_args.kwargs["reply_markup"].inline_keyboard
+    assert {GroupGameCB.unpack(b.callback_data).action for b in result_buttons[-1]} == {
+        "menu",
+        "lb",
+    }
+    assert "برنده شد" in message.edit_text.await_args.args[0]
+    await tap(0, "rematch")
+    stale = await tap(2, "result", cb=result, message_id=99)
+    stale.message.edit_text.assert_not_awaited()
 
 
 async def test_xo_tie_and_player_only_rematch(group, session: AsyncSession) -> None:
@@ -307,7 +450,7 @@ def test_group_command_menu_includes_games() -> None:
     from app.__main__ import GROUP_BOT_COMMANDS
 
     names = {cmd.command for cmd in GROUP_BOT_COMMANDS}
-    assert {"game", "game_xo", "game_gol", "game_rps", "game_lb"} <= names
+    assert {"game", "game_xo", "game_gol", "game_rps", "game_four", "game_lb"} <= names
 
 
 def test_games_category_contains_only_game_slots() -> None:

@@ -48,9 +48,11 @@ async def settle_match(
     deltas, ratings = [0, 0], [0, 0]
     # The umbrella league already reads this table. Writing to the solo XO table
     # would count the same match twice and put Gol/RPS wins on the XO board.
-    for index, pid in enumerate(players):
+    # Competing matches can share players. Lock ratings in the same order
+    # regardless of who hosted, and calculate each delta after acquiring its lock.
+    for index, pid in sorted(enumerate(players), key=lambda pair: pair[1]):
         outcome: Outcome = "draw" if winner is None else "win" if winner == index else "loss"
-        stat = await group_repo.get_or_create(chat_id, game, pid)
+        stat = await group_repo.get_or_create(chat_id, game, pid, lock=True)
         before = stat.score
         stat = await group_repo.record_result(
             chat_id, game, pid, outcome, rating_delta(outcome, before, stat.current_streak)

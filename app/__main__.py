@@ -50,6 +50,7 @@ GROUP_BOT_COMMANDS = [
     BotCommand(command="game_xo", description="دوز — بازی دونفره"),
     BotCommand(command="game_gol", description="گل یا پوچ — چهار دست، دونفره"),
     BotCommand(command="game_rps", description="سنگ، کاغذ، قیچی — بازی دونفره"),
+    BotCommand(command="game_four", description="چهار در خط — بازی دونفره"),
     BotCommand(command="game_lb", description="رتبه‌بندی همهٔ بازی‌های این گروه"),
 ]
 

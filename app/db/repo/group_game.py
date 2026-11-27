@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from sqlalchemy import desc, func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.group_game_stat import GroupGameStat
@@ -35,15 +36,20 @@ class GroupGameRepo:
             GroupGameStat.telegram_id == telegram_id,
         )
 
-    async def get_or_create(self, chat_id: int, game_type: str, telegram_id: int) -> GroupGameStat:
+    async def get_or_create(
+        self, chat_id: int, game_type: str, telegram_id: int, *, lock: bool = False
+    ) -> GroupGameStat:
         stmt = select(GroupGameStat).where(*self._key(chat_id, game_type, telegram_id))
+        if lock:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         stat = (await self.session.execute(stmt)).scalar_one_or_none()
         if stat is None:
-            stat = GroupGameStat(
-                chat_id=chat_id, game_type=game_type, telegram_id=telegram_id, score=1000
+            await self.session.execute(
+                insert(GroupGameStat)
+                .values(chat_id=chat_id, game_type=game_type, telegram_id=telegram_id)
+                .on_conflict_do_nothing()
             )
-            self.session.add(stat)
-            await self.session.flush()
+            stat = (await self.session.execute(stmt)).scalar_one()
         return stat
 
     async def record_result(
@@ -54,7 +60,7 @@ class GroupGameRepo:
         outcome: Literal["win", "loss", "draw"],
         score_delta: int,
     ) -> GroupGameStat:
-        stat = await self.get_or_create(chat_id, game_type, telegram_id)
+        stat = await self.get_or_create(chat_id, game_type, telegram_id, lock=True)
         stat.last_played_at = datetime.now(UTC)
         stat.score = max(100, stat.score + score_delta)
         if outcome == "win":

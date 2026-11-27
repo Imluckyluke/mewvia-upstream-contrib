@@ -147,7 +147,7 @@ async def test_render_combined_leaderboard_explains_metric_and_has_tabs(
 
     assert "همهٔ بازی‌ها" in text
     assert "امتیاز ترکیبی" in text
-    assert "۱۰۰۰" in text and "اختلاف" in text
+    assert "۱۰۰۰" in text and "تغییر امتیاز هر بازی" in text
     assert "برد" in text and "باخت" in text and "مساوی" in text
     assert "علی احمدی" in text
     assert "مریم کریمی" in text
@@ -162,6 +162,7 @@ async def test_render_combined_leaderboard_explains_metric_and_has_tabs(
     assert ("lb", "xo") in tabs
     assert ("lb", "gol") in tabs
     assert ("lb", "rps") in tabs
+    assert ("lb", "four") in tabs
     assert ("menu", "all") in tabs
 
 
@@ -225,7 +226,7 @@ async def test_unknown_game_defaults_to_combined_and_empty_group_is_safe(
 
     parsed = _callbacks(markup)
     assert any(cb.action == "menu" and cb.game == "all" for cb in parsed)
-    assert {cb.game for cb in parsed if cb.action == "lb"} == {"all", "xo", "gol", "rps"}
+    assert {cb.game for cb in parsed if cb.action == "lb"} == {"all", "xo", "gol", "rps", "four"}
 
     xo_text, _ = await render_leaderboard(session, EMPTY_CHAT, "xo", 0, registry)
     assert "هنوز بازی «" in xo_text

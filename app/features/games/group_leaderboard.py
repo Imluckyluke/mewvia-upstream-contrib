@@ -3,7 +3,7 @@
 Every number on this screen comes from ``group_game_stats`` and is filtered by
 ``chat_id``; global ratings are deliberately never read here. The default tab
 combines all of a group's game ladders without multiplying the 1000-point
-baseline, while the XO / Gol / RPS tabs show one ladder at a time.
+baseline, while each game tab shows one ladder at a time.
 """
 
 from __future__ import annotations
@@ -61,8 +61,8 @@ async def render_leaderboard(
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Render one page of a group-only leaderboard.
 
-    ``game`` is ``all`` (combined) or one of ``xo`` / ``gol`` / ``rps``;
-    unknown values fall back to the combined view. ``page`` is zero-based and
+    ``game`` is ``all`` (combined) or a game key from ``GAME_LABELS``.
+    Unknown values fall back to the combined view. ``page`` is zero-based and
     is clamped to the last page so a stale button can never show a blank screen.
     """
     game = game if game in TAB_LABELS else ALL_GAMES
@@ -83,8 +83,7 @@ async def render_leaderboard(
     lines = [f"{registry.text('trophy')} <b>جدول گروهی — {TAB_LABELS[game]}</b>", ""]
     if game == ALL_GAMES:
         lines.append(
-            "<i>امتیاز ترکیبی = ۱۰۰۰ + جمع اختلاف امتیاز هر بازی با ۱۰۰۰؛ "
-            "هر بازی از ۱۰۰۰ شروع می‌شود، پس بازی‌های بیشتر پایه را چند برابر نمی‌کنند.</i>"
+            "<i>امتیاز ترکیبی از ۱۰۰۰ شروع می‌شود و تغییر امتیاز هر بازی به آن اضافه می‌شود.</i>"
         )
         lines.append("")
 
@@ -140,5 +139,6 @@ async def render_leaderboard(
         emoji_slot="back",
     )
     navigation_count = int(page > 0) + int(page < pages - 1)
-    kb.adjust(2, 2, *([navigation_count] if navigation_count else []), 1)
+    tab_rows = [min(2, len(TAB_LABELS) - i) for i in range(0, len(TAB_LABELS), 2)]
+    kb.adjust(*tab_rows, *([navigation_count] if navigation_count else []), 1)
     return "\n".join(lines), kb.as_markup()
