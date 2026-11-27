@@ -42,9 +42,7 @@ def upgrade() -> None:
             name=op.f("pk_group_game_stats"),
         ),
     )
-    op.create_index(
-        op.f("ix_group_game_stats_score"), "group_game_stats", ["score"], unique=False
-    )
+    op.create_index(op.f("ix_group_game_stats_score"), "group_game_stats", ["score"], unique=False)
 
 
 def downgrade() -> None:

@@ -547,9 +547,7 @@ async def get_admin_stats(session: AsyncSession) -> AdminStats:
         tot = int(p_row[1])
         succ = int(p_row[2])
         b_count = int(p_row[3])
-        meta = PLATFORM_META.get(
-            tgt, {"name": TARGET_ID_LABELS.get(tgt, tgt), "icon": em("web")}
-        )
+        meta = PLATFORM_META.get(tgt, {"name": TARGET_ID_LABELS.get(tgt, tgt), "icon": em("web")})
         downloader_platforms.append((tgt, meta["name"], meta["icon"], tot, succ, b_count))
 
     # Instagram cookies status

@@ -275,9 +275,9 @@ async def test_stale_xo_board_mismatch_is_rejected() -> None:
         patch.object(
             games_router,
             "ready_registry",
-            AsyncMock(return_value=__import__(
-                "app.ui.emoji", fromlist=["EmojiRegistry"]
-            ).EmojiRegistry()),
+            AsyncMock(
+                return_value=__import__("app.ui.emoji", fromlist=["EmojiRegistry"]).EmojiRegistry()
+            ),
         ),
         patch.object(games_router, "UserRepo") as user_repo,
         patch.object(games_router, "GameRepo") as game_repo,
